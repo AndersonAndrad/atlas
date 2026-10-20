@@ -1,189 +1,88 @@
-import { useCallback, useEffect, useState } from 'react';
-import { api, errorMessage, unwrap } from './api';
-import { EmptyState } from './components/EmptyState';
-import { Icon } from './components/Icon';
-import { ProjectDetailsPanel } from './components/ProjectDetailsPanel';
-import { ProjectFormDialog } from './components/ProjectFormDialog';
-import { ProjectList } from './components/ProjectList';
-import { RemoveProjectDialog } from './components/RemoveProjectDialog';
-import { Sidebar } from './components/Sidebar';
-import type { Project, ProjectDetails } from './types';
+import type { AppCommand } from '@atlas/contracts/ipc';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { api } from './api';
+import { ProjectsView } from './components/ProjectsView';
+import { Sidebar, type AppView } from './components/Sidebar';
+import { TooltipProvider } from './components/ui/tooltip';
+import { useProjects } from './hooks/useProjects';
+import { TerminalsView } from './terminal/components/TerminalsView';
+import { useTerminalPreferences } from './terminal/hooks/useTerminalPreferences';
+import { runningSessionCount, useTerminalSessions } from './terminal/hooks/useTerminalSessions';
 
-type DialogState =
-  | { kind: 'add' }
-  | { kind: 'edit'; project: Project }
-  | { kind: 'remove'; project: Project }
-  | null;
+type CommandHandler = (command: AppCommand) => void;
 
 export function App() {
-  const [items, setItems] = useState<ProjectDetails[] | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<DialogState>(null);
+  const [view, setView] = useState<AppView>('projects');
+  const projects = useProjects();
+  const terminals = useTerminalSessions();
+  const preferences = useTerminalPreferences();
 
-  const reload = useCallback(async () => {
-    try {
-      const list = await unwrap(api().projects.list());
-      setItems(list);
-      setLoadError(null);
-      return list;
-    } catch (error) {
-      setLoadError(errorMessage(error));
-      return null;
+  // Menu commands go to the terminal workspace while it is shown. A command that
+  // opens a terminal from another view switches to Terminals and is replayed there.
+  const handlers = useRef(new Set<CommandHandler>());
+  const pendingCommand = useRef<AppCommand | null>(null);
+  const viewRef = useRef(view);
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
+
+  const subscribeCommands = useCallback((handler: CommandHandler) => {
+    handlers.current.add(handler);
+    const pending = pendingCommand.current;
+    if (pending !== null) {
+      pendingCommand.current = null;
+      queueMicrotask(() => handler(pending));
     }
+    return () => {
+      handlers.current.delete(handler);
+    };
   }, []);
 
-  // Initial load: restore the previously selected project (FR-008).
-  useEffect(() => {
-    void (async () => {
-      const [list, selected] = await Promise.all([
-        reload(),
-        unwrap(api().projects.getSelected()).catch(() => null),
-      ]);
-      if (list && selected) setSelectedId(selected.project.id);
-    })();
-  }, [reload]);
-
-  // Pick up changes made from the CLI while the window was in the background.
-  useEffect(() => {
-    const onFocus = () => void reload();
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
-  }, [reload]);
-
-  const select = useCallback(
-    async (id: string) => {
-      setSelectedId(id);
-      try {
-        await unwrap(api().projects.select(id));
-        await reload();
-      } catch (error) {
-        setNotice(errorMessage(error));
-      }
-    },
-    [reload],
+  useEffect(
+    () =>
+      api().app.onCommand((command) => {
+        if (command === 'view.projects' || command === 'view.terminals') {
+          setView(command === 'view.projects' ? 'projects' : 'terminals');
+          return;
+        }
+        if (viewRef.current === 'terminals') {
+          for (const handler of handlers.current) handler(command);
+        } else if (command === 'terminal.new') {
+          pendingCommand.current = command;
+          setView('terminals');
+        }
+      }),
+    [],
   );
 
-  const selected = items?.find((item) => item.project.id === selectedId) ?? null;
-  const closeDialog = () => setDialog(null);
+  const openTerminal = (projectId: string) => {
+    if (runningSessionCount(terminals.sessions, projectId) === 0) {
+      pendingCommand.current = 'terminal.new';
+    }
+    void projects.select(projectId);
+    setView('terminals');
+  };
 
   return (
-    <div className="app">
-      <Sidebar />
-      <main className="workspace">
-        <header className="toolbar">
-          <h1 className="toolbar__title">Projects</h1>
-          <div className="toolbar__actions">
-            <button
-              type="button"
-              className="icon-button"
-              onClick={() => void reload()}
-              aria-label="Refresh projects"
-              title="Refresh"
-            >
-              <Icon name="refresh" />
-            </button>
-            {items && items.length > 0 && (
-              <button
-                type="button"
-                className="button button--primary"
-                onClick={() => setDialog({ kind: 'add' })}
-              >
-                <Icon name="plus" />
-                Add project
-              </button>
-            )}
-          </div>
-        </header>
-
-        <p className="sr-only" role="status" aria-live="polite">
-          {notice ?? ''}
-        </p>
-        {notice && (
-          <div className="callout callout--info notice" data-testid="notice">
-            <span>{notice}</span>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="Dismiss"
-              onClick={() => setNotice(null)}
-            >
-              <Icon name="close" />
-            </button>
-          </div>
+    <TooltipProvider delayDuration={400}>
+      <div className="flex h-full min-w-0">
+        <Sidebar view={view} onNavigate={setView} />
+        {view === 'projects' ? (
+          <ProjectsView
+            projects={projects}
+            runningTerminals={(projectId) => runningSessionCount(terminals.sessions, projectId)}
+            onOpenTerminal={openTerminal}
+            onProjectRemoved={() => void terminals.reload()}
+          />
+        ) : (
+          <TerminalsView
+            projects={projects}
+            terminals={terminals}
+            preferences={preferences}
+            subscribeCommands={subscribeCommands}
+          />
         )}
-
-        {loadError && (
-          <div className="callout callout--error" role="alert">
-            <span>{loadError}</span>
-            <button type="button" className="button" onClick={() => void reload()}>
-              Retry
-            </button>
-          </div>
-        )}
-
-        {items === null && !loadError && (
-          <p className="muted loading" role="status">
-            Loading projects…
-          </p>
-        )}
-
-        {items && items.length === 0 && <EmptyState onAdd={() => setDialog({ kind: 'add' })} />}
-
-        {items && items.length > 0 && (
-          <div className="panels">
-            <div className="panels__list">
-              <ProjectList items={items} selectedId={selectedId} onSelect={select} />
-            </div>
-            <div className="panels__details">
-              {selected ? (
-                <ProjectDetailsPanel
-                  details={selected}
-                  onEdit={() => setDialog({ kind: 'edit', project: selected.project })}
-                  onRemove={() => setDialog({ kind: 'remove', project: selected.project })}
-                />
-              ) : (
-                <p className="muted details-placeholder">Select a project to see its details.</p>
-              )}
-            </div>
-          </div>
-        )}
-      </main>
-
-      {dialog?.kind === 'add' && (
-        <ProjectFormDialog
-          onClose={closeDialog}
-          onSaved={(project) => {
-            closeDialog();
-            setNotice(`Project "${project.name}" registered.`);
-            void select(project.id);
-          }}
-        />
-      )}
-      {dialog?.kind === 'edit' && (
-        <ProjectFormDialog
-          project={dialog.project}
-          onClose={closeDialog}
-          onSaved={(project) => {
-            closeDialog();
-            setNotice(`Project "${project.name}" updated.`);
-            void reload();
-          }}
-        />
-      )}
-      {dialog?.kind === 'remove' && (
-        <RemoveProjectDialog
-          project={dialog.project}
-          onClose={closeDialog}
-          onRemoved={(id) => {
-            closeDialog();
-            if (selectedId === id) setSelectedId(null);
-            setNotice(`Project "${dialog.project.name}" removed from the registry.`);
-            void reload();
-          }}
-        />
-      )}
-    </div>
+      </div>
+    </TooltipProvider>
   );
 }

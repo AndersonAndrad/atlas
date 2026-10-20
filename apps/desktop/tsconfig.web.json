@@ -12,7 +12,9 @@
     "types": [],
     "paths": {
       "@atlas/shared": ["../../packages/shared/src/index.ts"],
-      "@atlas/contracts": ["../../packages/contracts/src/index.ts"]
+      "@atlas/contracts": ["../../packages/contracts/src/index.ts"],
+      "@atlas/contracts/ipc": ["../../packages/contracts/src/ipc.ts"],
+      "@/*": ["./src/renderer/src/*"]
     }
   },
   "include": ["src/renderer"]

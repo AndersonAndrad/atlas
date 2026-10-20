@@ -164,6 +164,21 @@ export class ProjectService {
     return project;
   }
 
+  /**
+   * Returns the canonical path of a registered project's directory after
+   * checking that it is currently available. Used to authorize terminal
+   * working directories: only registered workspaces are ever returned.
+   */
+  async resolveAvailableWorkspace(id: string): Promise<string> {
+    const project = await this.getExisting(id);
+    const inspection = await this.deps.inspector.inspect(project.workspacePath);
+    assertAvailable(inspection.availability, project.workspacePath);
+    if (inspection.resolvedPath === undefined) {
+      throw new AtlasError('PROJECT_PATH_UNAVAILABLE', undefined, { details: { projectId: id } });
+    }
+    return inspection.resolvedPath;
+  }
+
   async getDetails(id: string): Promise<ProjectDetails> {
     const project = await this.getExisting(id);
     const selectedId = await this.deps.settings.get(SELECTED_PROJECT_SETTING);

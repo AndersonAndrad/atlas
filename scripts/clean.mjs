@@ -1,12 +1,18 @@
 import { rmSync } from 'node:fs';
 
+const projects = [
+  'packages/shared',
+  'packages/contracts',
+  'packages/projects',
+  'packages/terminal',
+  'packages/persistence',
+  'apps/engine',
+  'apps/cli',
+];
+
 const targets = [
-  'packages/shared/dist',
-  'packages/contracts/dist',
-  'packages/projects/dist',
-  'packages/persistence/dist',
-  'apps/engine/dist',
-  'apps/cli/dist',
+  // tsc -b skips projects whose build info is current, so it must go with dist.
+  ...projects.flatMap((project) => [`${project}/dist`, `${project}/tsconfig.tsbuildinfo`]),
   'apps/desktop/out',
 ];
 

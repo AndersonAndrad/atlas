@@ -1,54 +1,95 @@
-import { Icon, type IconName } from './Icon';
+import {
+  Bot,
+  ChartColumn,
+  FolderGit2,
+  KeyRound,
+  ListChecks,
+  Settings,
+  Sparkles,
+  SquareTerminal,
+  type LucideIcon,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+export type AppView = 'projects' | 'terminals';
 
 interface NavItem {
   id: string;
   label: string;
-  icon: IconName;
-  available: boolean;
+  icon: LucideIcon;
+  view?: AppView;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'projects', label: 'Projects', icon: 'projects', available: true },
-  { id: 'sessions', label: 'Sessions', icon: 'sessions', available: false },
-  { id: 'agents', label: 'Agents', icon: 'agents', available: false },
-  { id: 'skills', label: 'Skills', icon: 'skills', available: false },
-  { id: 'accounts', label: 'Accounts', icon: 'accounts', available: false },
-  { id: 'usage', label: 'Usage', icon: 'usage', available: false },
-  { id: 'settings', label: 'Settings', icon: 'settings', available: false },
+  { id: 'projects', label: 'Projects', icon: FolderGit2, view: 'projects' },
+  { id: 'terminals', label: 'Terminals', icon: SquareTerminal, view: 'terminals' },
+  { id: 'sessions', label: 'Sessions', icon: ListChecks },
+  { id: 'agents', label: 'Agents', icon: Bot },
+  { id: 'skills', label: 'Skills', icon: Sparkles },
+  { id: 'accounts', label: 'Accounts', icon: KeyRound },
+  { id: 'usage', label: 'Usage', icon: ChartColumn },
+  { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  view: AppView;
+  onNavigate: (view: AppView) => void;
+}
+
+export function Sidebar({ view, onNavigate }: SidebarProps) {
   return (
-    <nav className="sidebar" aria-label="Main navigation">
-      <div className="sidebar__brand" aria-label="ATLAS">
-        <span className="sidebar__logo" aria-hidden="true">
+    <nav
+      className="bg-sidebar text-sidebar-foreground border-sidebar-border flex w-14 shrink-0 flex-col border-r lg:w-48"
+      aria-label="Main navigation"
+    >
+      <div className="flex h-12 items-center gap-2 px-3" aria-label="ATLAS">
+        <span
+          className="bg-sidebar-primary text-sidebar-primary-foreground flex size-8 shrink-0 items-center justify-center rounded-md font-bold"
+          aria-hidden="true"
+        >
           A
         </span>
-        <span className="sidebar__brand-name">ATLAS</span>
+        <span className="hidden font-semibold tracking-wide lg:inline">ATLAS</span>
       </div>
-      <ul className="sidebar__list">
-        {NAV_ITEMS.map((item) => (
-          <li key={item.id}>
-            {item.available ? (
-              <button type="button" className="nav-item nav-item--active" aria-current="page">
-                <Icon name={item.icon} />
-                <span className="nav-item__label">{item.label}</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="nav-item"
-                disabled
-                title={`${item.label} — not available yet`}
-                aria-label={`${item.label} (not available yet)`}
-              >
-                <Icon name={item.icon} />
-                <span className="nav-item__label">{item.label}</span>
-                <span className="nav-item__soon">Soon</span>
-              </button>
-            )}
-          </li>
-        ))}
+      <ul className="flex flex-col gap-0.5 p-2">
+        {NAV_ITEMS.map((item) => {
+          const Icon = item.icon;
+          const active = item.view !== undefined && item.view === view;
+          return (
+            <li key={item.id}>
+              {item.view !== undefined ? (
+                <button
+                  type="button"
+                  className={cn(
+                    'hover:bg-sidebar-accent focus-visible:ring-sidebar-ring flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left outline-none focus-visible:ring-2',
+                    active && 'bg-sidebar-accent text-sidebar-accent-foreground font-medium',
+                  )}
+                  aria-current={active ? 'page' : undefined}
+                  title={item.label}
+                  onClick={() => onNavigate(item.view!)}
+                >
+                  <Icon className="size-4 shrink-0" aria-hidden="true" />
+                  <span className="hidden truncate lg:inline">{item.label}</span>
+                  <span className="sr-only lg:hidden">{item.label}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="text-muted-foreground flex h-9 w-full cursor-not-allowed items-center gap-2.5 rounded-md px-2.5 text-left opacity-60"
+                  disabled
+                  title={`${item.label} — not available yet`}
+                  aria-label={`${item.label} (not available yet)`}
+                >
+                  <Icon className="size-4 shrink-0" aria-hidden="true" />
+                  <span className="hidden truncate lg:inline">{item.label}</span>
+                  <span className="ml-auto hidden text-[10px] tracking-wide uppercase lg:inline">
+                    Soon
+                  </span>
+                </button>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </nav>
   );

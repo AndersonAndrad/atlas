@@ -5,6 +5,13 @@ export const ERROR_CODES = [
   'PROJECT_PATH_UNAVAILABLE',
   'PROJECT_PERMISSION_DENIED',
   'PROJECT_PERSISTENCE_ERROR',
+  'TERMINAL_NOT_FOUND',
+  'TERMINAL_NOT_RUNNING',
+  'TERMINAL_LIMIT_REACHED',
+  'TERMINAL_SHELL_UNAVAILABLE',
+  'TERMINAL_START_FAILED',
+  'PROJECT_HAS_ACTIVE_TERMINALS',
+  'ENGINE_UNAVAILABLE',
   'VALIDATION_FAILED',
   'INTERNAL_ERROR',
 ] as const;
@@ -22,6 +29,15 @@ export const USER_MESSAGES: Record<ErrorCode, string> = {
   PROJECT_PATH_UNAVAILABLE: 'The selected directory does not exist or is not reachable.',
   PROJECT_PERMISSION_DENIED: 'ATLAS does not have permission to access this directory.',
   PROJECT_PERSISTENCE_ERROR: 'The project registry could not be saved. Please try again.',
+  TERMINAL_NOT_FOUND: 'The terminal could not be found. It may have been closed.',
+  TERMINAL_NOT_RUNNING: 'The terminal is no longer running.',
+  TERMINAL_LIMIT_REACHED: 'Too many terminals are open. Close a terminal and try again.',
+  TERMINAL_SHELL_UNAVAILABLE: 'The selected shell is not available on this computer.',
+  TERMINAL_START_FAILED: 'The shell could not be started.',
+  PROJECT_HAS_ACTIVE_TERMINALS:
+    'This project has running terminals in ATLAS Control. Close them first and try again.',
+  ENGINE_UNAVAILABLE:
+    'The ATLAS Engine is not running. Start (or restart) ATLAS Control and try again.',
   VALIDATION_FAILED: 'Some fields are invalid. Review them and try again.',
   INTERNAL_ERROR: 'An unexpected error occurred.',
 };

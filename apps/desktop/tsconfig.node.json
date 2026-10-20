@@ -13,9 +13,10 @@
       "@atlas/contracts": ["../../packages/contracts/src/index.ts"],
       "@atlas/contracts/ipc": ["../../packages/contracts/src/ipc.ts"],
       "@atlas/projects": ["../../packages/projects/src/index.ts"],
+      "@atlas/terminal": ["../../packages/terminal/src/index.ts"],
       "@atlas/persistence": ["../../packages/persistence/src/index.ts"],
       "@atlas/engine": ["../../apps/engine/src/index.ts"]
     }
   },
-  "include": ["electron.vite.config.ts", "src/main", "src/preload"]
+  "include": ["electron.vite.config.ts", "src/main", "src/preload", "src/engine-host", "src/shared"]
 }

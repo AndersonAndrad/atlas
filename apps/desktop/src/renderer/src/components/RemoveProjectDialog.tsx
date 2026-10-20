@@ -1,15 +1,32 @@
 import { useState } from 'react';
-import { api, errorMessage, unwrap } from '../api';
-import type { Project } from '../types';
-import { Modal } from './Modal';
+import { api, errorMessage, unwrap } from '@/api';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
+import type { Project } from '@/types';
 
 interface RemoveProjectDialogProps {
   project: Project;
+  /** Terminals of this project with a live process; removal terminates them. */
+  runningTerminals: number;
   onClose: () => void;
   onRemoved: (id: string) => void;
 }
 
-export function RemoveProjectDialog({ project, onClose, onRemoved }: RemoveProjectDialogProps) {
+export function RemoveProjectDialog({
+  project,
+  runningTerminals,
+  onClose,
+  onRemoved,
+}: RemoveProjectDialogProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,27 +43,40 @@ export function RemoveProjectDialog({ project, onClose, onRemoved }: RemoveProje
   }
 
   return (
-    <Modal title="Remove project" onClose={onClose} busy={busy} testId="remove-dialog">
-      <p>
-        Remove <strong>{project.name}</strong> from the ATLAS registry?
-      </p>
-      <p className="muted">
-        Only the registry entry is removed. The directory, its files and any Git repository are not
-        modified or deleted.
-      </p>
-      {error && (
-        <p className="callout callout--error" role="alert">
-          {error}
-        </p>
-      )}
-      <footer className="modal__footer">
-        <button type="button" className="button" onClick={onClose} disabled={busy} autoFocus>
-          Cancel
-        </button>
-        <button type="button" className="button button--danger" onClick={confirm} disabled={busy}>
-          {busy ? 'Removing…' : 'Remove from registry'}
-        </button>
-      </footer>
-    </Modal>
+    <AlertDialog open onOpenChange={(open) => !open && !busy && onClose()}>
+      <AlertDialogContent data-testid="remove-dialog">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove project</AlertDialogTitle>
+          <AlertDialogDescription>
+            Remove <strong className="text-foreground">{project.name}</strong> from the ATLAS
+            registry? Only the registry entry is removed. The directory, its files and any Git
+            repository are not modified or deleted.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {runningTerminals > 0 && (
+          <Alert className="border-warning/40" data-testid="remove-terminals-warning">
+            <AlertDescription>
+              {runningTerminals === 1
+                ? '1 running terminal of this project will be terminated.'
+                : `${runningTerminals} running terminals of this project will be terminated.`}
+            </AlertDescription>
+          </Alert>
+        )}
+        {error && (
+          <Alert variant="destructive" role="alert">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy} autoFocus>
+            Cancel
+          </AlertDialogCancel>
+          {/* A plain button keeps the dialog open while the removal runs. */}
+          <Button variant="destructive" onClick={confirm} disabled={busy}>
+            {busy ? 'Removing…' : 'Remove from registry'}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

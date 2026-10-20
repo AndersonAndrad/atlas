@@ -1,16 +1,26 @@
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
+import { isFinalTerminalStatus } from '@atlas/contracts';
 import {
   FileLogger,
+  connectToEngine,
   createEngine,
   resolveDataDir,
   type Engine,
   type EngineOptions,
+  type EngineSocketClient,
 } from '@atlas/engine';
 import { AtlasError, describeError, toSerializedError, type Logger } from '@atlas/shared';
 import { Command, CommanderError } from 'commander';
-import { formatProjectDetails, formatProjectList } from './format.js';
+import {
+  formatProjectDetails,
+  formatProjectList,
+  formatTerminalDetails,
+  formatTerminalList,
+} from './format.js';
+
+export const CLI_VERSION = '0.2.0';
 
 export interface CliIo {
   stdout: (text: string) => void;
@@ -53,12 +63,18 @@ export async function runCli(
     engine ??= createEngine({ component: 'cli', ...engineOptions });
     return engine;
   };
+  // Terminals live in the running Engine host; the CLI never spawns its own.
+  let engineClient: EngineSocketClient | undefined;
+  const getEngineClient = async (): Promise<EngineSocketClient> => {
+    engineClient ??= await connectToEngine({ dataDir: cliDataDir(engineOptions) });
+    return engineClient;
+  };
   const print = (json: boolean, value: unknown, text: string) =>
     io.stdout(json ? `${JSON.stringify(value, null, 2)}\n` : text);
 
   const program = new Command('atlas')
     .description('ATLAS command line interface')
-    .version('0.1.0')
+    .version(CLI_VERSION)
     .exitOverride()
     .configureOutput({ writeOut: io.stdout, writeErr: io.stderr });
 
@@ -134,8 +150,112 @@ export async function runCli(
           return;
         }
       }
-      await projects.remove(existing.project.id);
+      await assertNoActiveTerminals(existing.project.id);
+      await getEngine().removeProject(existing.project.id);
       io.stdout(`Removed "${existing.project.name}" from the registry. No files were deleted.\n`);
+    });
+
+  /** Refuses to remove a project whose terminals are running in ATLAS Control. */
+  const assertNoActiveTerminals = async (projectId: string) => {
+    let client: EngineSocketClient;
+    try {
+      client = await getEngineClient();
+    } catch (error) {
+      // No running Engine means no live terminals can exist.
+      if (error instanceof AtlasError && error.code === 'ENGINE_UNAVAILABLE') return;
+      throw error;
+    }
+    const sessions = await client.call('terminals.list', { projectId });
+    if (sessions.some((session) => !isFinalTerminalStatus(session.status))) {
+      throw new AtlasError('PROJECT_HAS_ACTIVE_TERMINALS', undefined, {
+        details: { projectId },
+      });
+    }
+  };
+
+  const terminal = program
+    .command('terminal')
+    .description('Manage terminals of the running ATLAS Control Engine');
+
+  terminal
+    .command('list')
+    .description('List terminal sessions')
+    .option('-p, --project <id>', 'only terminals of this project')
+    .option('--json', 'output JSON')
+    .action(async (options: { project?: string; json?: boolean }) => {
+      const client = await getEngineClient();
+      const sessions = await client.call(
+        'terminals.list',
+        options.project !== undefined ? { projectId: options.project } : {},
+      );
+      print(Boolean(options.json), sessions, formatTerminalList(sessions));
+    });
+
+  terminal
+    .command('open')
+    .description('Open a terminal in a registered project (shown in ATLAS Control)')
+    .requiredOption('-p, --project <id>', 'project id')
+    .option('-s, --shell <id>', 'shell id (defaults to the configured default shell)')
+    .option('--title <title>', 'tab title')
+    .option('--json', 'output JSON')
+    .action(
+      async (options: { project: string; shell?: string; title?: string; json?: boolean }) => {
+        const client = await getEngineClient();
+        const session = await client.call('terminals.create', {
+          projectId: options.project,
+          ...(options.shell !== undefined ? { shellId: options.shell } : {}),
+          ...(options.title !== undefined ? { title: options.title } : {}),
+        });
+        if (session.status === 'FAILED') {
+          throw new AtlasError('TERMINAL_START_FAILED', undefined, {
+            details: { sessionId: session.id },
+          });
+        }
+        print(
+          Boolean(options.json),
+          session,
+          `Opened terminal "${session.title}" (${session.id})\n`,
+        );
+      },
+    );
+
+  terminal
+    .command('show')
+    .description('Show terminal details')
+    .argument('<id>', 'terminal id')
+    .option('--json', 'output JSON')
+    .action(async (id: string, options: { json?: boolean }) => {
+      const session = await (await getEngineClient()).call('terminals.get', id);
+      print(Boolean(options.json), session, formatTerminalDetails(session));
+    });
+
+  terminal
+    .command('close')
+    .description('Terminate a terminal process')
+    .argument('<id>', 'terminal id')
+    .option('-y, --yes', 'skip the confirmation prompt')
+    .option('--json', 'output JSON')
+    .action(async (id: string, options: { yes?: boolean; json?: boolean }) => {
+      const client = await getEngineClient();
+      const session = await client.call('terminals.get', id);
+      if (!options.yes && !isFinalTerminalStatus(session.status)) {
+        if (!io.isInteractive) {
+          throw new CliUsageError('Confirmation required. Re-run with --yes to close.');
+        }
+        const info = await client.call('terminals.closeInfo', id);
+        const running = info.processName ? ` "${info.processName}" is still running.` : '';
+        const confirmed = await io.confirm(`Terminate terminal "${session.title}"?${running}`);
+        if (!confirmed) {
+          io.stdout('Aborted.\n');
+          return;
+        }
+      }
+      const closed = await client.call('terminals.terminate', id);
+      print(
+        Boolean(options.json),
+        closed,
+        `Terminal "${closed.title}" is ${closed.status.toLowerCase()}.\n`,
+      );
     });
 
   try {
@@ -144,21 +264,29 @@ export async function runCli(
   } catch (error) {
     return handleError(error, io, engine, engineOptions);
   } finally {
+    engineClient?.close();
     engine?.close();
   }
 }
 
 class CliUsageError extends Error {}
 
-function fallbackLogger(options: EngineOptions): Logger {
-  const dataDir =
+function cliDataDir(options: EngineOptions): string {
+  return (
     options.dataDir ??
     resolveDataDir({
       env: options.env ?? process.env,
       platform: options.platform ?? process.platform,
       homeDir: os.homedir(),
-    });
-  return new FileLogger({ filePath: path.join(dataDir, 'logs', 'atlas.log'), component: 'cli' });
+    })
+  );
+}
+
+function fallbackLogger(options: EngineOptions): Logger {
+  return new FileLogger({
+    filePath: path.join(cliDataDir(options), 'logs', 'atlas.log'),
+    component: 'cli',
+  });
 }
 
 function handleError(

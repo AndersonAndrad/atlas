@@ -1,6 +1,7 @@
-import type { ProjectDetails } from '../types';
-import { formatDate, gitSummary } from '../format';
-import { Icon } from './Icon';
+import { GitBranch } from 'lucide-react';
+import { formatDate, gitSummary } from '@/format';
+import { cn } from '@/lib/utils';
+import type { ProjectDetails } from '@/types';
 import { StatusBadge } from './StatusBadge';
 
 interface ProjectListProps {
@@ -11,7 +12,7 @@ interface ProjectListProps {
 
 export function ProjectList({ items, selectedId, onSelect }: ProjectListProps) {
   return (
-    <ul className="project-list" aria-label="Registered projects">
+    <ul className="flex flex-col gap-2" aria-label="Registered projects">
       {items.map((item) => {
         const { project } = item;
         const selected = project.id === selectedId;
@@ -19,26 +20,32 @@ export function ProjectList({ items, selectedId, onSelect }: ProjectListProps) {
           <li key={project.id}>
             <button
               type="button"
-              className={`project-card${selected ? ' project-card--selected' : ''}`}
+              className={cn(
+                'bg-card hover:bg-accent/60 focus-visible:ring-ring/50 flex w-full min-w-0 flex-col gap-1.5 rounded-lg border p-3 text-left transition-colors outline-none focus-visible:ring-[3px]',
+                selected && 'border-sidebar-primary bg-accent/60',
+              )}
               aria-pressed={selected}
               onClick={() => onSelect(project.id)}
               data-testid="project-card"
               data-project-id={project.id}
             >
-              <span className="project-card__header">
-                <span className="project-card__name">{project.name}</span>
+              <span className="flex min-w-0 items-center justify-between gap-2">
+                <span className="truncate font-medium">{project.name}</span>
                 <StatusBadge status={item.availability.status} />
               </span>
               {/* RTL container truncates from the start; the inner LTR span keeps path order. */}
-              <span className="project-card__path" title={project.workspacePath}>
+              <span
+                className="text-muted-foreground truncate font-mono text-xs [direction:rtl]"
+                title={project.workspacePath}
+              >
                 <span dir="ltr">{project.workspacePath}</span>
               </span>
-              <span className="project-card__meta">
-                <span className="meta" data-testid="git-status">
-                  <Icon name="branch" size={13} />
+              <span className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                <span className="inline-flex items-center gap-1" data-testid="git-status">
+                  <GitBranch className="size-3" aria-hidden="true" />
                   {gitSummary(item.git, project.git.isRepository)}
                 </span>
-                <span className="meta">Opened: {formatDate(project.lastOpenedAt)}</span>
+                <span>Opened: {formatDate(project.lastOpenedAt)}</span>
               </span>
             </button>
           </li>

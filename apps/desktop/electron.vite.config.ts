@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'electron-vite';
 import type { Plugin } from 'vite';
@@ -12,6 +13,7 @@ const workspaceSources: Record<string, string> = {
   // Dependency-free subpath so the preload bundle does not include Zod.
   '@atlas/contracts/ipc': 'packages/contracts/src/ipc.ts',
   '@atlas/projects': 'packages/projects/src/index.ts',
+  '@atlas/terminal': 'packages/terminal/src/index.ts',
   '@atlas/persistence': 'packages/persistence/src/index.ts',
   '@atlas/engine': 'apps/engine/src/index.ts',
 };
@@ -24,6 +26,8 @@ const workspacePackages = Object.keys(workspaceSources);
 /**
  * Injects the Content-Security-Policy. The dev server needs inline scripts for
  * React Fast Refresh and a websocket for HMR; production builds do not.
+ * `style-src 'unsafe-inline'` is required in production because xterm.js and
+ * Radix UI inject <style> elements at runtime; scripts stay strictly 'self'.
  */
 function contentSecurityPolicy(): Plugin {
   let isDev = false;
@@ -35,7 +39,7 @@ function contentSecurityPolicy(): Plugin {
     transformIndexHtml() {
       const policy = isDev
         ? "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws:; img-src 'self' data:"
-        : "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+        : "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
       return [
         {
           tag: 'meta',
@@ -52,7 +56,13 @@ export default defineConfig({
     resolve: { alias: workspaceAliases },
     build: {
       externalizeDeps: { exclude: [...workspacePackages, 'zod'] },
-      rollupOptions: { input: { index: resolve(__dirname, 'src/main/index.ts') } },
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          // Utility process that hosts the Engine and owns terminal processes.
+          'engine-host': resolve(__dirname, 'src/engine-host/index.ts'),
+        },
+      },
     },
   },
   preload: {
@@ -68,9 +78,16 @@ export default defineConfig({
   },
   renderer: {
     root: resolve(__dirname, 'src/renderer'),
-    resolve: { alias: workspaceAliases },
-    plugins: [react(), contentSecurityPolicy()],
+    resolve: {
+      alias: [
+        ...workspaceAliases,
+        { find: /^@\//, replacement: `${resolve(__dirname, 'src/renderer/src')}/` },
+      ],
+    },
+    plugins: [react(), tailwindcss(), contentSecurityPolicy()],
     build: {
+      // electron-vite does not minify by default; the renderer is the largest bundle.
+      minify: true,
       rollupOptions: { input: { index: resolve(__dirname, 'src/renderer/index.html') } },
     },
   },

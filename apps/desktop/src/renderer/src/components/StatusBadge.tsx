@@ -1,12 +1,21 @@
-import type { AvailabilityStatus } from '../types';
-import { AVAILABILITY_SHORT } from '../format';
+import { Badge } from '@/components/ui/badge';
+import { AVAILABILITY_SHORT } from '@/format';
+import { cn } from '@/lib/utils';
+import type { AvailabilityStatus } from '@/types';
 
 export function StatusBadge({ status }: { status: AvailabilityStatus }) {
-  const tone = status === 'available' ? 'ok' : 'warn';
+  const available = status === 'available';
   return (
-    <span className={`badge badge--${tone}`} data-testid="availability">
-      <span className="badge__dot" aria-hidden="true" />
+    <Badge
+      variant="outline"
+      className={cn('gap-1.5', available ? 'text-success' : 'text-warning')}
+      data-testid="availability"
+    >
+      <span
+        className={cn('size-1.5 rounded-full', available ? 'bg-success' : 'bg-warning')}
+        aria-hidden="true"
+      />
       {AVAILABILITY_SHORT[status]}
-    </span>
+    </Badge>
   );
 }

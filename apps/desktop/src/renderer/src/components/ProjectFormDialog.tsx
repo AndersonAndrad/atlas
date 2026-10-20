@@ -4,12 +4,25 @@ import {
   PROJECT_NAME_MAX_LENGTH,
   UpdateProjectInputSchema,
 } from '@atlas/contracts';
+import { FolderOpen } from 'lucide-react';
 import { useId, useState, type FormEvent } from 'react';
-import { ApiError, api, errorMessage, unwrap } from '../api';
-import { AVAILABILITY_LABELS, gitSummary, parseTags } from '../format';
-import type { Project, ProjectPathInspection } from '../types';
-import { Icon } from './Icon';
-import { Modal } from './Modal';
+import { ApiError, api, errorMessage, unwrap } from '@/api';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { AVAILABILITY_LABELS, gitSummary, parseTags } from '@/format';
+import { cn } from '@/lib/utils';
+import type { Project, ProjectPathInspection } from '@/types';
 
 type FieldErrors = Partial<Record<'name' | 'description' | 'tags' | 'workspacePath', string>>;
 
@@ -135,139 +148,137 @@ export function ProjectFormDialog({ project, onClose, onSaved }: ProjectFormDial
   const fieldId = (field: string) => `${formId}-${field}`;
   const errorId = (field: string) => `${formId}-${field}-error`;
   const describedBy = (field: keyof FieldErrors) => (errors[field] ? errorId(field) : undefined);
+  const fieldError = (field: keyof FieldErrors) =>
+    errors[field] && (
+      <p id={errorId(field)} className="text-destructive text-xs">
+        {errors[field]}
+      </p>
+    );
 
   return (
-    <Modal
-      title={isEdit ? 'Edit project' : 'Add project'}
-      onClose={onClose}
-      busy={busy}
-      testId="project-form-dialog"
-    >
-      <form className="form" onSubmit={submit} noValidate>
-        <div className="field">
-          <span className="field__label" id={fieldId('directory-label')}>
-            Directory
-          </span>
-          <div className="directory-picker">
-            <span
-              className={`directory-picker__path mono${displayedPath ? '' : ' muted'}`}
-              aria-labelledby={fieldId('directory-label')}
-              data-testid="selected-directory"
-            >
-              {displayedPath ?? 'No directory selected'}
+    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
+      <DialogContent
+        data-testid="project-form-dialog"
+        className="sm:max-w-lg"
+        onInteractOutside={(event) => busy && event.preventDefault()}
+      >
+        <DialogHeader>
+          <DialogTitle>{isEdit ? 'Edit project' : 'Add project'}</DialogTitle>
+          <DialogDescription>
+            {isEdit
+              ? 'Update the project metadata or its directory.'
+              : 'Register a local directory. Its files are never modified.'}
+          </DialogDescription>
+        </DialogHeader>
+        <form className="flex flex-col gap-4" onSubmit={submit} noValidate>
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium" id={fieldId('directory-label')}>
+              Directory
             </span>
-            <button
-              type="button"
-              className="button"
-              onClick={chooseDirectory}
-              disabled={busy}
-              aria-describedby={describedBy('workspacePath')}
-            >
-              <Icon name="folder" />
-              {displayedPath ? 'Change…' : 'Choose…'}
-            </button>
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                className={cn(
+                  'bg-input/30 min-w-0 flex-1 truncate rounded-md border px-3 py-2 font-mono text-xs',
+                  !displayedPath && 'text-muted-foreground',
+                )}
+                aria-labelledby={fieldId('directory-label')}
+                data-testid="selected-directory"
+                title={displayedPath}
+              >
+                {displayedPath ?? 'No directory selected'}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={chooseDirectory}
+                disabled={busy}
+                aria-describedby={describedBy('workspacePath')}
+              >
+                <FolderOpen />
+                {displayedPath ? 'Change…' : 'Choose…'}
+              </Button>
+            </div>
+            {inspection && (
+              <p
+                className={cn(
+                  'text-xs',
+                  directoryUnavailable ? 'text-destructive' : 'text-muted-foreground',
+                )}
+                role="status"
+                data-testid="directory-inspection"
+              >
+                {directoryUnavailable
+                  ? AVAILABILITY_LABELS[inspection.availability.status]
+                  : `Git: ${gitSummary(inspection.git, false)}`}
+              </p>
+            )}
+            {fieldError('workspacePath')}
           </div>
-          {inspection && (
-            <p
-              className={`field__hint${directoryUnavailable ? ' field__hint--error' : ''}`}
-              role="status"
-              data-testid="directory-inspection"
-            >
-              {directoryUnavailable
-                ? AVAILABILITY_LABELS[inspection.availability.status]
-                : `Git: ${gitSummary(inspection.git, false)}`}
-            </p>
-          )}
-          {errors.workspacePath && (
-            <p id={errorId('workspacePath')} className="field__error">
-              {errors.workspacePath}
-            </p>
-          )}
-        </div>
 
-        <div className="field">
-          <label className="field__label" htmlFor={fieldId('name')}>
-            Name
-          </label>
-          <input
-            id={fieldId('name')}
-            className="input"
-            value={name}
-            maxLength={PROJECT_NAME_MAX_LENGTH}
-            autoComplete="off"
-            required
-            aria-invalid={errors.name ? true : undefined}
-            aria-describedby={describedBy('name')}
-            onChange={(event) => setName(event.target.value)}
-          />
-          {errors.name && (
-            <p id={errorId('name')} className="field__error">
-              {errors.name}
-            </p>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={fieldId('name')}>Name</Label>
+            <Input
+              id={fieldId('name')}
+              value={name}
+              maxLength={PROJECT_NAME_MAX_LENGTH}
+              autoComplete="off"
+              required
+              aria-invalid={errors.name ? true : undefined}
+              aria-describedby={describedBy('name')}
+              onChange={(event) => setName(event.target.value)}
+            />
+            {fieldError('name')}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={fieldId('description')}>
+              Description <span className="text-muted-foreground font-normal">(optional)</span>
+            </Label>
+            <Textarea
+              id={fieldId('description')}
+              value={description}
+              rows={3}
+              maxLength={PROJECT_DESCRIPTION_MAX_LENGTH}
+              aria-invalid={errors.description ? true : undefined}
+              aria-describedby={describedBy('description')}
+              onChange={(event) => setDescription(event.target.value)}
+            />
+            {fieldError('description')}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={fieldId('tags')}>
+              Tags{' '}
+              <span className="text-muted-foreground font-normal">(optional, comma-separated)</span>
+            </Label>
+            <Input
+              id={fieldId('tags')}
+              value={tags}
+              autoComplete="off"
+              placeholder="frontend, client-a"
+              aria-invalid={errors.tags ? true : undefined}
+              aria-describedby={describedBy('tags')}
+              onChange={(event) => setTags(event.target.value)}
+            />
+            {fieldError('tags')}
+          </div>
+
+          {formError && (
+            <Alert variant="destructive" role="alert">
+              <AlertDescription data-testid="form-error">{formError}</AlertDescription>
+            </Alert>
           )}
-        </div>
 
-        <div className="field">
-          <label className="field__label" htmlFor={fieldId('description')}>
-            Description <span className="muted">(optional)</span>
-          </label>
-          <textarea
-            id={fieldId('description')}
-            className="input input--textarea"
-            value={description}
-            rows={3}
-            maxLength={PROJECT_DESCRIPTION_MAX_LENGTH}
-            aria-invalid={errors.description ? true : undefined}
-            aria-describedby={describedBy('description')}
-            onChange={(event) => setDescription(event.target.value)}
-          />
-          {errors.description && (
-            <p id={errorId('description')} className="field__error">
-              {errors.description}
-            </p>
-          )}
-        </div>
-
-        <div className="field">
-          <label className="field__label" htmlFor={fieldId('tags')}>
-            Tags <span className="muted">(optional, comma-separated)</span>
-          </label>
-          <input
-            id={fieldId('tags')}
-            className="input"
-            value={tags}
-            autoComplete="off"
-            placeholder="frontend, client-a"
-            aria-invalid={errors.tags ? true : undefined}
-            aria-describedby={describedBy('tags')}
-            onChange={(event) => setTags(event.target.value)}
-          />
-          {errors.tags && (
-            <p id={errorId('tags')} className="field__error">
-              {errors.tags}
-            </p>
-          )}
-        </div>
-
-        {formError && (
-          <p className="callout callout--error" role="alert" data-testid="form-error">
-            {formError}
-          </p>
-        )}
-
-        <footer className="modal__footer">
-          <button type="button" className="button" onClick={onClose} disabled={busy}>
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="button button--primary"
-            disabled={busy || directoryUnavailable}
-          >
-            {busy ? 'Saving…' : isEdit ? 'Save changes' : 'Add project'}
-          </button>
-        </footer>
-      </form>
-    </Modal>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy || directoryUnavailable}>
+              {busy ? 'Saving…' : isEdit ? 'Save changes' : 'Add project'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

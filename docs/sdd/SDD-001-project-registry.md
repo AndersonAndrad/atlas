@@ -4,7 +4,7 @@
 **Specification:** SDD-001  
 **Feature:** Project Registry & Workspace Management  
 **Priority:** Critical  
-**Status:** Implemented — awaiting validation approval (see [Approved changes](#approved-changes-and-clarifications) and `docs/STATUS.md`)  
+**Status:** Implemented and approved (the developer committed it and requested SDD-002 on 2026-10-19; see [Approved changes](#approved-changes-and-clarifications))  
 **Methodology:** Spec-Driven Development
 
 ---

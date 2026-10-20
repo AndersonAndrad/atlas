@@ -1,86 +1,108 @@
 # ATLAS Status
 
-Last updated: 2026-10-19 — SDD-001 implementation (PLAN-001 revision 1).
+Last updated: 2026-10-19 — SDD-002 implementation (PLAN-002 revision 2).
 
-**Overall status:** SDD-001 implemented and validated on macOS (arm64). Awaiting the
-developer's explicit approval before SDD-002 (per SDD-001 §16).
+**Overall status:** SDD-001 approved. SDD-002 implemented and validated on macOS (arm64);
+awaiting the developer's explicit approval before SDD-003 (SDD-002 §15).
 
-## Implemented
+## SDD-002 — Terminal Manager
 
 | Requirement | Summary                                                                                                               |
 | ----------- | --------------------------------------------------------------------------------------------------------------------- |
-| FR-001      | Register projects (name, path, optional description/tags); detects existence, access, Git repository, root and branch |
-| FR-002      | Native directory picker; the main process validates through the Engine and only accepts picker-returned paths         |
-| FR-003      | Project cards (name, path, Git status/branch, last opened, availability) and a details panel                          |
-| FR-004      | Edit name, description, tags and directory (directory changes are re-validated)                                       |
-| FR-005      | Remove with confirmation; registry entry only — files are never touched                                               |
-| FR-006      | SQLite in the per-user data directory with versioned migrations                                                       |
-| FR-007      | Duplicate detection via realpath + platform-specific path key (DB UNIQUE constraint)                                  |
-| FR-008      | Multiple projects; selected project persisted and restored                                                            |
-| FR-009      | Unavailable directories stay registered, are flagged, and can be relocated                                            |
-| FR-010      | `atlas project list/add/show/remove` CLI using the same Engine and database                                           |
+| FR-001      | Sessions per registered project: id, project, cwd (registry realpath), shell, pid, timestamps, status, exit code      |
+| FR-002      | Real PTYs (node-pty) rendered by xterm.js: interactive input, ANSI colors, cursor movement, alternate screen, Ctrl+C  |
+| FR-003/004  | Independent concurrent sessions within and across projects; closing one never affects others                          |
+| FR-005      | Tabs: create, select, rename (double-click/F2), close, active indicator, status dot                                   |
+| FR-006      | Split right/down, resizable panes, hide pane, restore single pane; panes reference sessions (one view per session)    |
+| FR-007      | Shell detection for macOS/Linux/Windows, custom shells (incl. explicit WSL launcher) via `shells.json`, default shell |
+| FR-008      | Validated request/response + ordered output events with sequence numbers; output never persisted                      |
+| FR-009      | CREATED → STARTING → RUNNING → EXITED / TERMINATING → TERMINATED, FAILED; enforced transitions                        |
+| FR-010      | Hide vs terminate; confirmation when a program runs; quit behavior defined (ADR-013)                                  |
+| FR-011      | Fit-to-pane with debounced resize, propagated to PTY and mirror only on change                                        |
+| FR-012      | Dark theme, monospace fonts, font size, copy/paste, scrollback, search, clear, focus; preferences persisted           |
+| FR-013      | Engine session list; views rebuilt from Engine state; bounded headless-mirror replay; reload never duplicates PTYs    |
+| FR-014      | `atlas terminal list/open/show/close` over the authenticated local socket to the running Engine                       |
+| FR-015      | Shortcuts in the application menu, documented in SDD-002                                                              |
 
-Also: standalone Engine entry point (`pnpm engine status`), structured errors with
-user-safe messages, JSON-lines logging, hardened Electron configuration, responsive
-dark UI, disabled placeholders for future sections.
+Also: Engine moved to an Electron utility process with automatic restart, entire UI
+migrated to shadcn/ui, version 0.2.0.
 
-## Validation results (2026-10-19, macOS 26 / Darwin 25.6.0 arm64, Node 24.18.0)
+### Validation results (2026-10-19, macOS 26 / Darwin 25.6.0 arm64, Node 24.18.0, Electron 44.5.1)
 
-| Check                                                                | Result                                                                        |
-| -------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `pnpm install --frozen-lockfile` from an empty `node_modules`        | Pass (Electron binary downloaded by `postinstall`)                            |
-| `pnpm build`                                                         | Pass                                                                          |
-| `pnpm typecheck` (packages, tests, desktop main/preload/renderer)    | Pass                                                                          |
-| `pnpm lint` (ESLint)                                                 | Pass, 0 problems                                                              |
-| `pnpm format:check` (Prettier)                                       | Pass                                                                          |
-| `pnpm test` (Vitest unit + integration)                              | Pass — 10 files, 118 tests                                                    |
-| `pnpm test:e2e` (Playwright + Electron 44.5.1)                       | Pass — 10 tests                                                               |
-| `pnpm audit`                                                         | No known vulnerabilities                                                      |
-| Desktop smoke run (`pnpm --filter @atlas/desktop start`, `pnpm dev`) | App starts, migration applied, startup logged                                 |
-| CLI and Engine without Electron                                      | `atlas project add/list`, `pnpm engine status` verified manually and by tests |
+| Check                                                            | Result                                                                  |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Fresh install in a clean copy (`pnpm install --frozen-lockfile`) | Pass — node-pty prebuild used, `spawn-helper` made executable           |
+| `pnpm clean && pnpm build`                                       | Pass                                                                    |
+| `pnpm typecheck`                                                 | Pass                                                                    |
+| `pnpm lint`                                                      | Pass, 0 problems                                                        |
+| `pnpm format:check`                                              | Pass                                                                    |
+| `pnpm test` (Vitest)                                             | Pass — 17 files, 209 tests (incl. 13 real-PTY/socket integration tests) |
+| `pnpm test:e2e` (Playwright + Electron)                          | Pass — 23 tests; 4 consecutive full runs green after the last fix       |
+| `pnpm audit`                                                     | No known vulnerabilities                                                |
+| Smoke: built app + CLI (`terminal open/list/close`), `pnpm dev`  | Pass (temporary data directory)                                         |
 
-### Acceptance criteria (SDD-001 §12)
+### Performance (E2E `performance.spec.ts`)
 
-| Criterion                              | Status     | Evidence                                                                   |
-| -------------------------------------- | ---------- | -------------------------------------------------------------------------- |
-| Monorepo installs and builds           | Verified   | Fresh install + `pnpm build`                                               |
-| Electron launches                      | Verified   | E2E suite, smoke runs                                                      |
-| Headless Engine runs independently     | Verified   | `engine.test.ts`, `pnpm engine status`                                     |
-| CLI works without Electron             | Verified   | `cli.test.ts` (in-process and spawned binary)                              |
-| Register via native picker             | Verified\* | E2E with stubbed `dialog.showOpenDialog`                                   |
-| Registered projects appear             | Verified   | E2E `lists multiple projects…`                                             |
-| Metadata can be edited                 | Verified   | Unit, IPC and E2E tests                                                    |
-| Removal does not delete files          | Verified   | Engine, CLI and E2E tests assert directory contents                        |
-| Duplicates rejected                    | Verified   | Unit (case/Unicode/symlink), SQLite constraint, CLI and E2E tests          |
-| Projects persist after restart         | Verified   | Engine restart test, E2E restart                                           |
-| Selected project restored              | Verified   | E2E `restores the last selected project after restart`                     |
-| Unavailable directories handled        | Verified   | Unit, Engine and E2E tests (relocation flow)                               |
-| Git info detected                      | Verified   | Git inspector tests incl. real `git init`, worktree pointer, detached HEAD |
-| Renderer has no unrestricted Node APIs | Verified   | E2E security test (no `require`/`process`, sandbox, CSP, bridge surface)   |
-| Unit and integration tests pass        | Verified   | 118/118                                                                    |
-| UI tests pass                          | Verified   | 10/10                                                                      |
-| TypeScript checks pass                 | Verified   | `pnpm typecheck`                                                           |
-| Application builds                     | Verified   | `pnpm build`                                                               |
-| Documentation reflects implementation  | Verified   | This file, ARCHITECTURE, DECISIONS, ROADMAP, SDD                           |
+Ten terminals of one project (six visible panes, four hidden tabs) each run
+`seq 1 500000` (~34 MB of output in total):
 
-\* Not verified automatically: the real macOS directory panel itself (automation stubs
-`dialog.showOpenDialog`). Manual check pending (risk R6).
+| Metric                                            | Result                                              |
+| ------------------------------------------------- | --------------------------------------------------- |
+| Time until all ten shells finished                | 3.7–3.9 s                                           |
+| Renderer → Engine IPC round trip during the flood | p50 0 ms, p95 2–3 ms, max 4 ms                      |
+| Longest gap between animation frames              | 28–32 ms                                            |
+| Memory (working set) after the run                | renderer ~310 MB, Engine host ~135 MB, main ~170 MB |
+
+Back-pressure pauses a PTY when a view is more than 1 MiB behind. Each session keeps a
+1,000-line mirror in the Engine host; renderer scrollback follows the preference.
+
+### Acceptance criteria (SDD-002 §11)
+
+| Criterion                                  | Status   | Evidence                                                                             |
+| ------------------------------------------ | -------- | ------------------------------------------------------------------------------------ |
+| Terminal created from a registered project | Verified | Service unit tests, IPC tests, E2E                                                   |
+| Starts in the project directory            | Verified | Integration (`pwd`), E2E                                                             |
+| Real interactive shell commands work       | Verified | Integration (`read`), E2E                                                            |
+| ANSI colors and interactive applications   | Verified | Integration (raw escapes, alternate-screen snapshot), E2E (`xterm-fg-1`, alt screen) |
+| Multiple terminals simultaneously          | Verified | Integration (10 concurrent), E2E performance                                         |
+| Multiple projects with active terminals    | Verified | Integration (3 projects), E2E project switching                                      |
+| Tabs created, renamed, selected, closed    | Verified | E2E `manages tabs…`                                                                  |
+| Horizontal and vertical splits             | Verified | Layout unit tests, E2E `splits panes…`                                               |
+| Pane resizing updates PTY dimensions       | Verified | Integration (`stty size`), E2E divider drag                                          |
+| Input/output streamed correctly            | Verified | Service tests (ordering, seq, isolation), integration, E2E                           |
+| Process exits detected and displayed       | Verified | Unit, integration (exit 0/7, signal), E2E (`exit 4`)                                 |
+| Closing handles running processes safely   | Verified | E2E confirm/cancel, quit confirmation, CLI `--yes`                                   |
+| Renderer reload does not duplicate PTYs    | Verified | E2E reload (same ids and pids)                                                       |
+| CLI uses the shared Engine                 | Verified | Integration (socket), CLI tests, E2E (tab appears), smoke run                        |
+| Terminal settings persist across restarts  | Verified | E2E restart (font size, titles, layout)                                              |
+| Unauthorized project paths rejected        | Verified | Service, IPC, security E2E (unknown project, `cwd` field rejected)                   |
+| SDD-001 functionality operational          | Verified | All SDD-001 unit, IPC and E2E tests pass after the shadcn migration                  |
+| Unit / integration / desktop tests pass    | Verified | 209/209, 23/23                                                                       |
+| Type checking and builds pass              | Verified | `pnpm typecheck`, `pnpm build`                                                       |
+| Documentation updated                      | Verified | ARCHITECTURE, DECISIONS (ADR-009–015), ROADMAP, this file, SDD-002, README           |
 
 ## Known limitations
 
-- Verified only on macOS. Windows/Linux path semantics are covered by unit tests with
-  injected platform rules, not on real systems (R4).
-- Desktop UI picks up CLI changes on window focus or manual refresh, not in real time (R3).
-- A case-sensitive APFS volume would treat directories differing only by case as
-  duplicates (R5).
-- Git detection does not cover `GIT_DIR` overrides or bare repositories used as workspaces.
-- Directory inspection times out after 3 s; unresponsive volumes are reported as
-  unavailable.
-- No installer, code signing or auto-update (out of scope, ADR-008).
-- Dark theme only.
-- The renderer bundle includes Zod (~0.8 MB uncompressed) for client-side validation.
+- Verified on macOS only. Windows (ConPTY, PowerShell/cmd) and Linux run the same code
+  but were not executed; Linux builds node-pty from source during installation.
+- Keyboard accelerators are verified through the menu items they belong to, not by
+  physical key presses; the native directory picker remains stubbed in automation.
+- Terminals end when ATLAS quits (by design, ADR-013). `atlas terminal …` needs the app
+  running.
+- Background jobs (`cmd &`) are not detected by the close confirmation; Windows always asks.
+- Reattach replays at most 1,000 lines; some modes (e.g. mouse tracking) may need a redraw.
+- Ended sessions stay as tabs until closed and count toward the 64-session limit.
+- ⌘W now closes the active terminal; "Close Window" moved to ⇧⌘W (changed from SDD-001).
+- On macOS the `spawn-helper` permission is fixed by the `@atlas/engine` postinstall; if
+  terminals fail with "The shell could not be started", run
+  `pnpm --filter @atlas/engine run postinstall`.
+- Terminal output is relayed through the Electron main process (batched; see ADR-009).
+- Database schema v2 cannot be opened by SDD-001 builds (they refuse newer schemas).
+- Project registry: the SDD-001 limitations still apply (refresh on focus, case-sensitive
+  APFS volumes, no packaging, dark theme only).
 
 ## Pending
 
-- Manual verification of the real native directory picker.
-- Developer approval of SDD-001 before starting SDD-002.
+- Manual verification of shortcuts with the physical keyboard and of the real directory
+  picker.
+- Developer approval of SDD-002 before starting SDD-003.

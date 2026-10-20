@@ -1,13 +1,14 @@
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { Project } from '@atlas/contracts';
+import type { Project, TerminalSession } from '@atlas/contracts';
 import { AtlasError } from '@atlas/shared';
 import { createTempDir } from '../../../tests/support/temp.js';
 import {
   MIGRATIONS,
   SqliteProjectRepository,
   SqliteSettingsRepository,
+  SqliteTerminalSessionRepository,
   getSchemaVersion,
   openDatabase,
   type Database,
@@ -22,6 +23,23 @@ function project(overrides: Partial<Project> = {}): Project {
     git: { isRepository: true, repositoryRoot: '/work/atlas' },
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function terminalSession(overrides: Partial<TerminalSession> = {}): TerminalSession {
+  return {
+    id: '00000000-0000-4000-8000-0000000000a1',
+    projectId: project().id,
+    title: 'zsh',
+    shell: { id: 'zsh', name: 'zsh', path: '/bin/zsh' },
+    cwd: '/work/atlas',
+    status: 'RUNNING',
+    pid: 4242,
+    columns: 80,
+    rows: 24,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    startedAt: '2026-01-01T00:00:01.000Z',
     ...overrides,
   };
 }
@@ -82,7 +100,7 @@ describe('SQLite persistence', () => {
           migrations: [
             ...MIGRATIONS,
             {
-              version: 2,
+              version: MIGRATIONS.length + 1,
               name: 'broken',
               sql: 'CREATE TABLE ok_part (id INTEGER); SELECT nope FROM missing;',
             },
@@ -90,7 +108,7 @@ describe('SQLite persistence', () => {
         }),
       ).toThrow(AtlasError);
       db = openDatabase({ filePath: dbPath });
-      expect(getSchemaVersion(db)).toBe(1);
+      expect(getSchemaVersion(db)).toBe(MIGRATIONS.length);
       const leaked = db.prepare("SELECT name FROM sqlite_master WHERE name = 'ok_part'").get();
       expect(leaked).toBeUndefined();
     });
@@ -203,5 +221,83 @@ describe('SQLite persistence', () => {
     db = openDatabase({ filePath: dbPath });
     expect(await new SqliteProjectRepository(db).findAll()).toHaveLength(1);
     expect(await new SqliteSettingsRepository(db).get('selected')).toBe(project().id);
+  });
+
+  describe('SqliteTerminalSessionRepository', () => {
+    let sessions: SqliteTerminalSessionRepository;
+
+    beforeEach(async () => {
+      await new SqliteProjectRepository(db).insert({ project: project(), pathKey: '/work/atlas' });
+      sessions = new SqliteTerminalSessionRepository(db);
+    });
+
+    it('stores metadata only and round-trips optional fields', async () => {
+      await sessions.save(terminalSession());
+      await sessions.save(
+        terminalSession({
+          title: 'Renamed',
+          status: 'EXITED',
+          exitCode: 130,
+          signal: 2,
+          endReason: 'exited',
+          endedAt: '2026-01-01T00:01:00.000Z',
+        }),
+      );
+      expect(await sessions.findAll()).toEqual([
+        terminalSession({
+          title: 'Renamed',
+          status: 'EXITED',
+          exitCode: 130,
+          signal: 2,
+          endReason: 'exited',
+          endedAt: '2026-01-01T00:01:00.000Z',
+        }),
+      ]);
+      const columns = db
+        .prepare("SELECT name FROM pragma_table_info('terminal_sessions')")
+        .all()
+        .map((row) => (row as { name: string }).name);
+      expect(columns).not.toContain('output');
+    });
+
+    it('marks sessions left running by a previous Engine as lost', async () => {
+      await sessions.save(terminalSession());
+      await sessions.save(
+        terminalSession({
+          id: '00000000-0000-4000-8000-0000000000a2',
+          status: 'EXITED',
+          exitCode: 0,
+          endReason: 'exited',
+        }),
+      );
+      expect(await sessions.markInterrupted('2026-01-02T00:00:00.000Z')).toBe(1);
+      const [lost, exited] = await sessions.findAll();
+      expect(lost).toMatchObject({
+        status: 'TERMINATED',
+        endReason: 'engine-lost',
+        endedAt: '2026-01-02T00:00:00.000Z',
+      });
+      expect(exited).toMatchObject({ status: 'EXITED', endReason: 'exited' });
+    });
+
+    it('deletes sessions with their project and rejects invalid rows', async () => {
+      await sessions.save(terminalSession());
+      await expect(
+        sessions.save(
+          terminalSession({ id: '00000000-0000-4000-8000-0000000000a3', status: 'BOGUS' as never }),
+        ),
+      ).rejects.toMatchObject({ code: 'PROJECT_PERSISTENCE_ERROR' });
+      await expect(
+        sessions.save(
+          terminalSession({
+            id: '00000000-0000-4000-8000-0000000000a4',
+            projectId: '00000000-0000-4000-8000-00000000ffff',
+          }),
+        ),
+      ).rejects.toMatchObject({ code: 'PROJECT_PERSISTENCE_ERROR' });
+
+      await new SqliteProjectRepository(db).delete(project().id);
+      expect(await sessions.findAll()).toEqual([]);
+    });
   });
 });

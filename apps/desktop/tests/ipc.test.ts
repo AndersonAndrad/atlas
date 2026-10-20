@@ -1,18 +1,38 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import type { IpcMainInvokeEvent } from 'electron';
+import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { IPC_CHANNELS, type IpcResult, type DirectoryChoice, type Project } from '@atlas/contracts';
-import { createEngine, type Engine } from '@atlas/engine';
+import {
+  IPC_CHANNELS,
+  IPC_SEND_CHANNELS,
+  type DirectoryChoice,
+  type IpcResult,
+  type Project,
+  type TerminalAttachment,
+  type TerminalEvent,
+  type TerminalSession,
+} from '@atlas/contracts';
+import { createEngine, createEngineDispatcher, type Engine } from '@atlas/engine';
+import { noopLogger } from '@atlas/shared';
+import {
+  FakeMirrorFactory,
+  FakePtySpawner,
+  FakeShellProvider,
+} from '../../../tests/support/fake-terminal.js';
 import { createTempDir } from '../../../tests/support/temp.js';
+import type { EngineCaller } from '../src/main/engine-client.js';
 import { registerIpcHandlers } from '../src/main/ipc.js';
 
 type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => Promise<IpcResult<unknown>>;
+type Listener = (event: IpcMainEvent, ...args: unknown[]) => void;
 
 describe('desktop IPC handlers', () => {
   let temp: ReturnType<typeof createTempDir>;
   let engine: Engine;
   let handlers: Map<string, Handler>;
+  let listeners: Map<string, Listener>;
+  let spawner: FakePtySpawner;
+  let events: { event: TerminalEvent; subscriberId: string | undefined }[];
   let trusted: boolean;
   let pickedPath: string | undefined;
   let workspace: string;
@@ -20,21 +40,51 @@ describe('desktop IPC handlers', () => {
   const trustedEvent = {} as IpcMainInvokeEvent;
   const invoke = <T>(channel: string, ...args: unknown[]) =>
     handlers.get(channel)!(trustedEvent, ...args) as Promise<IpcResult<T>>;
+  const send = (channel: string, ...args: unknown[]) =>
+    listeners.get(channel)!({} as IpcMainEvent, ...args);
+  const registerProject = async () => {
+    await invoke(IPC_CHANNELS.chooseDirectory);
+    const created = await invoke<Project>(IPC_CHANNELS.createProject, {
+      name: 'W',
+      workspacePath: workspace,
+    });
+    return (created as { ok: true; data: Project }).data;
+  };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     temp = createTempDir();
     workspace = path.join(temp.dir, 'workspace');
     mkdirSync(workspace);
-    engine = createEngine({ dataDir: path.join(temp.dir, 'data') });
+    spawner = new FakePtySpawner();
+    engine = createEngine({
+      dataDir: path.join(temp.dir, 'data'),
+      terminals: {
+        spawner,
+        mirrors: new FakeMirrorFactory(),
+        shells: new FakeShellProvider(),
+      },
+    });
+    await engine.initialize();
+    events = [];
+    engine.terminals!.onEvent((event, subscriberId) => events.push({ event, subscriberId }));
+    const dispatcher = createEngineDispatcher(engine);
+    const caller: EngineCaller = {
+      call: (method, ...params) => dispatcher.call(method, params, 'desktop') as never,
+    };
     handlers = new Map();
+    listeners = new Map();
     trusted = true;
     pickedPath = workspace;
     registerIpcHandlers({
       ipcMain: {
         handle: (channel: string, handler: Handler) => handlers.set(channel, handler),
         removeHandler: (channel: string) => handlers.delete(channel),
+        on: (channel: string, listener: Listener) => listeners.set(channel, listener),
+        removeAllListeners: (channel: string) => listeners.delete(channel),
       } as never,
-      engine,
+      engine: caller,
+      logger: noopLogger,
+      subscriberId: () => 'desktop-1-0',
       isTrustedSender: () => trusted,
       showOpenDialog: async () =>
         pickedPath === undefined
@@ -42,13 +92,14 @@ describe('desktop IPC handlers', () => {
           : { canceled: false, filePaths: [pickedPath] },
     });
   });
-  afterEach(() => {
-    engine.close();
+  afterEach(async () => {
+    await engine.shutdown();
     temp.cleanup();
   });
 
   it('registers exactly the declared channels', () => {
     expect([...handlers.keys()].sort()).toEqual(Object.values(IPC_CHANNELS).sort());
+    expect([...listeners.keys()].sort()).toEqual(Object.values(IPC_SEND_CHANNELS).sort());
   });
 
   it('creates a project from a directory chosen in the native picker', async () => {
@@ -123,5 +174,90 @@ describe('desktop IPC handlers', () => {
       tags: ['a'],
     });
     expect(updated).toMatchObject({ ok: true, data: { name: 'Renamed', tags: ['a'] } });
+  });
+
+  describe('terminals', () => {
+    it('starts terminals only in registered project directories', async () => {
+      const project = await registerProject();
+      const created = await invoke<TerminalSession>(IPC_CHANNELS.createTerminal, {
+        projectId: project.id,
+      });
+      expect(created).toMatchObject({
+        ok: true,
+        data: { projectId: project.id, cwd: project.workspacePath, status: 'RUNNING' },
+      });
+
+      expect(
+        await invoke(IPC_CHANNELS.createTerminal, { projectId: project.id, cwd: '/etc' }),
+      ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+      expect(
+        await invoke(IPC_CHANNELS.createTerminal, {
+          projectId: '00000000-0000-4000-8000-000000000000',
+        }),
+      ).toMatchObject({ ok: false, error: { code: 'PROJECT_NOT_FOUND' } });
+      expect(spawner.spawned).toHaveLength(1);
+    });
+
+    it('routes input to the PTY and output to the attached view only', async () => {
+      const project = await registerProject();
+      const created = (await invoke<TerminalSession>(IPC_CHANNELS.createTerminal, {
+        projectId: project.id,
+      })) as { ok: true; data: TerminalSession };
+      const id = created.data.id;
+
+      const attached = await invoke<TerminalAttachment>(
+        IPC_CHANNELS.attachTerminal,
+        id,
+        'v1',
+        90,
+        20,
+      );
+      expect(attached).toMatchObject({ ok: true, data: { seq: 0 } });
+      expect(spawner.last().resizes).toEqual([[90, 20]]);
+
+      send(IPC_SEND_CHANNELS.writeTerminal, id, 'pwd\r');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(spawner.last().written).toEqual(['pwd\r']);
+
+      spawner.last().emit('output');
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const output = events.filter((entry) => entry.event.type === 'output');
+      expect(output.map((entry) => entry.subscriberId)).toEqual(['desktop-1-0:v1']);
+    });
+
+    it('ignores invalid or untrusted fire-and-forget messages', async () => {
+      const project = await registerProject();
+      const created = (await invoke<TerminalSession>(IPC_CHANNELS.createTerminal, {
+        projectId: project.id,
+      })) as { ok: true; data: TerminalSession };
+      send(IPC_SEND_CHANNELS.writeTerminal, 'not-an-id', 'x');
+      send(IPC_SEND_CHANNELS.resizeTerminal, created.data.id, 0, -1);
+      trusted = false;
+      send(IPC_SEND_CHANNELS.writeTerminal, created.data.id, 'rm -rf /\r');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(spawner.last().written).toEqual([]);
+      expect(spawner.last().resizes).toEqual([]);
+    });
+
+    it('rejects malformed view identifiers', async () => {
+      const project = await registerProject();
+      const created = (await invoke<TerminalSession>(IPC_CHANNELS.createTerminal, {
+        projectId: project.id,
+      })) as { ok: true; data: TerminalSession };
+      expect(
+        await invoke(IPC_CHANNELS.attachTerminal, created.data.id, 'v1:other', 80, 24),
+      ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+    });
+
+    it('terminates the terminals of a removed project', async () => {
+      const project = await registerProject();
+      await invoke(IPC_CHANNELS.createTerminal, { projectId: project.id });
+      expect(await invoke(IPC_CHANNELS.removeProject, project.id)).toEqual({
+        ok: true,
+        data: null,
+      });
+      expect(await invoke(IPC_CHANNELS.listTerminals)).toEqual({ ok: true, data: [] });
+      expect(spawner.last().kills).toEqual(['SIGHUP']);
+    });
   });
 });

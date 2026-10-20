@@ -1,6 +1,6 @@
 {
   "name": "@atlas/engine",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -12,12 +12,17 @@
     }
   },
   "scripts": {
-    "start": "node dist/bin.js status"
+    "start": "node dist/bin.js status",
+    "postinstall": "node ../../scripts/ensure-pty-helper.mjs"
   },
   "dependencies": {
     "@atlas/contracts": "workspace:*",
     "@atlas/persistence": "workspace:*",
     "@atlas/projects": "workspace:*",
-    "@atlas/shared": "workspace:*"
+    "@atlas/shared": "workspace:*",
+    "@atlas/terminal": "workspace:*",
+    "@xterm/addon-serialize": "0.14.0",
+    "@xterm/headless": "6.0.0",
+    "node-pty": "1.1.0"
   }
 }

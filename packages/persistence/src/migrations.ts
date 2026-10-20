@@ -34,4 +34,34 @@ export const MIGRATIONS: readonly Migration[] = [
       ) STRICT;
     `,
   },
+  {
+    version: 2,
+    name: 'create_terminal_sessions',
+    sql: `
+      CREATE TABLE terminal_sessions (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        project_id TEXT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+        title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 60),
+        shell_id TEXT NOT NULL,
+        shell_name TEXT NOT NULL,
+        shell_path TEXT NOT NULL,
+        cwd TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN
+          ('CREATED', 'STARTING', 'RUNNING', 'EXITED', 'FAILED', 'TERMINATING', 'TERMINATED')),
+        pid INTEGER,
+        exit_code INTEGER,
+        signal INTEGER,
+        end_reason TEXT CHECK (end_reason IS NULL OR end_reason IN
+          ('exited', 'user', 'engine-shutdown', 'startup-failed', 'engine-lost')),
+        failure_message TEXT,
+        columns INTEGER NOT NULL CHECK (columns > 0),
+        rows INTEGER NOT NULL CHECK (rows > 0),
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        ended_at TEXT
+      ) STRICT;
+
+      CREATE INDEX terminal_sessions_project ON terminal_sessions (project_id, created_at);
+    `,
+  },
 ];

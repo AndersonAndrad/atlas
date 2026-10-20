@@ -1,0 +1,8 @@
+{
+  "files": [],
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/renderer/src/*"]
+    }
+  }
+}

@@ -4,7 +4,13 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { ProjectDetails } from '@atlas/contracts';
+import type { ProjectDetails, TerminalSession } from '@atlas/contracts';
+import { startEngineHost, type EngineHost } from '@atlas/engine';
+import {
+  FakeMirrorFactory,
+  FakePtySpawner,
+  FakeShellProvider,
+} from '../../../tests/support/fake-terminal.js';
 import { createTempDir } from '../../../tests/support/temp.js';
 import { runCli, type CliIo } from '../src/program.js';
 
@@ -163,5 +169,100 @@ describe('atlas CLI', () => {
       env,
     }).toString();
     expect((JSON.parse(output) as ProjectDetails[])[0]?.project.workspacePath).toBe(workspace);
+  });
+
+  describe('terminal commands', () => {
+    let host: EngineHost | undefined;
+    let spawner: FakePtySpawner;
+
+    const startHost = async () => {
+      spawner = new FakePtySpawner();
+      // The running Engine owns the terminals; fake PTYs keep these tests process-free.
+      host = await startEngineHost({
+        dataDir,
+        component: 'test',
+        terminals: { spawner, mirrors: new FakeMirrorFactory(), shells: new FakeShellProvider() },
+      });
+    };
+    const addProject = async () => {
+      const added = await run(['project', 'add', workspace, '--json']);
+      return (JSON.parse(added.out) as ProjectDetails).project.id;
+    };
+
+    afterEach(async () => {
+      await host?.stop();
+      host = undefined;
+    });
+
+    it('reports that the Engine is not running', async () => {
+      const result = await run(['terminal', 'list']);
+      expect(result.code).toBe(1);
+      expect(result.err).toBe(
+        'Error: The ATLAS Engine is not running. Start (or restart) ATLAS Control and try again.\n',
+      );
+    });
+
+    it('opens, lists, shows and closes terminals through the running Engine', async () => {
+      await startHost();
+      const projectId = await addProject();
+
+      const opened = await run([
+        'terminal',
+        'open',
+        '--project',
+        projectId,
+        '--title',
+        'Dev',
+        '--json',
+      ]);
+      expect(opened.code).toBe(0);
+      const session = JSON.parse(opened.out) as TerminalSession;
+      expect(session).toMatchObject({ title: 'Dev', status: 'RUNNING', cwd: workspace });
+      // The process belongs to the shared Engine, not to the CLI invocation.
+      expect(host!.engine.terminals!.getById(session.id).status).toBe('RUNNING');
+
+      const list = await run(['terminal', 'list', '--project', projectId]);
+      expect(list.out).toContain(session.id);
+      expect(list.out).toMatch(/Dev\s+running\s+zsh/);
+
+      const shown = await run(['terminal', 'show', session.id]);
+      expect(shown.out).toContain(`Directory  ${workspace}`);
+
+      const refused = await run(['terminal', 'close', session.id]);
+      expect(refused.code).toBe(2);
+      expect(host!.engine.terminals!.getById(session.id).status).toBe('RUNNING');
+
+      const closed = await run(['terminal', 'close', session.id, '--yes']);
+      expect(closed).toMatchObject({ code: 0, out: 'Terminal "Dev" is terminated.\n' });
+      expect(spawner.last().kills).toEqual(['SIGHUP']);
+    });
+
+    it('validates projects and terminal ids', async () => {
+      await startHost();
+      const unknown = await run([
+        'terminal',
+        'open',
+        '--project',
+        '00000000-0000-4000-8000-000000000000',
+      ]);
+      expect(unknown).toMatchObject({ code: 1 });
+      expect(unknown.err).toContain('The project could not be found');
+      const missing = await run(['terminal', 'show', '00000000-0000-4000-8000-000000000000']);
+      expect(missing.err).toContain('The terminal could not be found');
+    });
+
+    it('refuses to remove a project with running terminals', async () => {
+      await startHost();
+      const projectId = await addProject();
+      await run(['terminal', 'open', '--project', projectId]);
+
+      const refused = await run(['project', 'remove', projectId, '--yes']);
+      expect(refused.code).toBe(1);
+      expect(refused.err).toContain('has running terminals');
+
+      const [session] = host!.engine.terminals!.list(projectId);
+      await host!.engine.terminals!.terminate(session!.id);
+      expect((await run(['project', 'remove', projectId, '--yes'])).code).toBe(0);
+    });
   });
 });
