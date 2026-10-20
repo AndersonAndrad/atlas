@@ -2,6 +2,7 @@ import {
   Bot,
   ChartColumn,
   FolderGit2,
+  GitBranch,
   KeyRound,
   ListChecks,
   Settings,
@@ -12,7 +13,7 @@ import {
 import atlasLogo from '@/assets/atlas-logo.svg';
 import { cn } from '@/lib/utils';
 
-export type AppView = 'projects' | 'terminals' | 'sessions' | 'settings';
+export type AppView = 'projects' | 'terminals' | 'git' | 'sessions' | 'settings';
 
 interface NavItem {
   id: string;
@@ -24,6 +25,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: 'projects', label: 'Projects', icon: FolderGit2, view: 'projects' },
   { id: 'terminals', label: 'Terminals', icon: SquareTerminal, view: 'terminals' },
+  { id: 'git', label: 'Git', icon: GitBranch, view: 'git' },
   { id: 'sessions', label: 'Sessions', icon: ListChecks, view: 'sessions' },
   { id: 'agents', label: 'Agents', icon: Bot },
   { id: 'skills', label: 'Skills', icon: Sparkles },

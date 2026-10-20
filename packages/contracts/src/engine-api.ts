@@ -23,7 +23,32 @@ import {
   type TerminalSession,
 } from './terminal.js';
 import { TerminalWorkspaceKeySchema, type TerminalWorkspaceLayout } from './terminal-layout.js';
-import type { GitStatus, TerminalGitContext, TerminalProjectContext } from './git.js';
+import {
+  GitCommitInputSchema,
+  GitCreateBranchInputSchema,
+  GitDiffInputSchema,
+  GitFetchInputSchema,
+  GitOperationIdSchema,
+  GitPathsInputSchema,
+  GitPullInputSchema,
+  GitPushInputSchema,
+  GitRenameBranchInputSchema,
+  GitRepositoryRootSchema,
+  GitSwitchBranchInputSchema,
+  type GitBranchList,
+  type GitCommitResult,
+  type GitCommitSuggestion,
+  type GitFileDiff,
+  type GitOperation,
+  type GitPreferences,
+  type GitPullInfo,
+  type GitRemote,
+  type GitRepositoryEntry,
+  type GitStatus,
+  type GitWorkingTree,
+  type TerminalGitContext,
+  type TerminalProjectContext,
+} from './git.js';
 import {
   AtlasSessionIdSchema,
   ListSessionsInputSchema,
@@ -107,6 +132,26 @@ export const ENGINE_METHOD_PARAMS = {
   'groups.delete': z.tuple([GroupId, z.strictObject({ terminateTerminals: z.boolean() })]),
 
   'git.project': z.tuple([Id]),
+  'git.repositories': z.tuple([]),
+  'git.workingTree': z.tuple([GitRepositoryRootSchema]),
+  'git.diff': z.tuple([GitDiffInputSchema]),
+  'git.stage': z.tuple([GitPathsInputSchema]),
+  'git.unstage': z.tuple([GitPathsInputSchema]),
+  'git.commit': z.tuple([GitCommitInputSchema]),
+  'git.push': z.tuple([GitPushInputSchema]),
+  'git.pull': z.tuple([GitPullInputSchema]),
+  'git.pullInfo': z.tuple([GitRepositoryRootSchema]),
+  'git.fetch': z.tuple([GitFetchInputSchema]),
+  'git.branches': z.tuple([GitRepositoryRootSchema]),
+  'git.remotes': z.tuple([GitRepositoryRootSchema]),
+  'git.createBranch': z.tuple([GitCreateBranchInputSchema]),
+  'git.switchBranch': z.tuple([GitSwitchBranchInputSchema]),
+  'git.renameBranch': z.tuple([GitRenameBranchInputSchema]),
+  'git.suggestMessage': z.tuple([GitPathsInputSchema]),
+  'git.operations': z.tuple([]),
+  'git.cancelOperation': z.tuple([GitOperationIdSchema]),
+  'git.getPreferences': z.tuple([]),
+  'git.setPreferences': z.tuple([Unknown]),
   'terminals.closeAllInfo': z.tuple([]),
 
   'sessions.list': z.tuple([ListSessionsInputSchema]),
@@ -179,6 +224,26 @@ export interface EngineMethodResults {
   'groups.move': TerminalGroup[];
   'groups.delete': null;
   'git.project': GitStatus;
+  'git.repositories': GitRepositoryEntry[];
+  'git.workingTree': GitWorkingTree;
+  'git.diff': GitFileDiff;
+  'git.stage': GitOperation;
+  'git.unstage': GitOperation;
+  'git.commit': GitCommitResult;
+  'git.push': GitOperation;
+  'git.pull': GitOperation;
+  'git.pullInfo': GitPullInfo;
+  'git.fetch': GitOperation;
+  'git.branches': GitBranchList;
+  'git.remotes': GitRemote[];
+  'git.createBranch': GitOperation;
+  'git.switchBranch': GitOperation;
+  'git.renameBranch': GitOperation;
+  'git.suggestMessage': GitCommitSuggestion | null;
+  'git.operations': GitOperation[];
+  'git.cancelOperation': GitOperation;
+  'git.getPreferences': GitPreferences;
+  'git.setPreferences': GitPreferences;
   'terminals.closeAllInfo': { runningSessions: number; busySessions: number };
   'sessions.list': AtlasSessionListItem[];
   'sessions.get': AtlasSessionDetails;

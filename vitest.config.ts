@@ -9,6 +9,11 @@ export default defineConfig({
       { find: /^@atlas\/shared$/, replacement: src('./packages/shared/src/index.ts') },
       { find: /^@atlas\/contracts$/, replacement: src('./packages/contracts/src/index.ts') },
       { find: /^@atlas\/contracts\/ipc$/, replacement: src('./packages/contracts/src/ipc.ts') },
+      {
+        find: /^@atlas\/conventional-commits$/,
+        replacement: src('./packages/conventional-commits/src/index.ts'),
+      },
+      { find: /^@atlas\/git$/, replacement: src('./packages/git/src/index.ts') },
       { find: /^@atlas\/projects$/, replacement: src('./packages/projects/src/index.ts') },
       { find: /^@atlas\/terminal$/, replacement: src('./packages/terminal/src/index.ts') },
       { find: /^@atlas\/sessions$/, replacement: src('./packages/sessions/src/index.ts') },

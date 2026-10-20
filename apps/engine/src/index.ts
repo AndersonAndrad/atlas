@@ -20,12 +20,12 @@ export {
 export { connectToEngine, fromSerialized, type EngineSocketClient } from './rpc/socket-client.js';
 export { engineEndpoint, readRunFile, runFilePath } from './rpc/endpoint.js';
 export * from './rpc/protocol.js';
-export { GitInspectionService } from './git/git-inspection-service.js';
 export {
-  createGitRunner,
-  gitEnvironment,
   GitCommandError,
+  GitInspectionService,
+  parseBranches,
+  parseStatusV2,
   type GitRunner,
-} from './git/git-runner.js';
-export { parseStatusV2, parseBranches } from './git/porcelain.js';
+} from '@atlas/git';
+export { createGitExecutor, createGitRunner, gitEnvironment } from './git/git-runner.js';
 export { OsProcessCwdResolver } from './adapters/process-cwd-resolver.js';

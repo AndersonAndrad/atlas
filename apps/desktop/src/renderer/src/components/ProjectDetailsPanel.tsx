@@ -1,4 +1,4 @@
-import { ListChecks, SquareTerminal, TriangleAlert } from 'lucide-react';
+import { GitBranch, ListChecks, SquareTerminal, TriangleAlert } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,8 @@ interface ProjectDetailsPanelProps {
   onRemove?: () => void;
   onOpenTerminal?: () => void;
   onNewSession?: () => void;
+  /** Opens the Git view on the project's repository. */
+  onOpenGit?: () => void;
 }
 
 export function ProjectDetailsPanel({
@@ -23,6 +25,7 @@ export function ProjectDetailsPanel({
   onRemove,
   onOpenTerminal,
   onNewSession,
+  onOpenGit,
 }: ProjectDetailsPanelProps) {
   const { project, availability, git } = details;
   const unavailable = availability.status !== 'available';
@@ -47,6 +50,12 @@ export function ProjectDetailsPanel({
             <Button variant="secondary" onClick={onOpenTerminal} disabled={unavailable}>
               <SquareTerminal />
               Open terminal
+            </Button>
+          )}
+          {onOpenGit && projectGit.status?.state === 'repository' && (
+            <Button variant="secondary" onClick={onOpenGit} disabled={unavailable}>
+              <GitBranch />
+              Git
             </Button>
           )}
           {onNewSession && (

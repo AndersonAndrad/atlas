@@ -1,4 +1,5 @@
-import { mkdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -8,6 +9,9 @@ import {
   type AtlasSession,
   type AtlasSessionDetails,
   type DirectoryChoice,
+  type GitOperation,
+  type GitRepositoryEntry,
+  type GitWorkingTree,
   type IpcResult,
   type Project,
   type TerminalAttachment,
@@ -322,6 +326,67 @@ describe('desktop IPC handlers', () => {
         ok: true,
         data: { desktopVersion: '0.4.0' },
       });
+    });
+  });
+
+  describe('git workflow', () => {
+    const gitRepository = (dir: string) => {
+      mkdirSync(dir, { recursive: true });
+      execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+      writeFileSync(path.join(dir, 'a.txt'), 'a\n');
+    };
+
+    it('only accepts repositories resolved from projects or terminals', async () => {
+      gitRepository(workspace);
+      const outsider = path.join(temp.dir, 'outsider');
+      gitRepository(outsider);
+      // Not registered: refused even though it is a valid repository.
+      expect(await invoke(IPC_CHANNELS.gitWorkingTree, outsider)).toMatchObject({
+        ok: false,
+        error: { code: 'GIT_REPOSITORY_UNAVAILABLE' },
+      });
+
+      const project = await registerProject();
+      const repositories = await invoke<GitRepositoryEntry[]>(IPC_CHANNELS.gitRepositories);
+      expect(repositories).toMatchObject({
+        ok: true,
+        data: [{ repositoryRoot: workspace, projectIds: [project.id], terminalIds: [] }],
+      });
+      const tree = await invoke<GitWorkingTree>(IPC_CHANNELS.gitWorkingTree, workspace);
+      expect(tree).toMatchObject({
+        ok: true,
+        data: { files: [{ path: 'a.txt', unstaged: 'untracked' }] },
+      });
+      expect(await invoke(IPC_CHANNELS.gitWorkingTree, outsider)).toMatchObject({ ok: false });
+
+      // Removing the project revokes access immediately.
+      await invoke(IPC_CHANNELS.removeProject, project.id);
+      expect(await invoke(IPC_CHANNELS.gitWorkingTree, workspace)).toMatchObject({
+        ok: false,
+        error: { code: 'GIT_REPOSITORY_UNAVAILABLE' },
+      });
+    });
+
+    it('validates Git payloads and reports operations as events', async () => {
+      gitRepository(workspace);
+      await registerProject();
+      for (const paths of [['../escape'], ['/etc/passwd'], []]) {
+        expect(
+          await invoke(IPC_CHANNELS.gitStage, { repositoryRoot: workspace, paths }),
+        ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+      }
+      expect(
+        await invoke(IPC_CHANNELS.gitPush, { repositoryRoot: workspace, force: true }),
+      ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+
+      const staged = await invoke<GitOperation>(IPC_CHANNELS.gitStage, {
+        repositoryRoot: workspace,
+        paths: ['a.txt'],
+      });
+      expect(staged).toMatchObject({ ok: true, data: { kind: 'stage', status: 'succeeded' } });
+      const kinds = events.map(({ event }) => event.type);
+      expect(kinds).toContain('git-operation');
+      expect(kinds).toContain('git');
     });
   });
 

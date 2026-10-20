@@ -1,6 +1,6 @@
 {
   "name": "@atlas/engine",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "@atlas/contracts": "workspace:*",
+    "@atlas/conventional-commits": "workspace:*",
+    "@atlas/git": "workspace:*",
     "@atlas/persistence": "workspace:*",
     "@atlas/projects": "workspace:*",
     "@atlas/sessions": "workspace:*",

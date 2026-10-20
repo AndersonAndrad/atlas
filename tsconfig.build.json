@@ -3,6 +3,8 @@
   "references": [
     { "path": "packages/shared" },
     { "path": "packages/contracts" },
+    { "path": "packages/conventional-commits" },
+    { "path": "packages/git" },
     { "path": "packages/projects" },
     { "path": "packages/terminal" },
     { "path": "packages/sessions" },

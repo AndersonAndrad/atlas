@@ -51,6 +51,7 @@ interface TerminalWorkspaceProps {
   /** Closes a terminal, asking first when a program is running. */
   onRequestClose: (sessionId: string) => void;
   onProjectInfo: (sessionId: string) => void;
+  onOpenGit: (sessionId: string) => void;
   onFontSize: (delta: number | 'reset') => void;
   onPreferences: (changes: UpdateTerminalPreferencesInput) => void;
   /** Subscribes to menu commands while the workspace is shown. */
@@ -71,6 +72,7 @@ export function TerminalWorkspace({
   onSessionChanged,
   onRequestClose,
   onProjectInfo,
+  onOpenGit,
   onFontSize,
   onPreferences,
   subscribeCommands,
@@ -314,6 +316,7 @@ export function TerminalWorkspace({
             onRestart={(sessionId) => void restart(sessionId)}
             onCloseTab={onRequestClose}
             onProjectInfo={onProjectInfo}
+            onOpenGit={onOpenGit}
             onRatio={(splitId, ratio) => update((value) => setSplitRatio(value, splitId, ratio))}
             registerHandle={registerHandle}
           />

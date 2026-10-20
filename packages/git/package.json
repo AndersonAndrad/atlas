@@ -1,0 +1,19 @@
+{
+  "name": "@atlas/git",
+  "version": "0.5.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@atlas/contracts": "workspace:*",
+    "@atlas/conventional-commits": "workspace:*",
+    "@atlas/shared": "workspace:*"
+  }
+}

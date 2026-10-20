@@ -21,6 +21,7 @@ interface ProjectsViewProps {
   runningTerminals: (projectId: string) => number;
   onOpenTerminal: (projectId: string) => void;
   onNewSession: (projectId: string) => void;
+  onOpenGit: (projectId: string) => void;
   /** Called after a project was removed (its terminals are gone too). */
   onProjectRemoved: () => void;
 }
@@ -30,6 +31,7 @@ export function ProjectsView({
   runningTerminals,
   onOpenTerminal,
   onNewSession,
+  onOpenGit,
   onProjectRemoved,
 }: ProjectsViewProps) {
   const { items, selected, selectedId, setSelectedId, loadError, reload, select } = projects;
@@ -115,6 +117,7 @@ export function ProjectsView({
                   onRemove={() => setDialog({ kind: 'remove', project: selected.project })}
                   onOpenTerminal={() => onOpenTerminal(selected.project.id)}
                   onNewSession={() => onNewSession(selected.project.id)}
+                  onOpenGit={() => onOpenGit(selected.project.id)}
                 />
               ) : (
                 <p className="text-muted-foreground py-8 text-center">

@@ -1,7 +1,7 @@
 import { stat } from 'node:fs/promises';
 import type { GitRepositorySnapshot, GitStatus, GitUnavailableReason } from '@atlas/contracts';
 import { describeError, noopLogger, type Logger } from '@atlas/shared';
-import { GitCommandError, type GitRunner } from './git-runner.js';
+import { GitCommandError, type GitRunner } from './runner.js';
 import { parseBranches, parseStatusV2 } from './porcelain.js';
 
 export interface GitInspectionOptions {

@@ -7,6 +7,7 @@ import path from 'node:path';
 import {
   CreateProjectInputSchema,
   parseInput,
+  type GitRepositoryEntry,
   type GitStatus,
   type Project,
   type TerminalGitContext,
@@ -50,8 +51,15 @@ import { OsProcessCwdResolver } from './adapters/process-cwd-resolver.js';
 import { ShellEnvironment } from './adapters/shell-environment.js';
 import { CUSTOM_SHELLS_FILE_NAME, SystemShellProvider } from './adapters/system-shell-provider.js';
 import { DATABASE_FILE_NAME, resolveDataDir } from './data-dir.js';
-import { GitInspectionService } from './git/git-inspection-service.js';
-import { createGitRunner, type GitRunner } from './git/git-runner.js';
+import {
+  GitInspectionService,
+  GitOperationCoordinator,
+  GitPreferencesStore,
+  GitWorkspaceService,
+  type GitExecutor,
+  type GitRunner,
+} from '@atlas/git';
+import { createGitExecutor, createGitRunner } from './git/git-runner.js';
 import { RepositoryWatcher } from './git/repository-watcher.js';
 
 export interface TerminalRuntimeOptions {
@@ -78,6 +86,8 @@ export interface EngineOptions {
   inspector?: PathInspector;
   /** Runs git commands; defaults to the system `git` executable. */
   gitRunner?: GitRunner;
+  /** Runs Git workflow commands (mutations included); defaults to the system `git`. */
+  gitExecutor?: GitExecutor;
   /** Version of this Engine build; defaults to the @atlas/engine package version. */
   engineVersion?: string;
   /**
@@ -95,6 +105,17 @@ export interface Engine {
   readonly logger: Logger;
   readonly projects: ProjectService;
   readonly git: GitInspectionService;
+  /** Git workflow (SDD-004): status details, diffs and mutations. */
+  readonly gitWorkspace: GitWorkspaceService;
+  readonly gitOperations: GitOperationCoordinator;
+  readonly gitPreferences: GitPreferencesStore;
+  /**
+   * Repositories of registered projects and open terminals. Git workflow requests
+   * may only target these roots.
+   */
+  gitRepositories(): Promise<GitRepositoryEntry[]>;
+  /** Returns `repositoryRoot` when it is one of `gitRepositories()`, else throws. */
+  requireGitRepository(repositoryRoot: string): Promise<string>;
   readonly terminalSettings: TerminalSettings;
   /** Present only when the Engine was created with `terminals`. */
   readonly terminals: TerminalService | undefined;
@@ -291,6 +312,78 @@ export function createEngine(options: EngineOptions = {}): Engine {
     return status;
   };
 
+  const gitOperations = new GitOperationCoordinator({
+    generateId: randomUUID,
+    now: () => clock.now(),
+    logger,
+    onChange: (operation) => terminals?.publish({ type: 'git-operation', operation }),
+  });
+  const gitWorkspace = new GitWorkspaceService({
+    exec: options.gitExecutor ?? createGitExecutor({ env }),
+    coordinator: gitOperations,
+    now: () => clock.now(),
+    logger,
+    onRepositoryChanged: (repositoryRoot) => {
+      git.invalidate(repositoryRoot);
+      terminals?.publish({ type: 'git', repositoryRoot });
+    },
+  });
+  const gitPreferences = new GitPreferencesStore(settings, logger);
+
+  // Roots resolved by the Engine itself; client-supplied paths are only accepted
+  // when they match one of them.
+  let knownRepositories = new Map<string, GitRepositoryEntry>();
+  const discoverRepositories = async (): Promise<GitRepositoryEntry[]> => {
+    const found = new Map<string, GitRepositoryEntry>();
+    const add = (status: GitStatus, source: { projectId?: string; terminalId?: string }) => {
+      if (status.state !== 'repository') return;
+      const root = status.snapshot.repositoryRoot;
+      const entry = found.get(root) ?? {
+        repositoryRoot: root,
+        name: path.basename(root),
+        projectIds: [],
+        terminalIds: [],
+      };
+      if (source.projectId !== undefined) entry.projectIds.push(source.projectId);
+      if (source.terminalId !== undefined) entry.terminalIds.push(source.terminalId);
+      found.set(root, entry);
+    };
+    const projectList = await projects.listDetails();
+    await Promise.all([
+      ...projectList
+        .filter((details) => details.availability.status === 'available')
+        .map(async (details) =>
+          add(await inspectAndWatch(details.project.workspacePath), {
+            projectId: details.project.id,
+          }),
+        ),
+      ...(terminals?.list() ?? []).map(async (session) =>
+        add(await inspectAndWatch(session.currentCwd), { terminalId: session.id }),
+      ),
+    ]);
+    knownRepositories = found;
+    return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
+  };
+
+  /** Whether a known repository is still the repository of one of its sources. */
+  const stillResolves = async (entry: GitRepositoryEntry): Promise<boolean> => {
+    const resolvesTo = async (directory: string) => {
+      const status = await git.inspect(directory);
+      return (
+        status.state === 'repository' && status.snapshot.repositoryRoot === entry.repositoryRoot
+      );
+    };
+    for (const projectId of entry.projectIds) {
+      const project = await projects.findById(projectId);
+      if (project !== null && (await resolvesTo(project.workspacePath))) return true;
+    }
+    for (const terminalId of entry.terminalIds) {
+      const session = terminals?.list().find((candidate) => candidate.id === terminalId);
+      if (session !== undefined && (await resolvesTo(session.currentCwd))) return true;
+    }
+    return false;
+  };
+
   const requireTerminals = (): TerminalService => {
     if (terminals === undefined) {
       throw new AtlasError('ENGINE_UNAVAILABLE', 'Terminal runtime is not enabled.');
@@ -314,6 +407,21 @@ export function createEngine(options: EngineOptions = {}): Engine {
     logger,
     projects,
     git,
+    gitWorkspace,
+    gitOperations,
+    gitPreferences,
+    gitRepositories: discoverRepositories,
+    requireGitRepository: async (repositoryRoot) => {
+      // Re-checking the sources of a known root is cheap (cached inspection) and
+      // reflects removed projects and closed terminals immediately.
+      const known = knownRepositories.get(repositoryRoot);
+      if (known !== undefined && (await stillResolves(known))) return repositoryRoot;
+      await discoverRepositories();
+      if (!knownRepositories.has(repositoryRoot)) {
+        throw new AtlasError('GIT_REPOSITORY_UNAVAILABLE');
+      }
+      return repositoryRoot;
+    },
     terminalSettings,
     terminals,
     terminalGroups,

@@ -1,7 +1,7 @@
 # ATLAS Architecture
 
-Status: reflects SDD-001 (Project Registry), SDD-002 (Terminal Manager) and SDD-003
-Milestone A (Workspace & Git).
+Status: reflects SDD-001 (Project Registry), SDD-002 (Terminal Manager), SDD-003
+(Workspace & Git, ATLAS Sessions) and SDD-004 Milestone A (Git workflow).
 
 ## Overview
 
@@ -41,16 +41,18 @@ process is a thin, security-focused broker between the renderer and the Engine.
 
 ## Workspace layout
 
-| Path                   | Responsibility                                                                                                                | Depends on                    |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| `packages/shared`      | `AtlasError`, error codes and user-safe messages, `Logger` port                                                               | —                             |
-| `packages/contracts`   | Zod schemas/types: projects, terminals, layouts, Engine method contract (`engine-api`), IPC contract (`./ipc`, Zod-free)      | shared, zod                   |
-| `packages/projects`    | Project domain: `ProjectService`, ports, path normalization                                                                   | shared, contracts             |
-| `packages/terminal`    | Terminal domain/application: `TerminalService`, lifecycle state machine, `TerminalSettings`, ports (PTY, mirror, shells, …)   | shared, contracts             |
-| `packages/persistence` | SQLite, migrations, project/settings/terminal-session repositories                                                            | shared, contracts, ports      |
-| `apps/engine`          | Composition root `createEngine()`, `startEngineHost()`, adapters (node-pty, headless mirror, shells), RPC dispatcher + socket | all packages, node-pty, xterm |
-| `apps/cli`             | `atlas` command line client                                                                                                   | engine                        |
-| `apps/desktop`         | Electron main (broker), Engine host entry, preload bridge, React renderer (shadcn/ui, xterm.js)                               | engine (main/host), contracts |
+| Path                            | Responsibility                                                                                                                                              | Depends on                              |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `packages/shared`               | `AtlasError`, error codes and user-safe messages, `Logger` port                                                                                             | —                                       |
+| `packages/contracts`            | Zod schemas/types: projects, terminals, layouts, Engine method contract (`engine-api`), IPC contract (`./ipc`, Zod-free)                                    | shared, zod                             |
+| `packages/projects`             | Project domain: `ProjectService`, ports, path normalization                                                                                                 | shared, contracts                       |
+| `packages/terminal`             | Terminal domain/application: `TerminalService`, lifecycle state machine, `TerminalSettings`, ports (PTY, mirror, shells, …)                                 | shared, contracts                       |
+| `packages/conventional-commits` | Conventional Commits 1.0.0 validator, stricter project rules, deterministic commit suggestions (no dependencies; also used by the renderer)                 | —                                       |
+| `packages/git`                  | Git inspection and workflow: porcelain parsers, `GitInspectionService`, `GitWorkspaceService`, `GitOperationCoordinator`, credential redaction, preferences | shared, contracts, conventional-commits |
+| `packages/persistence`          | SQLite, migrations, project/settings/terminal-session repositories                                                                                          | shared, contracts, ports                |
+| `apps/engine`                   | Composition root `createEngine()`, `startEngineHost()`, adapters (node-pty, headless mirror, shells), RPC dispatcher + socket                               | all packages, node-pty, xterm           |
+| `apps/cli`                      | `atlas` command line client                                                                                                                                 | engine                                  |
+| `apps/desktop`                  | Electron main (broker), Engine host entry, preload bridge, React renderer (shadcn/ui, xterm.js)                                                             | engine (main/host), contracts           |
 
 Dependency direction is inward: `projects` and `terminal` define ports; `persistence` and
 `engine` implement them. Domain packages never import node-pty, SQLite or Electron.
@@ -224,7 +226,7 @@ deleted. Changes are broadcast as `groups` events.
 
 ### Git inspection
 
-`GitInspectionService` (`apps/engine/src/git`) runs the system `git` through `execFile`
+`GitInspectionService` (`packages/git`; the `execFile` runner lives in `apps/engine/src/git`) runs the system `git` through `execFile`
 (argument arrays, no shell) with `-c core.fsmonitor=false --no-optional-locks`, inherited
 `GIT_*` variables removed, `GIT_TERMINAL_PROMPT=0`, a 5 s timeout, at most 4 concurrent
 processes and a 1.5 s cache per directory. Commands:
@@ -248,6 +250,38 @@ changes, when `RepositoryWatcher` sees HEAD/index/refs change in the git directo
 (debounced 500 ms, best effort), and every 30 s for watched repositories (at most 32).
 Changes are broadcast as `git` events; clients re-request the snapshot. Git never runs
 on output chunks and never blocks terminal I/O (separate processes in the Engine host).
+
+## Git workflow (SDD-004 Milestone A)
+
+Full description: `docs/sdd/SDD-004-git-and-ai-execution.md`, Part I.
+
+```text
+ Renderer Git view ── IPC (Zod) ──► main ── Engine request ──► dispatcher
+   commit dialog, diff, branches                                   │ requireGitRepository(root)
+   validateCommitMessage (as you type)                             ▼
+                                              GitWorkspaceService ──► GitOperationCoordinator
+                                              (status, diff, stage,     per repository: lanes
+                                               commit, push, pull,       "index" and "remote";
+                                               fetch, branches)          queued/running/... events
+                                                     │ GitExecutor (spawn, argv, no shell)
+                                                     ▼
+                                                   git ──► hooks, credential helpers
+```
+
+- **Authorization**: requests name a `repositoryRoot`, accepted only when the Engine itself
+  resolved it from a registered project or a live terminal (re-checked per request). Paths
+  must be listed by `git status`; branch names exist or pass `check-ref-format`.
+- **Execution**: `createGitExecutor` (spawn) adds stdin (commit messages), exit-code
+  allow-lists, bounded stdout, and `--progress` lines. Workflow commands use
+  `--literal-pathspecs`; diffs use `--no-ext-diff --no-textconv`. Hooks always run.
+- **Index semantics**: commits commit the index after the user's explicit selection
+  (`stage`/`unstage` lists); an index fingerprint (HEAD + `diff --cached --raw`) detects
+  concurrent changes (`GIT_INDEX_CHANGED`).
+- **Operations**: expected failures are reported on the `GitOperation` with a code and
+  credential-free Git output; validation problems are request errors. `git-operation`
+  events update every view; mutations invalidate the inspection cache and emit `git`.
+- **Conventional Commits**: validated in the renderer while typing and again in the Engine,
+  with stricter project rules from `git.preferences`.
 
 ### Project context of a terminal
 

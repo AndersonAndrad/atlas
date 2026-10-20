@@ -7,6 +7,18 @@ import {
   SessionTaskIdSchema,
   UpdateSessionInputSchema,
   CreateTerminalInputSchema,
+  GitCommitInputSchema,
+  GitCreateBranchInputSchema,
+  GitDiffInputSchema,
+  GitFetchInputSchema,
+  GitOperationIdSchema,
+  GitPathsInputSchema,
+  GitPullInputSchema,
+  GitPushInputSchema,
+  GitRenameBranchInputSchema,
+  GitRepositoryRootSchema,
+  GitSwitchBranchInputSchema,
+  UpdateGitPreferencesSchema,
   IPC_CHANNELS,
   IPC_SEND_CHANNELS,
   TERMINAL_VIEW_ID_PATTERN,
@@ -306,6 +318,42 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     engine.call('git.project', projectId as string),
   );
   handle(IPC_CHANNELS.appInfo, NoArgs, () => deps.appInfo());
+
+  // Git workflow (SDD-004). The Engine only accepts repository roots it resolved
+  // from registered projects or open terminals.
+  const RootArgs = z.tuple([GitRepositoryRootSchema]);
+  const gitCall = (
+    channel: string,
+    schema: z.ZodType<unknown[]>,
+    method: Parameters<EngineCaller['call']>[0],
+  ) =>
+    handle(channel, schema, (args) =>
+      (engine.call as (method: string, ...params: unknown[]) => Promise<unknown>)(method, ...args),
+    );
+  gitCall(IPC_CHANNELS.gitRepositories, NoArgs, 'git.repositories');
+  gitCall(IPC_CHANNELS.gitWorkingTree, RootArgs, 'git.workingTree');
+  gitCall(IPC_CHANNELS.gitDiff, z.tuple([GitDiffInputSchema]), 'git.diff');
+  gitCall(IPC_CHANNELS.gitStage, z.tuple([GitPathsInputSchema]), 'git.stage');
+  gitCall(IPC_CHANNELS.gitUnstage, z.tuple([GitPathsInputSchema]), 'git.unstage');
+  gitCall(IPC_CHANNELS.gitCommit, z.tuple([GitCommitInputSchema]), 'git.commit');
+  gitCall(IPC_CHANNELS.gitPush, z.tuple([GitPushInputSchema]), 'git.push');
+  gitCall(IPC_CHANNELS.gitPull, z.tuple([GitPullInputSchema]), 'git.pull');
+  gitCall(IPC_CHANNELS.gitPullInfo, RootArgs, 'git.pullInfo');
+  gitCall(IPC_CHANNELS.gitFetch, z.tuple([GitFetchInputSchema]), 'git.fetch');
+  gitCall(IPC_CHANNELS.gitBranches, RootArgs, 'git.branches');
+  gitCall(IPC_CHANNELS.gitRemotes, RootArgs, 'git.remotes');
+  gitCall(IPC_CHANNELS.gitCreateBranch, z.tuple([GitCreateBranchInputSchema]), 'git.createBranch');
+  gitCall(IPC_CHANNELS.gitSwitchBranch, z.tuple([GitSwitchBranchInputSchema]), 'git.switchBranch');
+  gitCall(IPC_CHANNELS.gitRenameBranch, z.tuple([GitRenameBranchInputSchema]), 'git.renameBranch');
+  gitCall(IPC_CHANNELS.gitSuggestMessage, z.tuple([GitPathsInputSchema]), 'git.suggestMessage');
+  gitCall(IPC_CHANNELS.gitOperations, NoArgs, 'git.operations');
+  gitCall(IPC_CHANNELS.gitCancelOperation, z.tuple([GitOperationIdSchema]), 'git.cancelOperation');
+  gitCall(IPC_CHANNELS.gitGetPreferences, NoArgs, 'git.getPreferences');
+  gitCall(
+    IPC_CHANNELS.gitSetPreferences,
+    z.tuple([UpdateGitPreferencesSchema]),
+    'git.setPreferences',
+  );
 
   // ATLAS Sessions (SDD-003 Milestone B). Workspace directories must come from the picker.
   handle(

@@ -1,10 +1,70 @@
 # ATLAS Status
 
-Last updated: 2026-10-20 — SDD-003 Milestone B (PLAN-004 revision 1).
+Last updated: 2026-10-20 — SDD-004 Milestone A (PLAN-008 revision 1).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B
-(ATLAS Sessions) implemented and validated on macOS (arm64); awaiting the developer's
-approval. Version 0.4.2 (PLAN-005: sidebar logo, full window title, ahead/behind per project in the Terminals sidebar; PLAN-007: dialogs and confirmation dialogs stay within bounds with long values).
+(ATLAS Sessions) and SDD-004 Milestone A (Git workflow) implemented and validated on macOS
+(arm64); awaiting the developer's approval. SDD-004 Milestone B (Claude Code and Codex
+execution) not started — it needs its own plan. Version 0.5.0.
+
+Earlier in this version line: 0.4.1 (PLAN-005: sidebar logo, full window title,
+ahead/behind per project in the Terminals sidebar) and 0.4.2 (PLAN-007: dialogs stay within
+bounds with long values).
+
+## SDD-004 Milestone A — Git workflow
+
+| Requirement | Summary                                                                                                                                |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-401      | Git view from the sidebar, project details, terminal header, terminal context menu and ⌘⇧G; standalone terminals; empty state          |
+| FR-402/403  | Staged / unstaged / untracked / conflicts with per-file and all-file staging; read-only diff (binary, truncated, untracked)            |
+| FR-404/405  | Commit dialog: branch, file count, line stats, staged indicators, explicit inclusion of unstaged files, keyboard (⌘/Ctrl+Enter)        |
+| FR-406      | Conventional Commits 1.0.0 validator (header, body, footers, breaking changes); stricter project rules in Settings                     |
+| FR-407      | Deterministic suggestions with rationale; pluggable provider port; AI strategy deferred to Milestone B                                 |
+| FR-408/409  | Real commits with hooks, index fingerprint, Git errors; Commit & Push with separate results and explicit upstream                      |
+| FR-410–413  | Push (destination, ahead), Pull (fast-forward only by default, strategy explained), Fetch (progress, cancel), branches (no deletion)   |
+| FR-414–416  | Operation records and events, per-repository lanes, argv-only execution, literal pathspecs, no destructive commands, no stored secrets |
+
+### Acceptance criteria (§11, Milestone A)
+
+| Criterion                                         | Evidence                                                                            |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Git panel with registered projects                | E2E "inspects, stages and commits…"; IPC authorization test                         |
+| Git panel with standalone terminals               | E2E "opens the Git view from standalone terminals…"                                 |
+| Changed files inspected and selected; diff viewer | integration (status mapping, diffs) and E2E                                         |
+| Staging and unstaging                             | integration (literal pathspecs, renames, unborn HEAD) and E2E                       |
+| Conventional Commits validated                    | validator unit tests (specification examples) and E2E validation feedback           |
+| Manual messages without AI; optional suggestions  | E2E (manual message; deterministic suggestion)                                      |
+| Real commits; Commit & Push                       | integration (hooks, partial staging, selection) and E2E against a bare remote       |
+| Push, Pull, Fetch                                 | integration (rejected push, explicit upstream, ff-only, divergent, conflicts) + E2E |
+| Branch creation and switching                     | integration and E2E                                                                 |
+| Git errors reported                               | integration (hooks, identity, nothing to commit, network without credential leaks)  |
+| Conflicting operations coordinated                | coordinator unit tests; integration "serializes conflicting mutations"              |
+| Existing terminal functionality                   | full unit and E2E suites                                                            |
+| Unit, integration and desktop tests pass          | see below                                                                           |
+
+### Validation results (2026-10-20, macOS arm64, Node 24.18.0, Git 2.55.0)
+
+| Check                                                        | Result                               |
+| ------------------------------------------------------------ | ------------------------------------ |
+| `pnpm install --frozen-lockfile`, `pnpm clean`, `pnpm build` | ok (renderer 1,089 kB, was 1,029 kB) |
+| `pnpm typecheck`, `pnpm lint`, `pnpm format:check`           | ok                                   |
+| `pnpm audit`                                                 | no known vulnerabilities             |
+| `pnpm test`                                                  | 371/371 (29 files)                   |
+| `pnpm test:e2e` (Playwright, Electron)                       | 41/41, two consecutive runs          |
+
+### Staff review
+
+No Critical or High findings. Fixed during review: repository authorization rediscovered
+every project and terminal periodically and kept a removed project's repository authorized
+for a few seconds (Medium; now a cached per-request check); an upstream remote read from
+the configuration was not checked against the configured remotes; untracked files were
+opened without `O_NOFOLLOW`; the commit dialog did not say that unselected staged files
+leave the index; a pull during an unfinished merge reported a misleading conflict (all
+Low). Regression tests were added for each.
+
+### Known limitations
+
+See `docs/sdd/SDD-004-git-and-ai-execution.md` → Part I "Known limitations".
 
 ## SDD-003 Milestone B — ATLAS Sessions
 

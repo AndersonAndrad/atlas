@@ -3,9 +3,26 @@ import {
   type TerminalPreferences,
   type TerminalSession,
 } from '@atlas/contracts';
-import { ChevronDown, ChevronUp, Info, RotateCcw, Search, X } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronUp,
+  Eraser,
+  GitBranch,
+  Info,
+  RotateCcw,
+  Search,
+  X,
+} from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { GitBadges } from '@/components/git/GitBadges';
@@ -35,6 +52,8 @@ interface TerminalPaneProps {
   onCloseTab: () => void;
   /** Opens the project details (or offers to register the directory). */
   onProjectInfo: () => void;
+  /** Opens the Git view on the repository of this terminal's directory. */
+  onOpenGit: () => void;
   registerHandle: (paneId: string, handle: TerminalPaneHandle | null) => void;
 }
 
@@ -50,6 +69,7 @@ export function TerminalPane({
   onRestart,
   onCloseTab,
   onProjectInfo,
+  onOpenGit,
   registerHandle,
 }: TerminalPaneProps) {
   const git = useTerminalGit(session.id, session.currentCwd, session.status === 'RUNNING');
@@ -154,6 +174,17 @@ export function TerminalPane({
         )}
         {snapshot && <GitBadges snapshot={snapshot} />}
         <span className="ml-auto flex items-center gap-0.5">
+          {snapshot && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Open Git panel"
+              title="Git panel"
+              onClick={onOpenGit}
+            >
+              <GitBranch />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon-xs"
@@ -234,11 +265,46 @@ export function TerminalPane({
         </div>
       )}
 
-      <div
-        className="terminal-host min-h-0 flex-1 px-2 pt-1"
-        ref={hostRef}
-        data-testid="terminal-host"
-      />
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            className="terminal-host min-h-0 flex-1 px-2 pt-1"
+            ref={hostRef}
+            data-testid="terminal-host"
+          />
+        </ContextMenuTrigger>
+        <ContextMenuContent
+          data-testid="terminal-context-menu"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            viewRef.current?.focus();
+          }}
+        >
+          <ContextMenuItem disabled={snapshot === null} onSelect={onOpenGit}>
+            <GitBranch />
+            Open Git panel
+            <ContextMenuShortcut>⇧⌘G</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={onProjectInfo}>
+            <Info />
+            Project details
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            onSelect={() => {
+              setSearchOpen(true);
+              requestAnimationFrame(() => searchRef.current?.focus());
+            }}
+          >
+            <Search />
+            Find…
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => viewRef.current?.clear()}>
+            <Eraser />
+            Clear terminal
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
 
       {(ended || attachError) && (
         <div

@@ -59,6 +59,9 @@ importers:
       '@atlas/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@atlas/conventional-commits':
+        specifier: workspace:*
+        version: link:../../packages/conventional-commits
       '@atlas/engine':
         specifier: workspace:*
         version: link:../engine
@@ -153,6 +156,12 @@ importers:
       '@atlas/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@atlas/conventional-commits':
+        specifier: workspace:*
+        version: link:../../packages/conventional-commits
+      '@atlas/git':
+        specifier: workspace:*
+        version: link:../../packages/git
       '@atlas/persistence':
         specifier: workspace:*
         version: link:../../packages/persistence
@@ -186,6 +195,20 @@ importers:
       zod:
         specifier: 4.6.5
         version: 4.6.5
+
+  packages/conventional-commits: {}
+
+  packages/git:
+    dependencies:
+      '@atlas/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@atlas/conventional-commits':
+        specifier: workspace:*
+        version: link:../conventional-commits
+      '@atlas/shared':
+        specifier: workspace:*
+        version: link:../shared
 
   packages/persistence:
     dependencies:

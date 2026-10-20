@@ -49,6 +49,7 @@ const VIEW_SHORTCUTS: readonly ShortcutDefinition[] = [
   { command: 'view.projects', label: 'Projects', mac: 'Cmd+1', other: 'Ctrl+Shift+1' },
   { command: 'view.terminals', label: 'Terminals', mac: 'Cmd+2', other: 'Ctrl+Shift+2' },
   { command: 'view.sessions', label: 'Sessions', mac: 'Cmd+3', other: 'Ctrl+Shift+3' },
+  { command: 'view.git', label: 'Git', mac: 'Cmd+Shift+G', other: 'Ctrl+Shift+G' },
 ];
 
 export interface MenuOptions {

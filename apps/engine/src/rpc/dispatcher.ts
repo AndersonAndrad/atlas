@@ -7,8 +7,18 @@ import {
   type CreateTerminalInput,
   type EngineMethod,
   type EngineMethodResults,
+  type GitCommitInput,
+  type GitCreateBranchInput,
+  type GitDiffInput,
+  type GitFetchInput,
+  type GitPathsInput,
+  type GitPullInput,
+  type GitPushInput,
+  type GitRenameBranchInput,
+  type GitSwitchBranchInput,
   type UpdateProjectInput,
 } from '@atlas/contracts';
+import { deterministicSuggestionProvider } from '@atlas/conventional-commits';
 import { AtlasError } from '@atlas/shared';
 import type { TerminalService } from '@atlas/terminal';
 import type { Engine } from '../engine.js';
@@ -40,7 +50,9 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     }
     return engine.terminalGroups;
   };
-  const { projects } = engine;
+  const { projects, gitWorkspace: gitService } = engine;
+  /** Git workflow requests only reach repositories the Engine resolved itself. */
+  const repo = (repositoryRoot: string) => engine.requireGitRepository(repositoryRoot);
 
   const handlers: {
     [M in EngineMethod]: (
@@ -148,6 +160,44 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     },
 
     'git.project': ([projectId]: [string]) => engine.projectGit(projectId),
+    'git.repositories': () => engine.gitRepositories(),
+    'git.workingTree': async ([root]: [string]) => gitService.workingTree(await repo(root)),
+    'git.diff': async ([{ repositoryRoot, ...input }]: [GitDiffInput]) =>
+      gitService.diff(await repo(repositoryRoot), input),
+    'git.stage': async ([input]: [GitPathsInput]) =>
+      gitService.stage(await repo(input.repositoryRoot), input.paths),
+    'git.unstage': async ([input]: [GitPathsInput]) =>
+      gitService.unstage(await repo(input.repositoryRoot), input.paths),
+    'git.commit': async ([input]: [GitCommitInput]) => {
+      await repo(input.repositoryRoot);
+      return gitService.commit(input, await engine.gitPreferences.commitRules());
+    },
+    'git.push': async ([input]: [GitPushInput]) =>
+      gitService.push(await repo(input.repositoryRoot), input.setUpstream),
+    'git.pull': async ([input]: [GitPullInput]) =>
+      gitService.pull(await repo(input.repositoryRoot), input.mode),
+    'git.pullInfo': async ([root]: [string]) => gitService.pullInfo(await repo(root)),
+    'git.fetch': async ([input]: [GitFetchInput]) =>
+      gitService.fetch(await repo(input.repositoryRoot), input.remote),
+    'git.branches': async ([root]: [string]) => gitService.branches(await repo(root)),
+    'git.remotes': async ([root]: [string]) => gitService.remotes(await repo(root)),
+    'git.createBranch': async ([{ repositoryRoot, ...input }]: [GitCreateBranchInput]) =>
+      gitService.createBranch(await repo(repositoryRoot), input),
+    'git.switchBranch': async ([{ repositoryRoot, ...input }]: [GitSwitchBranchInput]) =>
+      gitService.switchBranch(await repo(repositoryRoot), input),
+    'git.renameBranch': async ([{ repositoryRoot, ...input }]: [GitRenameBranchInput]) =>
+      gitService.renameBranch(await repo(repositoryRoot), input),
+    'git.suggestMessage': async ([input]: [GitPathsInput]) => {
+      const root = await repo(input.repositoryRoot);
+      if ((await engine.gitPreferences.get()).suggestions === 'off') return null;
+      return deterministicSuggestionProvider.suggest(
+        await gitService.suggestionInput(root, input.paths),
+      );
+    },
+    'git.operations': () => engine.gitOperations.list(),
+    'git.cancelOperation': ([id]: [string]) => engine.gitOperations.cancel(id),
+    'git.getPreferences': () => engine.gitPreferences.get(),
+    'git.setPreferences': ([input]: [unknown]) => engine.gitPreferences.update(input),
 
     'sessions.list': ([filter]: [unknown]) => engine.sessions.list(filter),
     'sessions.get': ([id]: [string]) => engine.sessions.getDetails(id),

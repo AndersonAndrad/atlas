@@ -1,7 +1,7 @@
 import { watch, type FSWatcher } from 'node:fs';
 import path from 'node:path';
 import { describeError, noopLogger, type Logger } from '@atlas/shared';
-import type { GitInspectionService } from './git-inspection-service.js';
+import type { GitInspectionService } from '@atlas/git';
 
 export interface RepositoryWatcherOptions {
   git: GitInspectionService;

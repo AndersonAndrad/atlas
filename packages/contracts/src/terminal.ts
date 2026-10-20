@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ProjectIdSchema, WorkspacePathSchema } from './project.js';
+import type { GitOperation } from './git.js';
 
 export const TERMINAL_STATUSES = [
   'CREATED',
@@ -217,7 +218,9 @@ export type TerminalEvent =
   | { type: 'removed'; sessionId: string; projectId: string | null }
   | { type: 'groups'; groups: TerminalGroup[] }
   /** Git state of a repository may have changed; clients re-request snapshots. */
-  | { type: 'git'; repositoryRoot: string };
+  | { type: 'git'; repositoryRoot: string }
+  /** Progress or outcome of a Git operation started by any client. */
+  | { type: 'git-operation'; operation: GitOperation };
 
 export const TERMINAL_FONT_FAMILIES = ['system', 'menlo', 'sf-mono', 'monaco', 'courier'] as const;
 export type TerminalFontFamily = (typeof TERMINAL_FONT_FAMILIES)[number];

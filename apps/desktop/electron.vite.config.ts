@@ -14,6 +14,8 @@ const workspaceSources: Record<string, string> = {
   '@atlas/contracts': 'packages/contracts/src/index.ts',
   // Dependency-free subpath so the preload bundle does not include Zod.
   '@atlas/contracts/ipc': 'packages/contracts/src/ipc.ts',
+  '@atlas/conventional-commits': 'packages/conventional-commits/src/index.ts',
+  '@atlas/git': 'packages/git/src/index.ts',
   '@atlas/projects': 'packages/projects/src/index.ts',
   '@atlas/terminal': 'packages/terminal/src/index.ts',
   '@atlas/sessions': 'packages/sessions/src/index.ts',

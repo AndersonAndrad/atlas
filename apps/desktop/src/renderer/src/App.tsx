@@ -4,6 +4,7 @@ import { api } from './api';
 import { AboutDialog } from './components/AboutDialog';
 import { ProjectsView } from './components/ProjectsView';
 import { SettingsView } from './components/SettingsView';
+import { GitView, type GitOpenRequest } from './git/components/GitView';
 import { Sidebar, type AppView } from './components/Sidebar';
 import { TooltipProvider } from './components/ui/tooltip';
 import { useAppInfo, versionLabel } from './hooks/useAppInfo';
@@ -24,6 +25,7 @@ export function App() {
     projectId: string | null;
     nonce: number;
   } | null>(null);
+  const [gitRequest, setGitRequest] = useState<GitOpenRequest | null>(null);
   const projects = useProjects();
   const terminals = useTerminalSessions();
   const groups = useTerminalGroups();
@@ -64,6 +66,9 @@ export function App() {
           case 'view.sessions':
             setView('sessions');
             return;
+          case 'view.git':
+            setView('git');
+            return;
           case 'app.settings':
             setView('settings');
             return;
@@ -90,6 +95,11 @@ export function App() {
   };
 
   const clearOpenRequest = useCallback(() => setOpenRequest(null), []);
+  const clearGitRequest = useCallback(() => setGitRequest(null), []);
+  const openGit = (target: Omit<GitOpenRequest, 'nonce'>) => {
+    setGitRequest({ ...target, nonce: Date.now() });
+    setView('git');
+  };
   const clearSessionRequest = useCallback(() => setSessionRequest(null), []);
 
   const newSession = (projectId: string) => {
@@ -112,6 +122,7 @@ export function App() {
             runningTerminals={(projectId) => runningSessionCount(terminals.sessions, projectId)}
             onOpenTerminal={openTerminal}
             onNewSession={newSession}
+            onOpenGit={(projectId) => openGit({ projectId })}
             onProjectRemoved={() => void terminals.reload()}
           />
         )}
@@ -124,8 +135,10 @@ export function App() {
             openRequest={openRequest}
             onOpenRequestHandled={clearOpenRequest}
             subscribeCommands={subscribeCommands}
+            onOpenGit={(terminalId) => openGit({ terminalId })}
           />
         )}
+        {view === 'git' && <GitView request={gitRequest} onRequestHandled={clearGitRequest} />}
         {view === 'sessions' && (
           <SessionsView
             projects={projects}

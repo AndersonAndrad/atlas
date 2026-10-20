@@ -7,7 +7,31 @@ import type {
   UpdateProjectInput,
 } from './project.js';
 import type { AppInfo } from './app-info.js';
-import type { GitStatus, TerminalGitContext, TerminalProjectContext } from './git.js';
+import type {
+  GitBranchList,
+  GitCommitInput,
+  GitCommitResult,
+  GitCommitSuggestion,
+  GitCreateBranchInput,
+  GitDiffInput,
+  GitFetchInput,
+  GitFileDiff,
+  GitOperation,
+  GitPathsInput,
+  GitPreferences,
+  GitPullInfo,
+  GitPullInput,
+  GitPushInput,
+  GitRemote,
+  GitRenameBranchInput,
+  GitRepositoryEntry,
+  GitStatus,
+  GitSwitchBranchInput,
+  GitWorkingTree,
+  TerminalGitContext,
+  TerminalProjectContext,
+  UpdateGitPreferences,
+} from './git.js';
 import type {
   CreateTerminalInput,
   ShellCatalog,
@@ -76,6 +100,26 @@ export const IPC_CHANNELS = {
   deleteGroup: 'atlas:groups:delete',
 
   projectGit: 'atlas:git:project',
+  gitRepositories: 'atlas:git:repositories',
+  gitWorkingTree: 'atlas:git:working-tree',
+  gitDiff: 'atlas:git:diff',
+  gitStage: 'atlas:git:stage',
+  gitUnstage: 'atlas:git:unstage',
+  gitCommit: 'atlas:git:commit',
+  gitPush: 'atlas:git:push',
+  gitPull: 'atlas:git:pull',
+  gitPullInfo: 'atlas:git:pull-info',
+  gitFetch: 'atlas:git:fetch',
+  gitBranches: 'atlas:git:branches',
+  gitRemotes: 'atlas:git:remotes',
+  gitCreateBranch: 'atlas:git:create-branch',
+  gitSwitchBranch: 'atlas:git:switch-branch',
+  gitRenameBranch: 'atlas:git:rename-branch',
+  gitSuggestMessage: 'atlas:git:suggest-message',
+  gitOperations: 'atlas:git:operations',
+  gitCancelOperation: 'atlas:git:cancel-operation',
+  gitGetPreferences: 'atlas:git:get-preferences',
+  gitSetPreferences: 'atlas:git:set-preferences',
   appInfo: 'atlas:app:info',
 
   listSessions: 'atlas:sessions:list',
@@ -123,6 +167,7 @@ export const APP_COMMANDS = [
   'view.projects',
   'view.terminals',
   'view.sessions',
+  'view.git',
   'terminal.new',
   'terminal.close',
   'terminal.next',
@@ -227,6 +272,28 @@ export interface AtlasApi {
   };
   git: {
     project(projectId: string): Promise<IpcResult<GitStatus>>;
+    /** Repositories of registered projects and open terminals. */
+    repositories(): Promise<IpcResult<GitRepositoryEntry[]>>;
+    workingTree(repositoryRoot: string): Promise<IpcResult<GitWorkingTree>>;
+    diff(input: GitDiffInput): Promise<IpcResult<GitFileDiff>>;
+    stage(input: GitPathsInput): Promise<IpcResult<GitOperation>>;
+    unstage(input: GitPathsInput): Promise<IpcResult<GitOperation>>;
+    /** Commits the staged content after applying the explicit selection; never bypasses hooks. */
+    commit(input: GitCommitInput): Promise<IpcResult<GitCommitResult>>;
+    push(input: GitPushInput): Promise<IpcResult<GitOperation>>;
+    pull(input: GitPullInput): Promise<IpcResult<GitOperation>>;
+    pullInfo(repositoryRoot: string): Promise<IpcResult<GitPullInfo>>;
+    fetch(input: GitFetchInput): Promise<IpcResult<GitOperation>>;
+    branches(repositoryRoot: string): Promise<IpcResult<GitBranchList>>;
+    remotes(repositoryRoot: string): Promise<IpcResult<GitRemote[]>>;
+    createBranch(input: GitCreateBranchInput): Promise<IpcResult<GitOperation>>;
+    switchBranch(input: GitSwitchBranchInput): Promise<IpcResult<GitOperation>>;
+    renameBranch(input: GitRenameBranchInput): Promise<IpcResult<GitOperation>>;
+    suggestMessage(input: GitPathsInput): Promise<IpcResult<GitCommitSuggestion | null>>;
+    operations(): Promise<IpcResult<GitOperation[]>>;
+    cancelOperation(id: string): Promise<IpcResult<GitOperation>>;
+    getPreferences(): Promise<IpcResult<GitPreferences>>;
+    setPreferences(input: UpdateGitPreferences): Promise<IpcResult<GitPreferences>>;
   };
   sessions: {
     list(filter?: ListSessionsInput): Promise<IpcResult<AtlasSessionListItem[]>>;

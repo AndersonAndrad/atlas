@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select';
 import { useAppInfo } from '@/hooks/useAppInfo';
 import type { useTerminalPreferences } from '@/terminal/hooks/useTerminalPreferences';
+import { GitSettingsSection } from '@/git/components/GitSettingsSection';
 import { SessionSettingsSection } from '@/sessions/components/SessionSettingsSection';
 import { AppInfoList } from './AppInfoList';
 
@@ -117,6 +118,8 @@ export function SettingsView({ preferences }: SettingsViewProps) {
               </Select>
             </div>
           </section>
+
+          <GitSettingsSection />
 
           <SessionSettingsSection />
 

@@ -247,3 +247,57 @@ superseded decisions are marked, not deleted.
 
 - **Decision**: Finished sessions (COMPLETED, FAILED, CANCELLED) can be archived and are
   hidden by default; sessions are never deleted, keeping their history.
+
+## ADR-031 — Git workflow repositories are resolved by the Engine (PLAN-008, SDD-004 A)
+
+- **Context**: Commits run repository hooks; a client-chosen directory would let any
+  renderer run arbitrary code through Git.
+- **Decision**: Git workflow requests name a repository root that must belong to the set
+  the Engine resolves from registered projects and live terminals (re-checked on every request).
+  Paths must be listed by `git status`; branch names must exist or pass
+  `check-ref-format --branch`. Git workflow methods are desktop-only.
+- **Consequences**: A repository is reachable only after it is registered or opened in a
+  terminal; standalone terminals are enough.
+
+## ADR-032 — Commits commit the index; selection is explicit staging (PLAN-008)
+
+- **Decision**: A commit applies the user's explicit `stage`/`unstage` lists and then runs
+  `git commit -F -`. Unstaged and untracked files are never selected by default; partially
+  staged files contribute their staged part unless the user adds the rest. No `add -A`,
+  `commit -a` or `commit --only`. An index fingerprint detects concurrent index changes.
+- **Alternatives**: A temporary index (`GIT_INDEX_FILE`) decoupled from the real index —
+  rejected: hooks would see an alternate index and the model is harder to verify.
+- **Consequences**: A failed commit (e.g. a hook) leaves the selection staged; the error
+  says so.
+
+## ADR-033 — Own Conventional Commits validator (PLAN-008)
+
+- **Context**: SDD-004 §8 prefers established parsers but forbids simplistic header-only
+  regular expressions.
+- **Decision**: A dependency-free implementation of the 1.0.0 grammar (header, blank line,
+  body, `Token: value` / `Token #value` footers, `BREAKING CHANGE` / `BREAKING-CHANGE`),
+  shared by the renderer and the Engine. Project rules can only add restrictions.
+- **Alternatives**: `@commitlint/parse` plus rules — rejected for its dependency footprint
+  and lenient defaults that would need re-implementing the same checks.
+
+## ADR-034 — Repository-scoped operation coordinator with two lanes (PLAN-008)
+
+- **Decision**: Mutations queue per repository on an `index` lane (index, HEAD, branches,
+  working tree) and a `remote` lane (network, remote-tracking refs); pull takes both. Reads
+  never queue. Only fetch (and queued operations) can be cancelled.
+- **Consequences**: A long fetch does not block commits; a pull waits for staging and
+  commits to finish.
+
+## ADR-035 — Expected Git failures are operation results (PLAN-008)
+
+- **Decision**: Authentication, network, rejection, conflict, hook and similar failures
+  resolve with a failed `GitOperation` carrying a code, a user-facing message and Git's
+  output with credentials removed (8 KB). Validation problems remain request errors.
+  Logs keep the kind, failure code and exit code only.
+- **Consequences**: Commit & Push reports both results; a failed push keeps the commit.
+
+## ADR-036 — Pull defaults to fast-forward only; no syntax highlighting yet (PLAN-008)
+
+- **Decision**: The Pull dialog defaults to `--ff-only --no-rebase` and explains the
+  configured strategy before running it. Diffs show colored lines without syntax
+  highlighting (no highlighting dependency); hunk staging is deferred.

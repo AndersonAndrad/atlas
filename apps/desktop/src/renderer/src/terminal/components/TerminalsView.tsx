@@ -39,6 +39,8 @@ interface TerminalsViewProps {
   /** Called once the request was taken, so it is not replayed when the view mounts again. */
   onOpenRequestHandled: () => void;
   subscribeCommands: (handler: (command: AppCommand) => void) => () => void;
+  /** Opens the Git view on a terminal's repository. */
+  onOpenGit: (terminalId: string) => void;
 }
 
 type NameDialogState =
@@ -63,6 +65,7 @@ export function TerminalsView({
   openRequest,
   onOpenRequestHandled,
   subscribeCommands,
+  onOpenGit,
 }: TerminalsViewProps) {
   const [workspace, setWorkspace] = useState<string>(UNGROUPED_WORKSPACE);
   const [focusRequest, setFocusRequest] = useState<{ sessionId: string; nonce: number } | null>(
@@ -261,6 +264,7 @@ export function TerminalsView({
               onSessionChanged={terminals.upsert}
               onRequestClose={(sessionId) => void requestClose(sessionId)}
               onProjectInfo={(sessionId) => setSheet({ kind: 'terminal', sessionId })}
+              onOpenGit={onOpenGit}
               onFontSize={preferences.changeFontSize}
               onPreferences={(changes) => void preferences.update(changes)}
               subscribeCommands={subscribeCommands}

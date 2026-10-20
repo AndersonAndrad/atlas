@@ -15,6 +15,10 @@ export const ERROR_CODES = [
   'SESSION_CONFLICT',
   'SESSION_TASK_NOT_FOUND',
   'SESSION_TASK_CYCLE',
+  'GIT_REPOSITORY_UNAVAILABLE',
+  'GIT_INDEX_CHANGED',
+  'GIT_NO_UPSTREAM',
+  'GIT_OPERATION_NOT_FOUND',
   'ENGINE_UNAVAILABLE',
   'VALIDATION_FAILED',
   'INTERNAL_ERROR',
@@ -43,6 +47,12 @@ export const USER_MESSAGES: Record<ErrorCode, string> = {
   SESSION_CONFLICT: 'The session was changed elsewhere. Reload it and try again.',
   SESSION_TASK_NOT_FOUND: 'The task could not be found. It may have been removed.',
   SESSION_TASK_CYCLE: 'Task dependencies cannot form a cycle.',
+  GIT_REPOSITORY_UNAVAILABLE:
+    'This Git repository is not available. Open it from a project or a terminal and try again.',
+  GIT_INDEX_CHANGED:
+    'The staged changes or the current commit changed since you reviewed them. Review the changes again.',
+  GIT_NO_UPSTREAM: 'This branch has no upstream branch. Choose where to push it.',
+  GIT_OPERATION_NOT_FOUND: 'The Git operation could not be found. It may have finished.',
   ENGINE_UNAVAILABLE:
     'The ATLAS Engine is not running. Start (or restart) ATLAS Control and try again.',
   VALIDATION_FAILED: 'Some fields are invalid. Review them and try again.',
