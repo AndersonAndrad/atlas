@@ -12,6 +12,7 @@ import {
   type StartAiSessionInput,
   type UpdateContextEntryInput,
   type UpdateContextTaskInput,
+  type UpdateProjectAiConfig,
   ENGINE_METHOD_PARAMS,
   UNGROUPED_WORKSPACE,
   parseInput,
@@ -33,6 +34,7 @@ import {
 } from '@atlas/contracts';
 import { deterministicSuggestionProvider } from '@atlas/conventional-commits';
 import { AtlasError } from '@atlas/shared';
+import type { ResolvedTarget } from '@atlas/context';
 import type { TerminalService } from '@atlas/terminal';
 import type { Engine } from '../engine.js';
 
@@ -69,6 +71,11 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
   const target = (value: ContextTarget) => engine.resolveContextTarget(value);
   const maybeTarget = async (value: ContextTarget | null) =>
     value === null ? null : engine.resolveContextTarget(value);
+  /** Keeps project context files current after a change; never delays or fails the call. */
+  const changed = <T>(resolved: ResolvedTarget | null, result: T): T => {
+    void engine.contextChanged(resolved);
+    return result;
+  };
   /** Git workflow requests only reach repositories the Engine resolved itself. */
   const repo = (repositoryRoot: string) => engine.requireGitRepository(repositoryRoot);
 
@@ -258,39 +265,56 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     'context.list': async ([{ target: value, ...query }]: [ContextQuery]) =>
       context.list(await target(value), query),
     'context.global': ([search]: [string]) => context.listGlobal(search || undefined),
-    'context.record': async ([input]: [CreateContextEntryInput], scope) =>
-      context.record(input.target === null ? null : await target(input.target), input, scope),
+    'context.record': async ([input]: [CreateContextEntryInput], scope) => {
+      const resolved = await maybeTarget(input.target);
+      return changed(resolved, await context.record(resolved, input, scope));
+    },
     'context.update': async (
       [value, id, input]: [ContextTarget | null, string, UpdateContextEntryInput],
       scope,
-    ) => context.update(await maybeTarget(value), id, input, scope),
+    ) => {
+      const resolved = await maybeTarget(value);
+      return changed(resolved, await context.update(resolved, id, input, scope));
+    },
     'context.remove': async ([value, id]: [ContextTarget | null, string]) => {
-      await context.remove(await maybeTarget(value), id);
-      return null;
+      const resolved = await maybeTarget(value);
+      await context.remove(resolved, id);
+      return changed(resolved, null);
     },
     'context.history': async ([value, id]: [ContextTarget | null, string]) =>
       context.history(await maybeTarget(value), id),
     'context.tasks': async ([value]: [ContextTarget]) => context.listTasks(await target(value)),
-    'context.createTask': async ([input]: [CreateContextTaskInput]) =>
-      context.createTask(await target(input.target), input),
+    'context.createTask': async ([input]: [CreateContextTaskInput]) => {
+      const resolved = await target(input.target);
+      return changed(resolved, await context.createTask(resolved, input));
+    },
     'context.updateTask': async ([value, id, input]: [
       ContextTarget,
       string,
       UpdateContextTaskInput,
-    ]) => context.updateTask(await target(value), id, input),
+    ]) => {
+      const resolved = await target(value);
+      return changed(resolved, await context.updateTask(resolved, id, input));
+    },
     'context.deleteTask': async ([value, id]: [ContextTarget, string]) => {
-      await context.deleteTask(await target(value), id);
-      return null;
+      const resolved = await target(value);
+      await context.deleteTask(resolved, id);
+      return changed(resolved, null);
     },
     'context.decisions': async ([value]: [ContextTarget]) =>
       context.listDecisions(await target(value)),
-    'context.createDecision': async ([input]: [Required<CreateDecisionInput>], scope) =>
-      context.createDecision(await target(input.target), input, scope),
+    'context.createDecision': async ([input]: [Required<CreateDecisionInput>], scope) => {
+      const resolved = await target(input.target);
+      return changed(resolved, await context.createDecision(resolved, input, scope));
+    },
     'context.setDecisionStatus': async ([value, id, status]: [
       ContextTarget,
       string,
       'ACTIVE' | 'REJECTED',
-    ]) => context.setDecisionStatus(await target(value), id, status),
+    ]) => {
+      const resolved = await target(value);
+      return changed(resolved, await context.setDecisionStatus(resolved, id, status));
+    },
     'context.bundle': async ([{ target: value, ...request }]: [Required<ContextBundleRequest>]) =>
       context.bundle(await target(value), request),
     'context.snapshot': async ([value, taskId]: [ContextTarget, string | null]) =>
@@ -315,11 +339,17 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     'context.endSession': async (
       [value, id, summary]: [ContextTarget, string, Required<SessionSummaryInput>],
       scope,
-    ) => context.endSession(await target(value), id, summary, scope),
+    ) => {
+      const resolved = await target(value);
+      return changed(resolved, await context.endSession(resolved, id, summary, scope));
+    },
     'context.sessionForTerminal': ([terminalId]: [string]) =>
       context.sessionForTerminal(terminalId),
     'ai.start': ([input]: [StartAiSessionInput]) => engine.startAiSession(input),
     'ai.attach': ([input]: [AttachTerminalInput]) => engine.attachTerminalSession(input),
+    'context.projectConfig': ([projectId]: [string]) => engine.projectConfigView(projectId),
+    'context.setProjectConfig': ([projectId, changes]: [string, UpdateProjectAiConfig]) =>
+      engine.setProjectConfig(projectId, changes),
     'sessions.getSettings': () => engine.sessionSettings.get(),
     'sessions.setSettings': ([input]: [unknown]) => engine.sessionSettings.update(input),
   };

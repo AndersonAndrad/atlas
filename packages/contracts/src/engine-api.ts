@@ -68,6 +68,7 @@ import {
   StartAiSessionSchema,
   UpdateContextEntrySchema,
   UpdateContextTaskSchema,
+  UpdateProjectAiConfigSchema,
   type AiSession,
   type ContextBundle,
   type ContextEntry,
@@ -79,6 +80,7 @@ import {
   type ContextTask,
   type DecisionRecord,
   type SessionEvidence,
+  type ProjectConfigView,
   type StartedAiSession,
 } from './context.js';
 import {
@@ -235,6 +237,8 @@ export const ENGINE_METHOD_PARAMS = {
   'context.sessionForTerminal': z.tuple([TerminalId]),
   'ai.start': z.tuple([StartAiSessionSchema]),
   'ai.attach': z.tuple([AttachTerminalSchema]),
+  'context.projectConfig': z.tuple([Id]),
+  'context.setProjectConfig': z.tuple([Id, UpdateProjectAiConfigSchema]),
   'sessions.getSettings': z.tuple([]),
   'sessions.setSettings': z.tuple([Unknown]),
 } as const;
@@ -358,6 +362,8 @@ export interface EngineMethodResults {
   'context.sessionForTerminal': AiSession | null;
   'ai.start': StartedAiSession;
   'ai.attach': AiSession;
+  'context.projectConfig': ProjectConfigView;
+  'context.setProjectConfig': ProjectConfigView;
   'sessions.getSettings': SessionSettings;
   'sessions.setSettings': SessionSettings;
 }

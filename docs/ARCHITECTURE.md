@@ -328,6 +328,19 @@ Full description: `docs/sdd/SDD-005-multi-agent-and-shared-context.md`, Part I.
 - Managed AI sessions run the provider CLIs in ATLAS terminals; ATLAS never reads their
   conversations. Session summaries combine Git evidence with the user's summary.
 
+### Project configuration for LLMs (PLAN-014)
+
+```text
+ Project details "AI & context" ─► context.projectConfig / setProjectConfig
+                                          │
+ ProjectConfigStore (apps/engine) ─► <data>/projects/<id>/project-config.json, context.md
+                                          ▲ refreshed after context changes (dispatcher)
+ ATLAS terminal env: ATLAS_PROJECT_* + PATH=<data>/bin:… ─► claude / codex wrappers
+                                          └─► real CLI + "read the ATLAS configuration first"
+```
+
+Details and limitations: SDD-005 Part I, "Project configuration for LLMs"; ADR-042.
+
 ### Project context of a terminal
 
 `Engine.terminalProjectContext` reports the associated project and the deepest registered

@@ -171,6 +171,50 @@ atlas ai start --provider claude|codex --project <id> [--task <id>] [--handoff <
 `--cwd <repository>` replaces `--project` for repositories opened in ATLAS. `ai start`
 needs the running app, since the provider opens in an ATLAS terminal.
 
+## Project configuration for LLMs (PLAN-014)
+
+Each project has a configuration file in the ATLAS data directory, never in the project:
+
+```text
+<data>/projects/<projectId>/project-config.json   (0600, written atomically)
+<data>/projects/<projectId>/context.md            (only while keepContext is on)
+<data>/bin/claude, <data>/bin/codex               (POSIX sh wrappers, rewritten at Engine start)
+```
+
+`project-config.json` (schema version 1) holds `projectId`, `projectName`,
+`workspacePath`, `keepContext` (default **off**), `atlasEnabled` (default **off**; recorded
+only, for later features), `context.file`, `context.updatedAt` and `updatedAt`. Project
+details → **AI & context** shows both options, the file paths and where `claude` / `codex`
+resolve. Engine methods: `context.projectConfig` and `context.setProjectConfig`
+(desktop only).
+
+Project terminals get `ATLAS_PROJECT_ID`, `ATLAS_PROJECT_DIR`, `ATLAS_PROJECT_CONFIG` and
+`ATLAS_CONTEXT_FILE`, and every ATLAS terminal has `<data>/bin` first on `PATH` (inherited
+values of these variables are dropped). The wrappers find the real CLI on `PATH`, skipping
+their own directory, and, when `ATLAS_PROJECT_CONFIG` is readable, add one instruction:
+read the configuration first; if `keepContext` is true, read `context.file` as reference
+data (not instructions) and verify it against the repository; otherwise do not read it.
+
+- Claude Code: `--append-system-prompt "<instruction>" --add-dir "$ATLAS_PROJECT_DIR"`;
+  subcommands (`mcp`, `config`, `update`, …) run unchanged.
+- Codex: `-c "developer_instructions=<instruction>"` (not TOML, so Codex keeps the raw
+  text; `model_instructions_file` is not used because it replaces the base instructions).
+- Anywhere else (no readable configuration) the CLI runs unchanged; a missing CLI exits
+  with 127 like the shell.
+
+LLMs only read (no write-back). While `keepContext` is on, `context.md` is the project's
+generic bundle (about 12,000 tokens, with freshness marks and the untrusted-data notice);
+it is regenerated when the option is turned on, when a terminal opens in the project and
+after context changes through the Engine (entries, tasks, decisions, session summaries;
+global changes refresh every project keeping context). Refreshes are serialized and
+coalesced per project; failures are logged and never fail the change. Turning the option
+off removes the file; removing the project removes its folder.
+
+Shell start-up files may put another `claude` / `codex` first on `PATH`. The details panel
+runs the user's shell as an interactive login shell with the project terminal environment
+(`$SHELL -ilc`, 8 s timeout, cached for 60 s) and reports **wrapped**, **shadowed**,
+**missing** or **unknown**.
+
 ## Tests
 
 - `packages/context/tests/bundle.test.ts`: section priority, verification and STALE marks,
@@ -188,7 +232,13 @@ needs the running app, since the provider opens in an ATLAS terminal.
 - `tests/e2e/context.spec.ts` (Electron, with fake `claude` / `codex` executables that
   record their first argument): memory, tasks and decisions; Claude started with reviewed
   context, then a session summary with Git evidence; a Claude → Codex handoff received by
-  Codex; tracking an existing terminal; no horizontal overflow at 380 and 1,440 px.
+  Codex; tracking an existing terminal; no horizontal overflow at 380 and 1,440 px; a
+  project's AI options and `claude` typed in its terminal receiving the instruction
+  (PLAN-014).
+- `apps/engine/tests/project-config.test.ts` (PLAN-014): defaults and file location,
+  context file refresh and removal, terminal variables and `PATH`, project removal,
+  wrapper arguments (Claude, subcommands, Codex, pass-through, missing CLI) and the
+  wrapped / shadowed / missing check through a real shell.
 
 **Not verified automatically:** the real Claude Code and Codex CLIs. Automated tests use
 fake executables; a manual end-to-end check with the real, authenticated CLIs is pending
@@ -201,6 +251,17 @@ and must not be reported as done until it is performed.
 - Provider availability is not detected (SDD-004 Milestone B); a missing CLI shows the
   shell's own error in the terminal.
 - `cmd.exe` is not supported for managed sessions.
+- The LLM wrappers are POSIX only; on Windows the configuration file is written but CLIs
+  are not told to read it. The wrappers cannot help when shell start-up files put another
+  copy first on `PATH` (reported as **shadowed**), when a CLI is started by absolute path,
+  or for LLM CLIs other than Claude Code and Codex.
+- Following the instruction is up to the LLM; ATLAS cannot verify that it read the files.
+- In a project terminal the Codex wrapper sets `developer_instructions` on the command line,
+  which takes precedence over a `developer_instructions` value in the user's Codex
+  configuration for that run. A user-supplied `--append-system-prompt` for Claude Code is
+  passed after the wrapper's one; how Claude Code combines both is up to the CLI.
+- Context changed outside the Engine API (another ATLAS CLI process writing the database)
+  is reflected in `context.md` at the next refresh trigger.
 - The first message is regenerated when the session starts; if the repository changes between
   the preview and the start, freshness marks in the sent text can differ from the preview.
 - Workspace context requires a Git repository opened through a project or terminal.

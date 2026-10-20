@@ -475,7 +475,10 @@ export class TerminalService {
         file: shell.path,
         args: shell.args,
         cwd: session.cwd,
-        env: this.deps.environment.shellEnvironment(),
+        env: this.deps.environment.shellEnvironment({
+          projectId: session.projectId,
+          cwd: session.cwd,
+        }),
         columns: session.columns,
         rows: session.rows,
       });

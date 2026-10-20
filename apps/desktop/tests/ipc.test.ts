@@ -595,6 +595,26 @@ describe('desktop IPC handlers', () => {
         data: { provider: 'codex', captureMode: 'managed' },
       });
     });
+
+    it('validates project AI configuration changes', async () => {
+      const project = await registerProject();
+      expect(await invoke(IPC_CHANNELS.contextProjectConfig, project.id)).toMatchObject({
+        ok: true,
+        data: { config: { keepContext: false, atlasEnabled: false } },
+      });
+      expect(
+        await invoke(IPC_CHANNELS.contextSetProjectConfig, project.id, { keepContext: 'yes' }),
+      ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+      expect(
+        await invoke(IPC_CHANNELS.contextSetProjectConfig, project.id, { context: { file: '/x' } }),
+      ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+      expect(
+        await invoke(IPC_CHANNELS.contextSetProjectConfig, '../escape', { keepContext: true }),
+      ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+      expect(
+        await invoke(IPC_CHANNELS.contextSetProjectConfig, project.id, { atlasEnabled: true }),
+      ).toMatchObject({ ok: true, data: { config: { atlasEnabled: true } } });
+    });
   });
 
   describe('sessions', () => {

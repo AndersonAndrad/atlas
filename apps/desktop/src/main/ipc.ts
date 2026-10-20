@@ -351,6 +351,8 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     [IPC_CHANNELS.contextSessionEvidence, 'context.sessionEvidence'],
     [IPC_CHANNELS.contextEndSession, 'context.endSession'],
     [IPC_CHANNELS.contextSessionForTerminal, 'context.sessionForTerminal'],
+    [IPC_CHANNELS.contextProjectConfig, 'context.projectConfig'],
+    [IPC_CHANNELS.contextSetProjectConfig, 'context.setProjectConfig'],
     [IPC_CHANNELS.aiStart, 'ai.start'],
     [IPC_CHANNELS.aiAttach, 'ai.attach'],
   ];

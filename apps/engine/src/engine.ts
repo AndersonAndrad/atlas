@@ -15,11 +15,14 @@ import {
   type StartedAiSession,
   type GitRepositoryEntry,
   type GitStatus,
+  type LlmWrapperStatus,
   type Project,
+  type ProjectConfigView,
   type TerminalGitContext,
   type TerminalPreferences,
   type TerminalProjectContext,
   type TerminalSession,
+  type UpdateProjectAiConfig,
 } from '@atlas/contracts';
 import {
   SqliteProjectRepository,
@@ -65,6 +68,7 @@ import { ShellEnvironment } from './adapters/shell-environment.js';
 import { ShellPreCommitRunner } from './adapters/shell-pre-commit-runner.js';
 import { CUSTOM_SHELLS_FILE_NAME, SystemShellProvider } from './adapters/system-shell-provider.js';
 import { DATABASE_FILE_NAME, resolveDataDir } from './data-dir.js';
+import { ProjectConfigStore, type WRAPPED_CLIS } from './project-config.js';
 import {
   GitInspectionService,
   GitOperationCoordinator,
@@ -142,6 +146,17 @@ export interface Engine {
   startAiSession(input: StartAiSessionInput): Promise<StartedAiSession>;
   /** Tracks an existing terminal as an AI session (best effort, no conversation access). */
   attachTerminalSession(input: AttachTerminalInput): Promise<AiSession>;
+  /** Per-project AI configuration files in the ATLAS data directory (PLAN-014). */
+  readonly projectConfig: ProjectConfigStore;
+  /** A project's configuration file (created with defaults) and its LLM wrapper status. */
+  projectConfigView(projectId: string): Promise<ProjectConfigView>;
+  /** Updates a project's AI options and writes or removes its context file. */
+  setProjectConfig(projectId: string, changes: UpdateProjectAiConfig): Promise<ProjectConfigView>;
+  /**
+   * Regenerates the context file of the projects a context change affects (all projects
+   * keeping context for global changes). Failures are logged, never thrown.
+   */
+  contextChanged(target: ResolvedTarget | null): Promise<void>;
   /** Per-project Conventional Commits enforcement and pre-commit steps. */
   readonly projectGitSettings: ProjectGitSettingsStore;
   /** Registered projects of an authorized repository with their commit settings. */
@@ -200,6 +215,11 @@ export interface Engine {
   /** Closes the database immediately. Prefer `shutdown` when terminals may run. */
   close(): void;
 }
+
+/** Size of a project's context file for LLMs, in estimated tokens. */
+const CONTEXT_FILE_BUDGET_TOKENS = 12_000;
+/** How long a wrapper check (an interactive shell start) is reused. */
+const WRAPPER_CHECK_TTL_MS = 60_000;
 
 /** Version of the @atlas/engine package when running from its build output. */
 function packageVersion(): string {
@@ -283,6 +303,27 @@ export function createEngine(options: EngineOptions = {}): Engine {
   const ownsExecution = options.terminals !== undefined;
 
   const terminalOptions = options.terminals;
+  const projectConfig = new ProjectConfigStore({
+    dataDir,
+    platform,
+    now: () => clock.now(),
+    logger,
+  });
+  // Set below, once the context service exists; terminals start after initialization.
+  let refreshProjectFiles: (projectId: string) => Promise<void> = async () => undefined;
+  const terminalEnvironment =
+    terminalOptions === undefined
+      ? undefined
+      : new ShellEnvironment({
+          env,
+          platform,
+          appVersion: terminalOptions.appVersion ?? engineVersion,
+          terminalVariables: (terminal, base) => {
+            // Creates the project's config file (and context file) for LLMs started here.
+            if (terminal.projectId !== null) void refreshProjectFiles(terminal.projectId);
+            return projectConfig.terminalVariables(terminal, base);
+          },
+        });
   const groupRepository = new SqliteTerminalGroupRepository(db);
   let terminalGroups: TerminalGroups | undefined;
   const terminals =
@@ -309,11 +350,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
             homeDirectory: () => homeDirectory,
           },
           settings: terminalSettings,
-          environment: new ShellEnvironment({
-            env,
-            platform,
-            appVersion: terminalOptions.appVersion ?? engineVersion,
-          }),
+          environment: terminalEnvironment!,
           cwdResolver: terminalOptions.cwdResolver ?? new OsProcessCwdResolver(platform),
           groupExists: (groupId) => terminalGroups!.exists(groupId),
           // A command may have changed files: drop cached Git state for that directory
@@ -496,6 +533,112 @@ export function createEngine(options: EngineOptions = {}): Engine {
     };
   };
 
+  // Project files for LLMs (PLAN-014) ------------------------------------------------
+
+  /** Writes the project's config file and keeps its context file in line with keepContext. */
+  const writeProjectFiles = async (projectId: string): Promise<void> => {
+    const project = await projects.findById(projectId);
+    if (project === null) return;
+    const config = await projectConfig.ensure(project);
+    if (!config.keepContext) {
+      if (config.context.updatedAt !== null) await projectConfig.writeContext(project, null);
+      return;
+    }
+    const target = await resolveContextTarget({ projectId });
+    const bundle = await context.bundle(target, {
+      provider: 'generic',
+      budgetTokens: CONTEXT_FILE_BUDGET_TOKENS,
+    });
+    await projectConfig.writeContext(
+      project,
+      `<!-- Generated by ATLAS from the shared context of ${project.name}. Changes here are overwritten. -->\n\n${bundle.markdown}\n`,
+    );
+  };
+
+  // One refresh per project at a time; changes during a refresh trigger one more.
+  const projectRefreshes = new Map<string, { running: Promise<void>; again: boolean }>();
+  refreshProjectFiles = (projectId) => {
+    const current = projectRefreshes.get(projectId);
+    if (current !== undefined) {
+      current.again = true;
+      return current.running;
+    }
+    const state = { running: Promise.resolve(), again: true };
+    state.running = (async () => {
+      while (state.again) {
+        state.again = false;
+        try {
+          await writeProjectFiles(projectId);
+        } catch (error) {
+          logger.warn('Failed to update project context files', {
+            projectId,
+            error: describeError(error),
+          });
+        }
+      }
+      projectRefreshes.delete(projectId);
+    })();
+    projectRefreshes.set(projectId, state);
+    return state.running;
+  };
+
+  const contextChanged = async (target: ResolvedTarget | null): Promise<void> => {
+    if (target !== null) {
+      if (target.owner.projectId !== null) await refreshProjectFiles(target.owner.projectId);
+      return;
+    }
+    // Global context appears in every project's file.
+    const all = await projects.listDetails();
+    const keeping = await Promise.all(
+      all.map(async ({ project }) =>
+        (await projectConfig.read(project.id))?.keepContext ? project : null,
+      ),
+    );
+    await Promise.all(
+      keeping
+        .filter((project) => project !== null)
+        .map((project) => refreshProjectFiles(project.id)),
+    );
+  };
+
+  const wrapperChecks = new Map<
+    string,
+    { at: number; wrappers: Record<(typeof WRAPPED_CLIS)[number], LlmWrapperStatus> }
+  >();
+  /** Where `claude` and `codex` resolve in the project's ATLAS terminals (cached briefly). */
+  const wrapperStatus = async (project: Project, directory: string) => {
+    const cached = wrapperChecks.get(project.id);
+    if (cached !== undefined && Date.now() - cached.at < WRAPPER_CHECK_TTL_MS) {
+      return cached.wrappers;
+    }
+    if (terminalEnvironment === undefined) return { claude: 'unknown', codex: 'unknown' } as const;
+    const base = terminalEnvironment.shellEnvironment();
+    const wrappers = await projectConfig.checkWrappers(
+      env.SHELL ?? (platform === 'darwin' ? '/bin/zsh' : '/bin/sh'),
+      {
+        ...base,
+        ...projectConfig.terminalVariables({ projectId: project.id, cwd: directory }, base),
+      },
+      directory,
+    );
+    wrapperChecks.set(project.id, { at: Date.now(), wrappers });
+    return wrappers;
+  };
+
+  const projectConfigView = async (projectId: string): Promise<ProjectConfigView> => {
+    const { project, availability } = await projects.getDetails(projectId);
+    await refreshProjectFiles(project.id);
+    const config = await projectConfig.ensure(project);
+    return {
+      config,
+      configPath: projectConfig.paths(project.id).config,
+      wrappers: await wrapperStatus(
+        project,
+        availability.status === 'available' ? project.workspacePath : homeDirectory,
+      ),
+    };
+  };
+
   /** Single-quoted for POSIX shells; the prompt file path is the only shell text. */
   const shellQuote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
   const promptCommand = (provider: string, file: string | null, shellName: string) => {
@@ -579,6 +722,14 @@ export function createEngine(options: EngineOptions = {}): Engine {
     requireGitRepository,
     context,
     resolveContextTarget,
+    projectConfig,
+    projectConfigView,
+    setProjectConfig: async (projectId, changes) => {
+      const { project } = await projects.getDetails(projectId);
+      await projectConfig.update(project, changes);
+      return projectConfigView(project.id);
+    },
+    contextChanged,
     startAiSession: async (input) => {
       const service = requireTerminals();
       const target = await resolveContextTarget(input.target);
@@ -655,7 +806,14 @@ export function createEngine(options: EngineOptions = {}): Engine {
     schemaVersion: () => getSchemaVersion(db),
     initialize: async () => {
       await terminals?.initialize();
-      if (ownsExecution) await sessions.reconcile('engine-restart');
+      if (ownsExecution) {
+        await sessions.reconcile('engine-restart');
+        try {
+          await projectConfig.installWrappers();
+        } catch (error) {
+          logger.warn('Failed to install the LLM wrappers', { error: describeError(error) });
+        }
+      }
     },
     removeProject: async (id) => {
       const { project } = await projects.getDetails(id);
@@ -669,6 +827,9 @@ export function createEngine(options: EngineOptions = {}): Engine {
       );
       await projects.remove(project.id);
       await projectGitSettings.remove(project.id);
+      // A refresh that started before the removal finishes first, then the files go.
+      await projectRefreshes.get(project.id)?.running;
+      await projectConfig.remove(project.id);
       await terminals?.detachProject(project.id);
     },
     projectGit: async (projectId) => {
@@ -726,6 +887,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
       } catch (error) {
         logger.error('Failed to stop terminals', { error: describeError(error) });
       }
+      await Promise.all([...projectRefreshes.values()].map((refresh) => refresh.running));
       try {
         if (ownsExecution) await sessions.reconcile('engine-shutdown');
       } catch (error) {

@@ -6,6 +6,7 @@ import { AVAILABILITY_LABELS, formatDate, gitSummary } from '@/format';
 import type { ProjectDetails } from '@/types';
 import { useProjectGit } from '@/terminal/hooks/useGitStatus';
 import { CommitSettingsForm } from '@/git/components/CommitSettingsForm';
+import { ProjectAiSettings } from '@/context/components/ProjectAiSettings';
 import { ActionDot } from './git/ActionDot';
 import { GitDetails } from './git/GitDetails';
 import { pendingGitActions } from './git/git-format';
@@ -180,6 +181,18 @@ export function ProjectDetailsPanel({
             Commit checks
           </h3>
           <CommitSettingsForm key={project.id} projectId={project.id} />
+        </section>
+      )}
+
+      {onEdit && (
+        <section
+          className="flex flex-col gap-3 rounded-lg border p-4"
+          aria-labelledby="ai-context-title"
+        >
+          <h3 id="ai-context-title" className="font-semibold">
+            AI &amp; context
+          </h3>
+          <ProjectAiSettings key={project.id} projectId={project.id} />
         </section>
       )}
     </section>

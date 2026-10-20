@@ -389,3 +389,51 @@ export interface ContextHandoffDraft {
   commits: string[];
   changedFiles: string[];
 }
+
+// ---------------------------------------------------------------------------
+// Project configuration read by LLMs (PLAN-014)
+// ---------------------------------------------------------------------------
+
+/** Per-project AI options, stored as JSON in the ATLAS data directory (never in the project). */
+export const ProjectAiConfigSchema = z.strictObject({
+  /** Keep the project's shared context and offer it to LLMs started in ATLAS terminals. */
+  keepContext: z.boolean(),
+  /** Allow ATLAS multi-agent features for this project (recorded for future use). */
+  atlasEnabled: z.boolean(),
+});
+export type ProjectAiConfig = z.infer<typeof ProjectAiConfigSchema>;
+export const UpdateProjectAiConfigSchema = ProjectAiConfigSchema.partial();
+export type UpdateProjectAiConfig = z.infer<typeof UpdateProjectAiConfigSchema>;
+
+/** Both options are off until the user turns them on. */
+export const DEFAULT_PROJECT_AI_CONFIG: ProjectAiConfig = {
+  keepContext: false,
+  atlasEnabled: false,
+};
+
+/** The JSON file LLMs read before working (`project-config.json`). */
+export interface ProjectConfigFile extends ProjectAiConfig {
+  schemaVersion: 1;
+  projectId: string;
+  projectName: string;
+  workspacePath: string;
+  context: {
+    /** Markdown kept up to date while `keepContext` is true. */
+    file: string;
+    updatedAt: string | null;
+  };
+  updatedAt: string;
+}
+
+/**
+ * How `claude` / `codex` resolve in the project's ATLAS terminals: `wrapped` runs the
+ * ATLAS wrapper (the LLM gets the project-config instruction); `shadowed` means the
+ * user's shell configuration puts another copy first; `missing` means not installed.
+ */
+export type LlmWrapperStatus = 'wrapped' | 'shadowed' | 'missing' | 'unknown';
+
+export interface ProjectConfigView {
+  config: ProjectConfigFile;
+  configPath: string;
+  wrappers: { claude: LlmWrapperStatus; codex: LlmWrapperStatus };
+}

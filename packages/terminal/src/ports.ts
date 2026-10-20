@@ -107,7 +107,13 @@ export interface KeyValueStore {
   delete(key: string): Promise<void>;
 }
 
+/** The terminal a shell environment is built for. */
+export interface ShellEnvironmentTarget {
+  projectId: string | null;
+  cwd: string;
+}
+
 export interface EnvironmentProvider {
   /** Environment for a new shell, without Electron or Engine internals. */
-  shellEnvironment(): Record<string, string>;
+  shellEnvironment(terminal?: ShellEnvironmentTarget): Record<string, string>;
 }

@@ -1,13 +1,22 @@
 # ATLAS Status
 
-Last updated: 2026-10-20 — SDD-005 Milestone A, stage A1 (PLAN-013 revision 1).
+Last updated: 2026-10-20 — PLAN-014 (project configuration for LLMs).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
 Context) implemented and validated on macOS (arm64) with automated tests; all await the
 developer's approval. SDD-005 A1 still needs a manual check with the real Claude Code and
 Codex CLIs. SDD-004 Milestone B (provider execution) and SDD-005 stage A2, Milestones B and
-C are not started. Version 0.8.0 (schema v5).
+C are not started. PLAN-014 (project configuration read by LLMs) is implemented and awaits
+approval. Version 0.9.0 (schema v5).
+
+## PLAN-014 — Project configuration for LLMs
+
+Per-project `project-config.json` (keepContext and atlasEnabled, both off by default) and a
+generated `context.md` in the ATLAS data directory; `claude` / `codex` typed in a
+project's ATLAS terminal are told to read them first (POSIX wrappers). Project details →
+AI & context. Details: SDD-005 Part I; ADR-042. Real Claude Code and Codex CLIs: manual
+check pending.
 
 ## SDD-005 Milestone A, stage A1 — Shared Context
 

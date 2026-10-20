@@ -159,6 +159,9 @@ const api: AtlasApi = {
     endSession: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextEndSession, ...args),
     sessionForTerminal: (...args) =>
       ipcRenderer.invoke(IPC_CHANNELS.contextSessionForTerminal, ...args),
+    projectConfig: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextProjectConfig, ...args),
+    setProjectConfig: (...args) =>
+      ipcRenderer.invoke(IPC_CHANNELS.contextSetProjectConfig, ...args),
   },
   ai: {
     start: (input) => ipcRenderer.invoke(IPC_CHANNELS.aiStart, input),

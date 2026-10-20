@@ -368,3 +368,20 @@ superseded decisions are marked, not deleted.
 - **Consequences**: Arbitrary context text can never be interpreted by the shell. POSIX
   shells and PowerShell are supported; `cmd.exe` is not. Prompt files remain in the data
   directory (private) until removed with it.
+
+## ADR-042 — Project configuration read by LLMs through PATH wrappers (PLAN-014)
+
+- **Context**: Any LLM CLI run from an ATLAS terminal must read the project's ATLAS
+  configuration first and, when the project keeps context, the shared context, so a
+  successor knows what predecessors did and tested. Nothing may be written in the project.
+- **Decision**: A JSON file per project in the data directory (`keepContext` and
+  `atlasEnabled`, both off by default) plus a generated `context.md`; terminal variables
+  point to them; POSIX wrappers for `claude` and `codex`, first on the PATH of ATLAS
+  terminals, pass one instruction through each CLI's documented additive option
+  (`--append-system-prompt`, `developer_instructions`). LLMs only read.
+- **Alternatives**: Instruction files in the project (`CLAUDE.md`, `AGENTS.md`; rejected:
+  they live in the project); shell functions or aliases injected into shell start-up
+  (rejected: shell-specific and they modify user configuration); provider hooks or MCP
+  servers (rejected for now: more setup per provider, larger surface).
+- **Consequences**: Works for the two supported CLIs in POSIX shells; a copy placed first
+  by shell start-up files bypasses it, so the app reports where each CLI resolves.

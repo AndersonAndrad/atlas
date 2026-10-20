@@ -26,12 +26,14 @@ import type {
   CreateDecisionInput,
   CreateHandoffInput,
   DecisionRecord,
+  ProjectConfigView,
   SessionEvidence,
   SessionSummaryInput,
   StartAiSessionInput,
   StartedAiSession,
   UpdateContextEntryInput,
   UpdateContextTaskInput,
+  UpdateProjectAiConfig,
 } from './context.js';
 import type {
   GitBranchList,
@@ -184,6 +186,8 @@ export const IPC_CHANNELS = {
   contextSessionEvidence: 'atlas:context:session-evidence',
   contextEndSession: 'atlas:context:end-session',
   contextSessionForTerminal: 'atlas:context:session-for-terminal',
+  contextProjectConfig: 'atlas:context:project-config',
+  contextSetProjectConfig: 'atlas:context:set-project-config',
   aiStart: 'atlas:ai:start',
   aiAttach: 'atlas:ai:attach',
 
@@ -442,6 +446,12 @@ export interface AtlasApi {
       summary: SessionSummaryInput,
     ): Promise<IpcResult<{ session: AiSession; entries: ContextEntry[] }>>;
     sessionForTerminal(terminalId: string): Promise<IpcResult<AiSession | null>>;
+    /** The project's AI configuration file in the ATLAS data directory, read by LLMs. */
+    projectConfig(projectId: string): Promise<IpcResult<ProjectConfigView>>;
+    setProjectConfig(
+      projectId: string,
+      changes: UpdateProjectAiConfig,
+    ): Promise<IpcResult<ProjectConfigView>>;
   };
   /** Individual AI CLI sessions started or tracked by ATLAS. */
   ai: {
