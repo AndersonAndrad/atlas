@@ -144,3 +144,16 @@ export function submittedCommit(
 /** Shown while the stored Git preferences cannot be read; the Engine refuses commits. */
 export const INVALID_PREFERENCES_MESSAGE =
   'Stored Git preferences are invalid; save to replace them.';
+
+/**
+ * Branches whose name contains `query` (case-insensitive, surrounding spaces ignored).
+ * An empty query keeps every branch.
+ */
+export function filterBranches<T extends { name: string }>(
+  items: readonly T[],
+  query: string,
+): T[] {
+  const needle = query.trim().toLowerCase();
+  if (needle === '') return [...items];
+  return items.filter((item) => item.name.toLowerCase().includes(needle));
+}

@@ -710,8 +710,12 @@ test('shows commits to push and pull on the buttons and merges with a manual com
 
   await page.getByRole('button', { name: 'Merge…' }).click();
   const dialog = page.getByTestId('merge-dialog');
-  await dialog.getByRole('combobox', { name: 'Branch to merge' }).click();
-  await page.getByRole('option', { name: 'feature', exact: true }).click();
+  // Typing filters the branches; Enter chooses the highlighted one.
+  const search = dialog.getByRole('combobox', { name: 'Branch to merge' });
+  await search.fill('feat');
+  await expect(dialog.getByTestId('branch-picker').getByRole('option')).toHaveCount(1);
+  await search.press('Enter');
+  await expect(dialog.getByTestId('merge-selected')).toContainText('feature');
   await expect(dialog.getByTestId('merge-preview')).toContainText('1 commit of feature');
   await dialog.getByRole('button', { name: 'Merge', exact: true }).click();
   await expect(dialog.getByTestId('merge-success')).toContainText('Merge ready — no conflicts');
@@ -770,4 +774,51 @@ test('shows merge conflicts with a copyable message and aborts on confirmation',
   await page.getByTestId('abort-merge-dialog').getByRole('button', { name: 'Abort merge' }).click();
   await expect(banner).toHaveCount(0, { timeout: 15_000 });
   expect(git('status', '--porcelain').trim()).toBe('');
+});
+
+test('searches long branch lists in the Branches dialog', async ({ atlas }) => {
+  const dir = atlas.workspace('many-branches');
+  const { git } = repositoryWithRemote(dir, path.join(atlas.root, 'home'));
+  git('checkout', '-q', '--', 'README.md');
+  for (let i = 0; i < 30; i += 1) git('branch', `feature/task-${i}`);
+  git('branch', 'hotfix/login-timeout');
+  atlas.cli('project', 'add', dir);
+  const { page } = await atlas.launch();
+  await openGit(page);
+
+  await page.getByRole('button', { name: 'Branches…' }).click();
+  const dialog = page.getByTestId('branches-dialog');
+  const search = dialog.getByRole('searchbox', { name: 'Search branches' });
+  await expect(search).toBeFocused();
+  await expect(dialog.getByTestId('local-branch')).toHaveCount(32);
+
+  await search.fill('LOGIN');
+  await expect(dialog.getByTestId('local-branch')).toHaveCount(1);
+  await expect(dialog.getByTestId('local-branch-count')).toHaveText('(1 of 32)');
+  await expect(dialog.getByTestId('remote-branch')).toHaveCount(0);
+
+  await search.fill('task-2');
+  // task-2 and task-20…task-29.
+  await expect(dialog.getByTestId('local-branch')).toHaveCount(11);
+
+  await search.fill('nothing-like-this');
+  await expect(dialog.getByTestId('branches-empty')).toContainText('nothing-like-this');
+
+  // Escape clears the search first, then closes the dialog.
+  await search.press('Escape');
+  await expect(search).toHaveValue('');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByTestId('local-branch')).toHaveCount(32);
+
+  // Actions work on filtered results.
+  await search.fill('hotfix');
+  await dialog
+    .locator('[data-testid="local-branch"][data-name="hotfix/login-timeout"]')
+    .getByRole('button', { name: 'Switch' })
+    .click();
+  await expect.poll(() => git('branch', '--show-current').trim()).toBe('hotfix/login-timeout');
+
+  await search.press('Escape');
+  await search.press('Escape');
+  await expect(dialog).toBeHidden();
 });

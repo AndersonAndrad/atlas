@@ -1,5 +1,5 @@
 import type { GitBranchList, GitOperation, GitWorkingTree } from '@atlas/contracts';
-import { ArrowDown, ArrowUp, Check, Copy, Pencil } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, Copy, Pencil, Search } from 'lucide-react';
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { ApiError, api, errorMessage, unwrap } from '@/api';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { copyText } from '@/lib/clipboard';
+import { filterBranches } from '../format';
 import { OperationResult } from './OperationsPanel';
 
 interface BranchesDialogProps {
@@ -44,6 +45,7 @@ export function BranchesDialog({ tree, onClose }: BranchesDialogProps) {
   const [renaming, setRenaming] = useState<{ from: string; to: string } | null>(null);
   const [create, setCreate] = useState({ name: '', startPoint: HEAD, switchTo: true });
   const [copied, setCopied] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
 
   const reload = useCallback(async () => {
     try {
@@ -137,9 +139,21 @@ export function BranchesDialog({ tree, onClose }: BranchesDialogProps) {
     </Button>
   );
 
+  const local = filterBranches(branches?.local ?? [], query);
+  const remote = filterBranches(branches?.remote ?? [], query);
+
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className="sm:max-w-xl" data-testid="branches-dialog">
+      <DialogContent
+        className="sm:max-w-xl"
+        data-testid="branches-dialog"
+        // Escape clears the search first; with an empty search it closes the dialog.
+        onEscapeKeyDown={(event) => {
+          if (query === '') return;
+          event.preventDefault();
+          setQuery('');
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Branches</DialogTitle>
           <DialogDescription>
@@ -181,16 +195,42 @@ export function BranchesDialog({ tree, onClose }: BranchesDialogProps) {
           </div>
         )}
 
+        <div className="relative">
+          <Search
+            className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+            aria-hidden="true"
+          />
+          <Input
+            autoFocus
+            type="search"
+            aria-label="Search branches"
+            placeholder="Search branches"
+            className="pl-8"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
+        {branches && local.length === 0 && remote.length === 0 && (
+          <p className="text-muted-foreground text-sm" role="status" data-testid="branches-empty">
+            No branch matches “{query.trim()}”.
+          </p>
+        )}
+
         <div className="flex max-h-72 min-w-0 flex-col gap-3 overflow-y-auto">
           <section aria-labelledby={`${id}-local`}>
             <h3
               id={`${id}-local`}
               className="text-muted-foreground mb-1 text-[11px] font-semibold tracking-wider uppercase"
             >
-              Local
+              Local{' '}
+              <span className="tabular-nums" data-testid="local-branch-count">
+                {query.trim() === ''
+                  ? `(${local.length})`
+                  : `(${local.length} of ${branches?.local.length ?? 0})`}
+              </span>
             </h3>
             <ul className="flex flex-col">
-              {branches?.local.map((branch) => (
+              {local.map((branch) => (
                 <li
                   key={branch.name}
                   className="hover:bg-accent/50 flex min-w-0 items-center gap-2 rounded-md px-2 py-1 text-sm"
@@ -269,16 +309,21 @@ export function BranchesDialog({ tree, onClose }: BranchesDialogProps) {
               ))}
             </ul>
           </section>
-          {branches && branches.remote.length > 0 && (
+          {branches && remote.length > 0 && (
             <section aria-labelledby={`${id}-remote`}>
               <h3
                 id={`${id}-remote`}
                 className="text-muted-foreground mb-1 text-[11px] font-semibold tracking-wider uppercase"
               >
-                Remote-tracking
+                Remote-tracking{' '}
+                <span className="tabular-nums">
+                  {query.trim() === ''
+                    ? `(${remote.length})`
+                    : `(${remote.length} of ${branches.remote.length})`}
+                </span>
               </h3>
               <ul className="flex flex-col">
-                {branches.remote.map((branch) => (
+                {remote.map((branch) => (
                   <li
                     key={branch.name}
                     className="hover:bg-accent/50 flex min-w-0 items-center gap-2 rounded-md px-2 py-1 text-sm"

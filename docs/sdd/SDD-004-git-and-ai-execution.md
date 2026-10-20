@@ -206,6 +206,12 @@ possible.
 Push and Pull buttons show the commits to push and to pull (as of the last fetch); no
 number is shown without an upstream.
 
+**Branch search (PLAN-012).** The Branches dialog has a focused search field that filters
+local and remote-tracking branches by any part of the name (case-insensitive), shows
+"N of M" per section and a no-match message; Escape clears the search before it closes the
+dialog. The Merge dialog chooses its branch from the same kind of searchable list (arrow
+keys and Enter, or a click).
+
 ## Commit suggestions (FR-407)
 
 The deterministic strategy uses only paths and change types. It names a type only when

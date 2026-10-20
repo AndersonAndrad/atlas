@@ -18,17 +18,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { copyText } from '@/lib/clipboard';
 import { plural } from '../format';
+import { BranchPicker } from './BranchPicker';
 
 interface MergeDialogProps {
   tree: GitWorkingTree;
@@ -129,33 +121,22 @@ export function MergeDialog({ tree, onClose, onCommit }: MergeDialogProps) {
 
         {result === null && (
           <div className="flex flex-col gap-2">
-            <Select value={branch ?? undefined} onValueChange={setBranch} disabled={busy}>
-              <SelectTrigger aria-label="Branch to merge" className="w-full">
-                <SelectValue placeholder="Choose a branch to merge" />
-              </SelectTrigger>
-              <SelectContent>
-                {local.length > 0 && (
-                  <SelectGroup>
-                    <SelectLabel>Local</SelectLabel>
-                    {local.map((candidate) => (
-                      <SelectItem key={candidate.name} value={candidate.name}>
-                        {candidate.name}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                )}
-                {remote.length > 0 && (
-                  <SelectGroup>
-                    <SelectLabel>Remote-tracking</SelectLabel>
-                    {remote.map((candidate) => (
-                      <SelectItem key={candidate.name} value={candidate.name}>
-                        {candidate.name}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                )}
-              </SelectContent>
-            </Select>
+            <BranchPicker
+              label="Branch to merge"
+              value={branch}
+              onChange={setBranch}
+              disabled={busy}
+              groups={[
+                { label: 'Local', names: local.map((candidate) => candidate.name) },
+                { label: 'Remote-tracking', names: remote.map((candidate) => candidate.name) },
+              ]}
+            />
+            {branch !== null && (
+              <p className="text-sm" data-testid="merge-selected">
+                Merging <code className="font-mono">{branch}</code> into{' '}
+                <code className="font-mono">{current}</code>
+              </p>
+            )}
             {shownPreview && (
               <p className="text-muted-foreground text-sm" data-testid="merge-preview">
                 {shownPreview.commits === 0
