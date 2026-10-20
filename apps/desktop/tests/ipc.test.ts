@@ -551,6 +551,52 @@ describe('desktop IPC handlers', () => {
     });
   });
 
+  describe('shared context', () => {
+    it('scopes context to authorized targets and starts AI sessions in terminals', async () => {
+      execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: workspace });
+      const project = await registerProject();
+      const target = { projectId: project.id };
+      const recorded = await invoke(IPC_CHANNELS.contextRecord, {
+        target,
+        scope: 'project',
+        category: 'architecture',
+        title: 'Hexagonal',
+        body: 'Ports in core',
+      });
+      expect(recorded).toMatchObject({
+        ok: true,
+        data: { title: 'Hexagonal', verification: 'user' },
+      });
+      expect(await invoke(IPC_CHANNELS.contextList, { target })).toMatchObject({
+        ok: true,
+        data: [{ title: 'Hexagonal' }],
+      });
+
+      const outsider = path.join(temp.dir, 'outsider');
+      mkdirSync(outsider);
+      execFileSync('git', ['init', '-q'], { cwd: outsider });
+      expect(
+        await invoke(IPC_CHANNELS.contextList, { target: { workspacePath: outsider } }),
+      ).toMatchObject({ ok: false, error: { code: 'GIT_REPOSITORY_UNAVAILABLE' } });
+
+      expect(
+        await invoke(IPC_CHANNELS.aiStart, { provider: 'gpt', target, includeContext: false }),
+      ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+      const started = await invoke<{ terminalId: string; prompt: string | null }>(
+        IPC_CHANNELS.aiStart,
+        { provider: 'codex', target, includeContext: true },
+      );
+      expect(started).toMatchObject({ ok: true });
+      const data = (started as { ok: true; data: { terminalId: string; prompt: string } }).data;
+      expect(data.prompt).toContain('Hexagonal');
+      expect(spawner.last().written.join('')).toMatch(/^codex "\$\(cat '.+\.md'\)"\r$/);
+      expect(await invoke(IPC_CHANNELS.contextSessionForTerminal, data.terminalId)).toMatchObject({
+        ok: true,
+        data: { provider: 'codex', captureMode: 'managed' },
+      });
+    });
+  });
+
   describe('sessions', () => {
     it('accepts session workspaces only when chosen in the picker', async () => {
       const sneaky = await invoke(IPC_CHANNELS.createSession, {

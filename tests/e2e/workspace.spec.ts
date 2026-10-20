@@ -294,5 +294,5 @@ test('shows the real application and Engine versions', async ({ atlas }) => {
     .getByRole('button', { name: 'Settings' })
     .click();
   await expect(page.getByTestId('app-info-data-directory')).toHaveText(atlas.dataDir);
-  await expect(page.getByTestId('app-info-database-schema')).toHaveText('4');
+  await expect(page.getByTestId('app-info-database-schema')).toHaveText('5');
 });

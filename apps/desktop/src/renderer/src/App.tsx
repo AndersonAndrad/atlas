@@ -5,6 +5,7 @@ import { AboutDialog } from './components/AboutDialog';
 import { ProjectsView } from './components/ProjectsView';
 import { SettingsView } from './components/SettingsView';
 import { GitView, type GitOpenRequest } from './git/components/GitView';
+import { ContextView, type ContextOpenRequest } from './context/components/ContextView';
 import { Sidebar, type AppView } from './components/Sidebar';
 import { TooltipProvider } from './components/ui/tooltip';
 import { useAppInfo, versionLabel } from './hooks/useAppInfo';
@@ -26,6 +27,7 @@ export function App() {
     nonce: number;
   } | null>(null);
   const [gitRequest, setGitRequest] = useState<GitOpenRequest | null>(null);
+  const [contextRequest, setContextRequest] = useState<ContextOpenRequest | null>(null);
   const projects = useProjects();
   const terminals = useTerminalSessions();
   const groups = useTerminalGroups();
@@ -96,6 +98,11 @@ export function App() {
 
   const clearOpenRequest = useCallback(() => setOpenRequest(null), []);
   const clearGitRequest = useCallback(() => setGitRequest(null), []);
+  const clearContextRequest = useCallback(() => setContextRequest(null), []);
+  const openContext = (request: Omit<ContextOpenRequest, 'nonce'>) => {
+    setContextRequest({ ...request, nonce: Date.now() });
+    setView('context');
+  };
   const openGit = (target: Omit<GitOpenRequest, 'nonce'>) => {
     setGitRequest({ ...target, nonce: Date.now() });
     setView('git');
@@ -123,6 +130,7 @@ export function App() {
             onOpenTerminal={openTerminal}
             onNewSession={newSession}
             onOpenGit={(projectId) => openGit({ projectId })}
+            onOpenContext={(projectId) => openContext({ projectId, action: 'view' })}
             onProjectRemoved={() => void terminals.reload()}
           />
         )}
@@ -136,9 +144,23 @@ export function App() {
             onOpenRequestHandled={clearOpenRequest}
             subscribeCommands={subscribeCommands}
             onOpenGit={(terminalId) => openGit({ terminalId })}
+            onContextAction={(terminalId, { action, provider }) =>
+              openContext({ terminalId, action, ...(provider ? { provider } : {}) })
+            }
           />
         )}
         {view === 'git' && <GitView request={gitRequest} onRequestHandled={clearGitRequest} />}
+        {view === 'context' && (
+          <ContextView
+            projects={projects.items ?? []}
+            request={contextRequest}
+            onRequestHandled={clearContextRequest}
+            onAiStarted={() => {
+              void terminals.reload();
+              setView('terminals');
+            }}
+          />
+        )}
         {view === 'sessions' && (
           <SessionsView
             projects={projects}

@@ -8,6 +8,32 @@ import type {
 } from './project.js';
 import type { AppInfo } from './app-info.js';
 import type {
+  AiSession,
+  AttachTerminalInput,
+  ContextBundle,
+  ContextBundleRequest,
+  ContextEntry,
+  ContextHandoff,
+  ContextHandoffDraft,
+  ContextOverview,
+  ContextQuery,
+  ContextRevision,
+  ContextSnapshot,
+  ContextTarget,
+  ContextTask,
+  CreateContextEntryInput,
+  CreateContextTaskInput,
+  CreateDecisionInput,
+  CreateHandoffInput,
+  DecisionRecord,
+  SessionEvidence,
+  SessionSummaryInput,
+  StartAiSessionInput,
+  StartedAiSession,
+  UpdateContextEntryInput,
+  UpdateContextTaskInput,
+} from './context.js';
+import type {
   GitBranchList,
   GitCommitContext,
   GitCommitInput,
@@ -134,6 +160,32 @@ export const IPC_CHANNELS = {
   gitSetProjectSettings: 'atlas:git:set-project-settings',
   appInfo: 'atlas:app:info',
   copyText: 'atlas:app:copy-text',
+  contextOverview: 'atlas:context:overview',
+  contextList: 'atlas:context:list',
+  contextGlobal: 'atlas:context:global',
+  contextRecord: 'atlas:context:record',
+  contextUpdate: 'atlas:context:update',
+  contextRemove: 'atlas:context:remove',
+  contextHistory: 'atlas:context:history',
+  contextTasks: 'atlas:context:tasks',
+  contextCreateTask: 'atlas:context:create-task',
+  contextUpdateTask: 'atlas:context:update-task',
+  contextDeleteTask: 'atlas:context:delete-task',
+  contextDecisions: 'atlas:context:decisions',
+  contextCreateDecision: 'atlas:context:create-decision',
+  contextSetDecisionStatus: 'atlas:context:set-decision-status',
+  contextBundle: 'atlas:context:bundle',
+  contextSnapshot: 'atlas:context:snapshot',
+  contextPrepareHandoff: 'atlas:context:prepare-handoff',
+  contextCreateHandoff: 'atlas:context:create-handoff',
+  contextHandoffs: 'atlas:context:handoffs',
+  contextHandoff: 'atlas:context:handoff',
+  contextSessions: 'atlas:context:sessions',
+  contextSessionEvidence: 'atlas:context:session-evidence',
+  contextEndSession: 'atlas:context:end-session',
+  contextSessionForTerminal: 'atlas:context:session-for-terminal',
+  aiStart: 'atlas:ai:start',
+  aiAttach: 'atlas:ai:attach',
 
   listSessions: 'atlas:sessions:list',
   getSession: 'atlas:sessions:get',
@@ -341,6 +393,61 @@ export interface AtlasApi {
     setSettings(input: UpdateSessionSettingsInput): Promise<IpcResult<SessionSettings>>;
     /** A session, its tasks or its history changed (in any client). */
     onChanged(listener: (event: SessionChangedEvent) => void): Unsubscribe;
+  };
+  /** Shared context (SDD-005). Targets are authorized by the Engine. */
+  context: {
+    overview(target: ContextTarget): Promise<IpcResult<ContextOverview>>;
+    list(query: ContextQuery): Promise<IpcResult<ContextEntry[]>>;
+    global(search: string): Promise<IpcResult<ContextEntry[]>>;
+    record(input: CreateContextEntryInput): Promise<IpcResult<ContextEntry>>;
+    update(
+      target: ContextTarget | null,
+      id: string,
+      input: UpdateContextEntryInput,
+    ): Promise<IpcResult<ContextEntry>>;
+    remove(target: ContextTarget | null, id: string): Promise<IpcResult<null>>;
+    history(target: ContextTarget | null, id: string): Promise<IpcResult<ContextRevision[]>>;
+    tasks(target: ContextTarget): Promise<IpcResult<ContextTask[]>>;
+    createTask(input: CreateContextTaskInput): Promise<IpcResult<ContextTask>>;
+    updateTask(
+      target: ContextTarget,
+      id: string,
+      input: UpdateContextTaskInput,
+    ): Promise<IpcResult<ContextTask>>;
+    deleteTask(target: ContextTarget, id: string): Promise<IpcResult<null>>;
+    decisions(target: ContextTarget): Promise<IpcResult<DecisionRecord[]>>;
+    createDecision(input: CreateDecisionInput): Promise<IpcResult<DecisionRecord>>;
+    setDecisionStatus(
+      target: ContextTarget,
+      id: string,
+      status: 'ACTIVE' | 'REJECTED',
+    ): Promise<IpcResult<DecisionRecord>>;
+    bundle(request: ContextBundleRequest): Promise<IpcResult<ContextBundle>>;
+    snapshot(target: ContextTarget, taskId: string | null): Promise<IpcResult<ContextSnapshot>>;
+    prepareHandoff(
+      target: ContextTarget,
+      request: { taskId?: string; sourceSessionId?: string },
+    ): Promise<IpcResult<ContextHandoffDraft>>;
+    createHandoff(input: CreateHandoffInput): Promise<IpcResult<ContextHandoff>>;
+    handoffs(target: ContextTarget): Promise<IpcResult<ContextHandoff[]>>;
+    handoff(
+      target: ContextTarget,
+      id: string,
+    ): Promise<IpcResult<{ handoff: ContextHandoff; markdown: string }>>;
+    sessions(target: ContextTarget): Promise<IpcResult<AiSession[]>>;
+    sessionEvidence(target: ContextTarget, id: string): Promise<IpcResult<SessionEvidence>>;
+    endSession(
+      target: ContextTarget,
+      id: string,
+      summary: SessionSummaryInput,
+    ): Promise<IpcResult<{ session: AiSession; entries: ContextEntry[] }>>;
+    sessionForTerminal(terminalId: string): Promise<IpcResult<AiSession | null>>;
+  };
+  /** Individual AI CLI sessions started or tracked by ATLAS. */
+  ai: {
+    /** Opens Claude Code or Codex in a new terminal, with the reviewed context prompt. */
+    start(input: StartAiSessionInput): Promise<IpcResult<StartedAiSession>>;
+    attach(input: AttachTerminalInput): Promise<IpcResult<AiSession>>;
   };
   app: {
     info(): Promise<IpcResult<AppInfo>>;

@@ -6,4 +6,5 @@ export * from './git.js';
 export * from './app-info.js';
 export * from './terminal-layout.js';
 export * from './session.js';
+export * from './context.js';
 export * from './engine-api.js';

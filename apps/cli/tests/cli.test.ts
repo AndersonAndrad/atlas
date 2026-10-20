@@ -425,4 +425,60 @@ describe('atlas CLI', () => {
       expect((await host.engine.sessions.get(session.id)).status).toBe('READY');
     });
   });
+
+  describe('shared context', () => {
+    const projectId = async () => {
+      const added = await run(['project', 'add', workspace, '--json']);
+      return (JSON.parse(added.out) as ProjectDetails).project.id;
+    };
+
+    it('shows context, prints a bundle and creates and shows handoffs', async () => {
+      const id = await projectId();
+      const empty = await run(['context', 'show', '--project', id]);
+      expect(empty.code).toBe(0);
+      expect(empty.out).toContain('0 entries');
+
+      const bundle = await run(['context', 'bundle', '--project', id, '--provider', 'codex']);
+      expect(bundle.code).toBe(0);
+      expect(bundle.out).toContain('# ATLAS context — my-app');
+      expect(bundle.out).toContain('Context for Codex CLI');
+
+      const created = await run([
+        'context',
+        'handoff',
+        'create',
+        '--project',
+        id,
+        '--objective',
+        'Implement JWT authentication',
+        '--to',
+        'claude',
+        '--pending',
+        'Refresh tokens',
+        '--json',
+      ]);
+      expect(created.code).toBe(0);
+      const handoff = JSON.parse(created.out) as { id: string; pendingWork: string[] };
+      expect(handoff.pendingWork).toEqual(['Refresh tokens']);
+
+      const shown = await run(['context', 'handoff', 'show', handoff.id, '--project', id]);
+      expect(shown.out).toContain('Prepared for Claude Code');
+      expect(shown.out).toContain('- Refresh tokens');
+      expect((await run(['context', 'show', '--project', id])).out).toContain('1 handoffs');
+    });
+
+    it('requires one target and a valid provider, and needs the running app to start AI', async () => {
+      const id = await projectId();
+      expect((await run(['context', 'show'])).err).toContain('--project <id> or --cwd');
+      expect((await run(['context', 'handoff', 'create', '--project', id])).err).toContain(
+        '--objective',
+      );
+      expect((await run(['ai', 'start', '--provider', 'gpt', '--project', id])).err).toContain(
+        'claude or codex',
+      );
+      const offline = await run(['ai', 'start', '--provider', 'claude', '--project', id]);
+      expect(offline.code).not.toBe(0);
+      expect(offline.err).toContain('Engine is not running');
+    });
+  });
 });

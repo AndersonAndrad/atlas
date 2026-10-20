@@ -21,6 +21,8 @@ const electronPath = createRequire(path.join(desktopDir, 'package.json'))(
 export interface AtlasHarness {
   /** Isolated temporary root; nothing outside it is touched. */
   root: string;
+  /** First directory on the PATH of the app and its shells, for fake CLIs. */
+  binDir: string;
   dataDir: string;
   /** Creates a workspace directory, optionally with a minimal Git repository. */
   workspace(name: string, options?: { git?: string }): string;
@@ -45,11 +47,14 @@ export const test = base.extend<{ atlas: AtlasHarness }>({
     // Shells run with an empty HOME and plain bash so no user dotfiles are loaded.
     const home = path.join(tempRoot, 'home');
     mkdirSync(home);
+    const binDir = path.join(tempRoot, 'bin');
+    mkdirSync(binDir);
     const env = Object.fromEntries(
       Object.entries({
         ...process.env,
         ATLAS_DATA_DIR: dataDir,
         HOME: home,
+        PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
         SHELL: '/bin/bash',
         BASH_SILENCE_DEPRECATION_WARNING: '1',
         ZDOTDIR: home,
@@ -61,6 +66,7 @@ export const test = base.extend<{ atlas: AtlasHarness }>({
 
     const harness: AtlasHarness = {
       root: tempRoot,
+      binDir,
       dataDir,
       workspace(name, options = {}) {
         const dir = path.join(tempRoot, 'workspaces', name);

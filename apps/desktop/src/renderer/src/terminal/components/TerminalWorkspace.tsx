@@ -27,7 +27,7 @@ import {
   type SplitDirection,
 } from '../state/layout';
 import { TerminalLayoutView } from './TerminalLayoutView';
-import type { TerminalPaneHandle } from './TerminalPane';
+import type { TerminalContextAction, TerminalPaneHandle } from './TerminalPane';
 import { TerminalTabs } from './TerminalTabs';
 import { TerminalToolbar, type NewTerminalOptions } from './TerminalToolbar';
 
@@ -52,6 +52,7 @@ interface TerminalWorkspaceProps {
   onRequestClose: (sessionId: string) => void;
   onProjectInfo: (sessionId: string) => void;
   onOpenGit: (sessionId: string) => void;
+  onContextAction: (sessionId: string, action: TerminalContextAction) => void;
   onFontSize: (delta: number | 'reset') => void;
   onPreferences: (changes: UpdateTerminalPreferencesInput) => void;
   /** Subscribes to menu commands while the workspace is shown. */
@@ -73,6 +74,7 @@ export function TerminalWorkspace({
   onRequestClose,
   onProjectInfo,
   onOpenGit,
+  onContextAction,
   onFontSize,
   onPreferences,
   subscribeCommands,
@@ -317,6 +319,7 @@ export function TerminalWorkspace({
             onCloseTab={onRequestClose}
             onProjectInfo={onProjectInfo}
             onOpenGit={onOpenGit}
+            onContextAction={onContextAction}
             onRatio={(splitId, ratio) => update((value) => setSplitRatio(value, splitId, ratio))}
             registerHandle={registerHandle}
           />

@@ -1,6 +1,6 @@
 {
   "name": "@atlas/engine",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -16,6 +16,7 @@
     "postinstall": "node ../../scripts/ensure-pty-helper.mjs"
   },
   "dependencies": {
+    "@atlas/context": "workspace:*",
     "@atlas/contracts": "workspace:*",
     "@atlas/conventional-commits": "workspace:*",
     "@atlas/git": "workspace:*",

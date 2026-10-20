@@ -56,6 +56,32 @@ import {
   type TerminalProjectContext,
 } from './git.js';
 import {
+  AttachTerminalSchema,
+  ContextBundleRequestSchema,
+  ContextQuerySchema,
+  ContextTargetSchema,
+  CreateContextEntrySchema,
+  CreateContextTaskSchema,
+  CreateDecisionSchema,
+  CreateHandoffSchema,
+  SessionSummarySchema,
+  StartAiSessionSchema,
+  UpdateContextEntrySchema,
+  UpdateContextTaskSchema,
+  type AiSession,
+  type ContextBundle,
+  type ContextEntry,
+  type ContextHandoff,
+  type ContextHandoffDraft,
+  type ContextOverview,
+  type ContextRevision,
+  type ContextSnapshot,
+  type ContextTask,
+  type DecisionRecord,
+  type SessionEvidence,
+  type StartedAiSession,
+} from './context.js';
+import {
   AtlasSessionIdSchema,
   ListSessionsInputSchema,
   SessionActionSchema,
@@ -79,6 +105,9 @@ const WorkspaceKey = TerminalWorkspaceKeySchema;
 const Position = z.number().int().min(0).max(10_000);
 const SessionId = AtlasSessionIdSchema;
 const TaskId = SessionTaskIdSchema;
+const Target = ContextTargetSchema;
+const NullableTarget = ContextTargetSchema.nullable();
+const Uuid = z.uuid();
 
 /**
  * Parameter schemas of every Engine method. The Engine validates each request
@@ -177,6 +206,35 @@ export const ENGINE_METHOD_PARAMS = {
   'sessions.updateTask': z.tuple([SessionId, TaskId, Unknown]),
   'sessions.removeTask': z.tuple([SessionId, TaskId]),
   'sessions.cancelTask': z.tuple([SessionId, TaskId]),
+  'context.overview': z.tuple([Target]),
+  'context.list': z.tuple([ContextQuerySchema]),
+  'context.global': z.tuple([z.string().trim().max(200)]),
+  'context.record': z.tuple([CreateContextEntrySchema]),
+  'context.update': z.tuple([NullableTarget, Uuid, UpdateContextEntrySchema]),
+  'context.remove': z.tuple([NullableTarget, Uuid]),
+  'context.history': z.tuple([NullableTarget, Uuid]),
+  'context.tasks': z.tuple([Target]),
+  'context.createTask': z.tuple([CreateContextTaskSchema]),
+  'context.updateTask': z.tuple([Target, Uuid, UpdateContextTaskSchema]),
+  'context.deleteTask': z.tuple([Target, Uuid]),
+  'context.decisions': z.tuple([Target]),
+  'context.createDecision': z.tuple([CreateDecisionSchema]),
+  'context.setDecisionStatus': z.tuple([Target, Uuid, z.enum(['ACTIVE', 'REJECTED'])]),
+  'context.bundle': z.tuple([ContextBundleRequestSchema]),
+  'context.snapshot': z.tuple([Target, Uuid.nullable()]),
+  'context.prepareHandoff': z.tuple([
+    Target,
+    z.strictObject({ taskId: Uuid.optional(), sourceSessionId: Uuid.optional() }),
+  ]),
+  'context.createHandoff': z.tuple([CreateHandoffSchema]),
+  'context.handoffs': z.tuple([Target]),
+  'context.handoff': z.tuple([Target, Uuid]),
+  'context.sessions': z.tuple([Target]),
+  'context.sessionEvidence': z.tuple([Target, Uuid]),
+  'context.endSession': z.tuple([Target, Uuid, SessionSummarySchema]),
+  'context.sessionForTerminal': z.tuple([TerminalId]),
+  'ai.start': z.tuple([StartAiSessionSchema]),
+  'ai.attach': z.tuple([AttachTerminalSchema]),
   'sessions.getSettings': z.tuple([]),
   'sessions.setSettings': z.tuple([Unknown]),
 } as const;
@@ -274,6 +332,32 @@ export interface EngineMethodResults {
   'sessions.updateTask': SessionTask;
   'sessions.removeTask': null;
   'sessions.cancelTask': SessionTask;
+  'context.overview': ContextOverview;
+  'context.list': ContextEntry[];
+  'context.global': ContextEntry[];
+  'context.record': ContextEntry;
+  'context.update': ContextEntry;
+  'context.remove': null;
+  'context.history': ContextRevision[];
+  'context.tasks': ContextTask[];
+  'context.createTask': ContextTask;
+  'context.updateTask': ContextTask;
+  'context.deleteTask': null;
+  'context.decisions': DecisionRecord[];
+  'context.createDecision': DecisionRecord;
+  'context.setDecisionStatus': DecisionRecord;
+  'context.bundle': ContextBundle;
+  'context.snapshot': ContextSnapshot;
+  'context.prepareHandoff': ContextHandoffDraft;
+  'context.createHandoff': ContextHandoff;
+  'context.handoffs': ContextHandoff[];
+  'context.handoff': { handoff: ContextHandoff; markdown: string };
+  'context.sessions': AiSession[];
+  'context.sessionEvidence': SessionEvidence;
+  'context.endSession': { session: AiSession; entries: ContextEntry[] };
+  'context.sessionForTerminal': AiSession | null;
+  'ai.start': StartedAiSession;
+  'ai.attach': AiSession;
   'sessions.getSettings': SessionSettings;
   'sessions.setSettings': SessionSettings;
 }
@@ -282,6 +366,18 @@ export type EngineMethodParams<M extends EngineMethod> = z.input<(typeof ENGINE_
 
 /** Methods available to local CLI clients over the authenticated socket. */
 export const CLI_ENGINE_METHODS: readonly EngineMethod[] = [
+  // Shared context: reading, handoffs and starting AI sessions in the running app.
+  'context.overview',
+  'context.list',
+  'context.tasks',
+  'context.decisions',
+  'context.bundle',
+  'context.prepareHandoff',
+  'context.createHandoff',
+  'context.handoffs',
+  'context.handoff',
+  'context.sessions',
+  'ai.start',
   'engine.status',
   'terminals.list',
   'terminals.get',

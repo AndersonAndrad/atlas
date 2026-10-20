@@ -5,6 +5,11 @@ import {
 } from '@atlas/contracts';
 import {
   Activity,
+  Database,
+  NotebookPen,
+  Radio,
+  Sparkles,
+  Waypoints,
   ChevronDown,
   ChevronUp,
   Eraser,
@@ -42,6 +47,11 @@ import { TerminalView } from '../state/terminal-view';
 import { endedSummary } from '../format';
 import { TerminalStatusDot } from './TerminalStatusDot';
 
+export interface TerminalContextAction {
+  action: 'view' | 'continue' | 'handoff' | 'attach' | 'summary';
+  provider?: 'claude' | 'codex';
+}
+
 export interface TerminalPaneHandle {
   focus(): void;
   clear(): void;
@@ -65,6 +75,8 @@ interface TerminalPaneProps {
   onProjectInfo: () => void;
   /** Opens the Git view on the repository of this terminal's directory. */
   onOpenGit: () => void;
+  /** Shared context actions for this terminal (SDD-005). */
+  onContextAction: (action: TerminalContextAction) => void;
   registerHandle: (paneId: string, handle: TerminalPaneHandle | null) => void;
 }
 
@@ -81,6 +93,7 @@ export function TerminalPane({
   onCloseTab,
   onProjectInfo,
   onOpenGit,
+  onContextAction,
   registerHandle,
 }: TerminalPaneProps) {
   const git = useTerminalGit(session.id, session.currentCwd, session.status === 'RUNNING');
@@ -337,6 +350,50 @@ export function TerminalPane({
             <Activity />
             Git operations
           </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            disabled={snapshot === null}
+            onSelect={() => onContextAction({ action: 'view' })}
+          >
+            <Database />
+            Shared context
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={snapshot === null}
+            onSelect={() => onContextAction({ action: 'continue', provider: 'claude' })}
+          >
+            <Sparkles />
+            Continue with Claude…
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={snapshot === null}
+            onSelect={() => onContextAction({ action: 'continue', provider: 'codex' })}
+          >
+            <Sparkles />
+            Continue with Codex…
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={snapshot === null}
+            onSelect={() => onContextAction({ action: 'handoff' })}
+          >
+            <Waypoints />
+            Prepare handoff…
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={snapshot === null}
+            onSelect={() => onContextAction({ action: 'attach' })}
+          >
+            <Radio />
+            Track as AI session
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={snapshot === null}
+            onSelect={() => onContextAction({ action: 'summary' })}
+          >
+            <NotebookPen />
+            Save session summary…
+          </ContextMenuItem>
+          <ContextMenuSeparator />
           <ContextMenuItem onSelect={onProjectInfo}>
             <Info />
             Project details

@@ -14,6 +14,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       projectKeys: Object.keys((w.atlas as { projects: object }).projects).sort(),
       terminalKeys: Object.keys((w.atlas as { terminals: object }).terminals).sort(),
       sessionKeys: Object.keys((w.atlas as { sessions: object }).sessions).sort(),
+      aiKeys: Object.keys((w.atlas as { ai: object }).ai).sort(),
     };
   });
   expect(exposure).toEqual({
@@ -21,7 +22,19 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
     process: 'undefined',
     module: 'undefined',
     buffer: 'undefined',
-    atlasKeys: ['app', 'dialog', 'git', 'groups', 'projects', 'sessions', 'terminals'],
+    atlasKeys: [
+      'ai',
+      'app',
+      'context',
+      'dialog',
+      'git',
+      'groups',
+      'projects',
+      'sessions',
+      'terminals',
+    ],
+    // AI CLIs are only started or tracked; no command text crosses the bridge.
+    aiKeys: ['attach', 'start'],
     // Lifecycle changes go through named actions; there is no way to set a status.
     sessionKeys: [
       'addTask',

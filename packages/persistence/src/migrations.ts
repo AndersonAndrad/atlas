@@ -222,4 +222,138 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX session_approvals_session ON session_approvals (session_id, status);
     `,
   },
+  {
+    version: 5,
+    name: 'create_shared_context',
+    // Shared Context (SDD-005 Milestone A). Additive: no existing table changes.
+    // Records belong to a project or to a repository root (never both); global
+    // entries belong to neither. Removing a project converts its records to the
+    // project's directory first (Engine), like ATLAS Sessions.
+    sql: `
+      CREATE TABLE context_tasks (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        project_id TEXT REFERENCES projects (id) ON DELETE SET NULL,
+        workspace_path TEXT CHECK (workspace_path IS NULL OR length(workspace_path) > 0),
+        title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
+        objective TEXT NOT NULL CHECK (length(objective) BETWEEN 1 AND 4000),
+        status TEXT NOT NULL CHECK (status IN ('open', 'done', 'abandoned')),
+        base_commit TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (project_id IS NULL OR workspace_path IS NULL)
+      ) STRICT;
+      CREATE INDEX context_tasks_owner ON context_tasks (project_id, workspace_path, status);
+
+      CREATE TABLE ai_sessions (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        provider TEXT NOT NULL CHECK (provider IN ('claude', 'codex', 'external')),
+        capture_mode TEXT NOT NULL CHECK (capture_mode IN ('managed', 'attached')),
+        project_id TEXT REFERENCES projects (id) ON DELETE SET NULL,
+        workspace_path TEXT CHECK (workspace_path IS NULL OR length(workspace_path) > 0),
+        task_id TEXT REFERENCES context_tasks (id) ON DELETE SET NULL,
+        terminal_id TEXT,
+        handoff_id TEXT,
+        start_commit TEXT,
+        status TEXT NOT NULL CHECK (status IN ('active', 'ended')),
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        CHECK (project_id IS NULL OR workspace_path IS NULL),
+        CHECK ((status = 'ended') = (ended_at IS NOT NULL))
+      ) STRICT;
+      CREATE INDEX ai_sessions_owner ON ai_sessions (project_id, workspace_path, started_at);
+      CREATE INDEX ai_sessions_terminal ON ai_sessions (terminal_id, status);
+
+      CREATE TABLE context_entries (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        scope TEXT NOT NULL
+          CHECK (scope IN ('global', 'project', 'workspace', 'task', 'session', 'agent')),
+        project_id TEXT REFERENCES projects (id) ON DELETE SET NULL,
+        workspace_path TEXT CHECK (workspace_path IS NULL OR length(workspace_path) > 0),
+        task_id TEXT REFERENCES context_tasks (id) ON DELETE CASCADE,
+        session_id TEXT REFERENCES ai_sessions (id) ON DELETE SET NULL,
+        category TEXT NOT NULL,
+        title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
+        body TEXT NOT NULL CHECK (length(body) <= 20000),
+        status TEXT NOT NULL CHECK (status IN ('active', 'obsolete')),
+        verification TEXT NOT NULL CHECK (verification IN ('verified', 'user', 'observed')),
+        source_kind TEXT NOT NULL,
+        source_ref TEXT,
+        recorded_by TEXT NOT NULL,
+        refs TEXT NOT NULL DEFAULT '{"files":[],"commit":null}' CHECK (json_valid(refs)),
+        revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (project_id IS NULL OR workspace_path IS NULL),
+        CHECK ((scope = 'global') = (project_id IS NULL AND workspace_path IS NULL))
+      ) STRICT;
+      CREATE INDEX context_entries_owner
+        ON context_entries (project_id, workspace_path, status, updated_at);
+      CREATE INDEX context_entries_task ON context_entries (task_id);
+      CREATE INDEX context_entries_session ON context_entries (session_id);
+
+      CREATE TABLE context_revisions (
+        entry_id TEXT NOT NULL REFERENCES context_entries (id) ON DELETE CASCADE,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        category TEXT NOT NULL,
+        verification TEXT NOT NULL,
+        status TEXT NOT NULL,
+        changed_at TEXT NOT NULL,
+        changed_by TEXT NOT NULL,
+        reason TEXT,
+        PRIMARY KEY (entry_id, revision)
+      ) STRICT;
+
+      -- Full-text index of entry titles and bodies, kept in sync by the repository.
+      CREATE VIRTUAL TABLE context_search USING fts5 (entry_id UNINDEXED, title, body);
+
+      CREATE TABLE context_decisions (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        project_id TEXT REFERENCES projects (id) ON DELETE SET NULL,
+        workspace_path TEXT CHECK (workspace_path IS NULL OR length(workspace_path) > 0),
+        task_id TEXT REFERENCES context_tasks (id) ON DELETE SET NULL,
+        question TEXT NOT NULL CHECK (length(question) BETWEEN 1 AND 500),
+        decision TEXT NOT NULL CHECK (length(decision) BETWEEN 1 AND 2000),
+        alternatives TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(alternatives)),
+        reasoning TEXT NOT NULL DEFAULT '',
+        evidence TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(evidence)),
+        affected TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(affected)),
+        status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'SUPERSEDED', 'REJECTED')),
+        superseded_by TEXT REFERENCES context_decisions (id) ON DELETE SET NULL,
+        author TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (project_id IS NULL OR workspace_path IS NULL),
+        CHECK (project_id IS NOT NULL OR workspace_path IS NOT NULL)
+      ) STRICT;
+      CREATE INDEX context_decisions_owner
+        ON context_decisions (project_id, workspace_path, status);
+
+      CREATE TABLE context_handoffs (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        project_id TEXT REFERENCES projects (id) ON DELETE SET NULL,
+        workspace_path TEXT CHECK (workspace_path IS NULL OR length(workspace_path) > 0),
+        task_id TEXT REFERENCES context_tasks (id) ON DELETE SET NULL,
+        source_session_id TEXT REFERENCES ai_sessions (id) ON DELETE SET NULL,
+        target_provider TEXT CHECK (target_provider IS NULL OR target_provider IN ('claude', 'codex')),
+        payload TEXT NOT NULL CHECK (json_valid(payload)),
+        source_revision TEXT,
+        created_at TEXT NOT NULL,
+        CHECK (project_id IS NULL OR workspace_path IS NULL)
+      ) STRICT;
+      CREATE INDEX context_handoffs_owner ON context_handoffs (project_id, workspace_path, created_at);
+
+      CREATE TABLE context_snapshots (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        project_id TEXT REFERENCES projects (id) ON DELETE SET NULL,
+        workspace_path TEXT CHECK (workspace_path IS NULL OR length(workspace_path) > 0),
+        task_id TEXT REFERENCES context_tasks (id) ON DELETE SET NULL,
+        markdown TEXT NOT NULL,
+        head TEXT,
+        created_at TEXT NOT NULL,
+        CHECK (project_id IS NULL OR workspace_path IS NULL)
+      ) STRICT;
+    `,
+  },
 ];

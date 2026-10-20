@@ -1,6 +1,6 @@
 {
   "name": "@atlas/desktop",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "description": "ATLAS Control desktop application",
@@ -13,6 +13,7 @@
     "postinstall": "install-electron"
   },
   "dependencies": {
+    "@atlas/context": "workspace:*",
     "@atlas/contracts": "workspace:*",
     "@atlas/conventional-commits": "workspace:*",
     "@atlas/engine": "workspace:*",

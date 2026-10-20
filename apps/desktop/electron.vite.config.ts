@@ -19,6 +19,7 @@ const workspaceSources: Record<string, string> = {
   '@atlas/projects': 'packages/projects/src/index.ts',
   '@atlas/terminal': 'packages/terminal/src/index.ts',
   '@atlas/sessions': 'packages/sessions/src/index.ts',
+  '@atlas/context': 'packages/context/src/index.ts',
   '@atlas/persistence': 'packages/persistence/src/index.ts',
   '@atlas/engine': 'apps/engine/src/index.ts',
 };

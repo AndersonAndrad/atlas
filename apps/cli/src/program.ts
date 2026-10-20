@@ -2,6 +2,10 @@ import {
   EXECUTION_PROFILES,
   isFinalSessionStatus,
   isFinalTerminalStatus,
+  type ContextEntry,
+  type ContextOverview,
+  type ContextTarget,
+  type ContextTask,
   type EngineMethod,
   type EngineMethodParams,
   type AtlasSessionStatus,
@@ -460,6 +464,183 @@ export async function runCli(
       print(Boolean(options.json), cancelled, `Session "${cancelled.name}" is cancelled.\n`);
     });
 
+  // Shared context (SDD-005): read, export and hand off; AI sessions open in ATLAS.
+  const contextTarget = (options: { project?: string; cwd?: string }): ContextTarget => {
+    if ((options.project === undefined) === (options.cwd === undefined)) {
+      throw new CliUsageError('Use either --project <id> or --cwd <repository>.');
+    }
+    return options.project !== undefined
+      ? { projectId: options.project }
+      : { workspacePath: path.resolve(io.cwd, options.cwd!) };
+  };
+  const targetOptions = (command: Command) =>
+    command
+      .option('-p, --project <id>', 'registered project')
+      .option('-C, --cwd <path>', 'Git repository opened in ATLAS (project or terminal)');
+
+  const contextCommand = program
+    .command('context')
+    .description('Shared context: project memory, tasks, decisions and handoffs');
+
+  targetOptions(
+    contextCommand
+      .command('show')
+      .description('Show what ATLAS remembers about a project or repository')
+      .option('-t, --task <id>', 'only this task')
+      .option('-s, --search <text>', 'full-text search')
+      .option('--json', 'output JSON'),
+  ).action(
+    async (options: {
+      project?: string;
+      cwd?: string;
+      task?: string;
+      search?: string;
+      json?: boolean;
+    }) => {
+      const target = contextTarget(options);
+      const [overview, entries, tasks] = await Promise.all([
+        sessionCall('context.overview', target),
+        sessionCall('context.list', {
+          target,
+          ...(options.task ? { taskId: options.task } : {}),
+          ...(options.search ? { search: options.search } : {}),
+        }),
+        sessionCall('context.tasks', target),
+      ]);
+      print(
+        Boolean(options.json),
+        { overview, tasks, entries },
+        formatContext(overview, tasks, entries),
+      );
+    },
+  );
+
+  targetOptions(
+    contextCommand
+      .command('bundle')
+      .description('Print the context bundle an AI session would receive')
+      .option('-t, --task <id>', 'task to focus on')
+      .option('--provider <name>', 'claude, codex or generic', 'generic')
+      .option('--budget <tokens>', 'token budget', '6000')
+      .option('--json', 'output JSON'),
+  ).action(
+    async (options: {
+      project?: string;
+      cwd?: string;
+      task?: string;
+      provider: string;
+      budget: string;
+      json?: boolean;
+    }) => {
+      const bundle = await sessionCall('context.bundle', {
+        target: contextTarget(options),
+        ...(options.task ? { taskId: options.task } : {}),
+        provider: options.provider as 'claude' | 'codex' | 'generic',
+        budgetTokens: Number(options.budget),
+      });
+      print(Boolean(options.json), bundle, `${bundle.markdown}\n`);
+    },
+  );
+
+  const handoffCommand = contextCommand
+    .command('handoff')
+    .description('Create and export handoffs');
+  targetOptions(
+    handoffCommand
+      .command('create')
+      .description('Create a handoff from stored context and Git evidence')
+      .option('-t, --task <id>', 'task to hand off')
+      .option('-o, --objective <text>', 'objective (defaults to the task objective)')
+      .option('--to <provider>', 'claude or codex')
+      .option('--done <text>', 'completed work (repeatable)', collect, [] as string[])
+      .option('--pending <text>', 'pending work (repeatable)', collect, [] as string[])
+      .option('--json', 'output JSON'),
+  ).action(
+    async (options: {
+      project?: string;
+      cwd?: string;
+      task?: string;
+      objective?: string;
+      to?: string;
+      done: string[];
+      pending: string[];
+      json?: boolean;
+    }) => {
+      const target = contextTarget(options);
+      const draft = await sessionCall('context.prepareHandoff', target, {
+        ...(options.task ? { taskId: options.task } : {}),
+      });
+      const objective = options.objective ?? draft.objective;
+      if (objective.trim() === '') {
+        throw new CliUsageError('Give an --objective or a --task that has one.');
+      }
+      const handoff = await sessionCall('context.createHandoff', {
+        target,
+        ...(options.task ? { taskId: options.task } : {}),
+        targetProvider: (options.to ?? null) as 'claude' | 'codex' | null,
+        objective,
+        completedWork: [...draft.completedWork, ...options.done],
+        pendingWork: [...draft.pendingWork, ...options.pending],
+        blockers: draft.blockers,
+        nextActions: draft.nextActions,
+      });
+      const { markdown } = await sessionCall('context.handoff', target, handoff.id);
+      print(Boolean(options.json), handoff, `Created handoff ${handoff.id}\n\n${markdown}\n`);
+    },
+  );
+  targetOptions(
+    handoffCommand
+      .command('show')
+      .description('Print a handoff as markdown')
+      .argument('<id>', 'handoff id')
+      .option('--json', 'output JSON'),
+  ).action(async (id: string, options: { project?: string; cwd?: string; json?: boolean }) => {
+    const result = await sessionCall('context.handoff', contextTarget(options), id);
+    print(Boolean(options.json), result.handoff, `${result.markdown}\n`);
+  });
+
+  const ai = program
+    .command('ai')
+    .description('Individual Claude Code or Codex sessions with shared context');
+  targetOptions(
+    ai
+      .command('start')
+      .description('Open Claude Code or Codex in a new ATLAS terminal (ATLAS must be running)')
+      .requiredOption('--provider <name>', 'claude or codex')
+      .option('-t, --task <id>', 'task to continue')
+      .option('--handoff <id>', 'continue from this handoff')
+      .option('--no-context', 'start without sending stored context')
+      .option('--json', 'output JSON'),
+  ).action(
+    async (options: {
+      provider: string;
+      project?: string;
+      cwd?: string;
+      task?: string;
+      handoff?: string;
+      context: boolean;
+      json?: boolean;
+    }) => {
+      if (options.provider !== 'claude' && options.provider !== 'codex') {
+        throw new CliUsageError('--provider must be claude or codex.');
+      }
+      const client = await getEngineClient();
+      const started = await client.call('ai.start', {
+        provider: options.provider,
+        target: contextTarget(options),
+        ...(options.task ? { taskId: options.task } : {}),
+        ...(options.handoff ? { handoffId: options.handoff } : {}),
+        includeContext: options.context,
+      });
+      print(
+        Boolean(options.json),
+        started,
+        `Started ${options.provider} in terminal ${started.terminalId}` +
+          (started.prompt === null ? ' without context.\n' : ' with ATLAS context.\n'),
+      );
+    },
+  );
+
   try {
     await program.parseAsync(argv, { from: 'user' });
     return 0;
@@ -472,6 +653,29 @@ export async function runCli(
 }
 
 class CliUsageError extends Error {}
+
+function formatContext(
+  overview: ContextOverview,
+  tasks: ContextTask[],
+  entries: ContextEntry[],
+): string {
+  const lines = [
+    `${overview.entries} entries · ${overview.openTasks}/${overview.tasks} open tasks · ` +
+      `${overview.decisions} active decisions · ${overview.handoffs} handoffs · ` +
+      `${overview.sessions} AI sessions`,
+  ];
+  if (tasks.length > 0) {
+    lines.push('', 'Tasks:');
+    for (const task of tasks) lines.push(`  ${task.id}  [${task.status}] ${task.title}`);
+  }
+  if (entries.length > 0) {
+    lines.push('', 'Entries:');
+    for (const entry of entries) {
+      lines.push(`  ${entry.id}  ${entry.category} (${entry.verification})  ${entry.title}`);
+    }
+  }
+  return `${lines.join('\n')}\n`;
+}
 
 function sessionUpdated(name: string, status: AtlasSessionStatus, action: SessionAction): string {
   if (action === 'archive') return `Session "${name}" is archived.\n`;

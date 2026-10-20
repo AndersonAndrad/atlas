@@ -21,8 +21,10 @@ import {
   GitSwitchBranchInputSchema,
   UpdateGitPreferencesSchema,
   ProjectGitSettingsSchema,
+  ENGINE_METHOD_PARAMS,
   IPC_CHANNELS,
   IPC_SEND_CHANNELS,
+  type EngineMethod,
   TERMINAL_VIEW_ID_PATTERN,
   ProjectIdSchema,
   TerminalColumnsSchema,
@@ -322,6 +324,42 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     engine.call('git.project', projectId as string),
   );
   handle(IPC_CHANNELS.appInfo, NoArgs, () => deps.appInfo());
+  // Shared context and AI sessions (SDD-005): IPC arguments are the Engine method's
+  // parameters, validated here with the same schemas and again by the Engine.
+  const contextChannels: [string, EngineMethod][] = [
+    [IPC_CHANNELS.contextOverview, 'context.overview'],
+    [IPC_CHANNELS.contextList, 'context.list'],
+    [IPC_CHANNELS.contextGlobal, 'context.global'],
+    [IPC_CHANNELS.contextRecord, 'context.record'],
+    [IPC_CHANNELS.contextUpdate, 'context.update'],
+    [IPC_CHANNELS.contextRemove, 'context.remove'],
+    [IPC_CHANNELS.contextHistory, 'context.history'],
+    [IPC_CHANNELS.contextTasks, 'context.tasks'],
+    [IPC_CHANNELS.contextCreateTask, 'context.createTask'],
+    [IPC_CHANNELS.contextUpdateTask, 'context.updateTask'],
+    [IPC_CHANNELS.contextDeleteTask, 'context.deleteTask'],
+    [IPC_CHANNELS.contextDecisions, 'context.decisions'],
+    [IPC_CHANNELS.contextCreateDecision, 'context.createDecision'],
+    [IPC_CHANNELS.contextSetDecisionStatus, 'context.setDecisionStatus'],
+    [IPC_CHANNELS.contextBundle, 'context.bundle'],
+    [IPC_CHANNELS.contextSnapshot, 'context.snapshot'],
+    [IPC_CHANNELS.contextPrepareHandoff, 'context.prepareHandoff'],
+    [IPC_CHANNELS.contextCreateHandoff, 'context.createHandoff'],
+    [IPC_CHANNELS.contextHandoffs, 'context.handoffs'],
+    [IPC_CHANNELS.contextHandoff, 'context.handoff'],
+    [IPC_CHANNELS.contextSessions, 'context.sessions'],
+    [IPC_CHANNELS.contextSessionEvidence, 'context.sessionEvidence'],
+    [IPC_CHANNELS.contextEndSession, 'context.endSession'],
+    [IPC_CHANNELS.contextSessionForTerminal, 'context.sessionForTerminal'],
+    [IPC_CHANNELS.aiStart, 'ai.start'],
+    [IPC_CHANNELS.aiAttach, 'ai.attach'],
+  ];
+  for (const [channel, method] of contextChannels) {
+    handle(channel, ENGINE_METHOD_PARAMS[method] as unknown as z.ZodType<unknown[]>, (args) =>
+      (engine.call as (name: string, ...params: unknown[]) => Promise<unknown>)(method, ...args),
+    );
+  }
+
   handle(IPC_CHANNELS.copyText, z.tuple([z.string().max(1_000_000)]), async ([text]) => {
     deps.writeClipboard(text as string);
     return null;

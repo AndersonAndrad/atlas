@@ -1,5 +1,17 @@
 import {
   CLI_ENGINE_METHODS,
+  type AttachTerminalInput,
+  type ContextBundleRequest,
+  type ContextQuery,
+  type ContextTarget,
+  type CreateContextEntryInput,
+  type CreateContextTaskInput,
+  type CreateDecisionInput,
+  type CreateHandoffInput,
+  type SessionSummaryInput,
+  type StartAiSessionInput,
+  type UpdateContextEntryInput,
+  type UpdateContextTaskInput,
   ENGINE_METHOD_PARAMS,
   UNGROUPED_WORKSPACE,
   parseInput,
@@ -32,7 +44,7 @@ export interface EngineDispatcher {
   call(method: string, params: unknown, scope: EngineCallerScope): Promise<unknown>;
 }
 
-type Handler = (params: never) => Promise<unknown> | unknown;
+type Handler = (params: never, scope: EngineCallerScope) => Promise<unknown> | unknown;
 
 /**
  * Maps Engine methods to services. Every request is validated here, regardless
@@ -52,12 +64,18 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     return engine.terminalGroups;
   };
   const { projects, gitWorkspace: gitService } = engine;
+  const { context } = engine;
+  /** Context requests are always scoped to a target the Engine authorized (FR-507). */
+  const target = (value: ContextTarget) => engine.resolveContextTarget(value);
+  const maybeTarget = async (value: ContextTarget | null) =>
+    value === null ? null : engine.resolveContextTarget(value);
   /** Git workflow requests only reach repositories the Engine resolved itself. */
   const repo = (repositoryRoot: string) => engine.requireGitRepository(repositoryRoot);
 
   const handlers: {
     [M in EngineMethod]: (
       params: never,
+      scope: EngineCallerScope,
     ) => Promise<EngineMethodResults[M]> | EngineMethodResults[M];
   } = {
     'engine.status': () => ({
@@ -236,6 +254,72 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     },
     'sessions.cancelTask': ([id, taskId]: [string, string]) =>
       engine.sessions.cancelTask(id, taskId),
+    'context.overview': async ([value]: [ContextTarget]) => context.overview(await target(value)),
+    'context.list': async ([{ target: value, ...query }]: [ContextQuery]) =>
+      context.list(await target(value), query),
+    'context.global': ([search]: [string]) => context.listGlobal(search || undefined),
+    'context.record': async ([input]: [CreateContextEntryInput], scope) =>
+      context.record(input.target === null ? null : await target(input.target), input, scope),
+    'context.update': async (
+      [value, id, input]: [ContextTarget | null, string, UpdateContextEntryInput],
+      scope,
+    ) => context.update(await maybeTarget(value), id, input, scope),
+    'context.remove': async ([value, id]: [ContextTarget | null, string]) => {
+      await context.remove(await maybeTarget(value), id);
+      return null;
+    },
+    'context.history': async ([value, id]: [ContextTarget | null, string]) =>
+      context.history(await maybeTarget(value), id),
+    'context.tasks': async ([value]: [ContextTarget]) => context.listTasks(await target(value)),
+    'context.createTask': async ([input]: [CreateContextTaskInput]) =>
+      context.createTask(await target(input.target), input),
+    'context.updateTask': async ([value, id, input]: [
+      ContextTarget,
+      string,
+      UpdateContextTaskInput,
+    ]) => context.updateTask(await target(value), id, input),
+    'context.deleteTask': async ([value, id]: [ContextTarget, string]) => {
+      await context.deleteTask(await target(value), id);
+      return null;
+    },
+    'context.decisions': async ([value]: [ContextTarget]) =>
+      context.listDecisions(await target(value)),
+    'context.createDecision': async ([input]: [Required<CreateDecisionInput>], scope) =>
+      context.createDecision(await target(input.target), input, scope),
+    'context.setDecisionStatus': async ([value, id, status]: [
+      ContextTarget,
+      string,
+      'ACTIVE' | 'REJECTED',
+    ]) => context.setDecisionStatus(await target(value), id, status),
+    'context.bundle': async ([{ target: value, ...request }]: [Required<ContextBundleRequest>]) =>
+      context.bundle(await target(value), request),
+    'context.snapshot': async ([value, taskId]: [ContextTarget, string | null]) =>
+      context.snapshot(await target(value), taskId ?? undefined),
+    'context.prepareHandoff': async ([value, request]: [
+      ContextTarget,
+      { taskId?: string; sourceSessionId?: string },
+    ]) => context.prepareHandoff(await target(value), request),
+    'context.createHandoff': async ([input]: [Required<CreateHandoffInput>]) =>
+      context.createHandoff(await target(input.target), input),
+    'context.handoffs': async ([value]: [ContextTarget]) =>
+      context.listHandoffs(await target(value)),
+    'context.handoff': async ([value, id]: [ContextTarget, string]) => {
+      const resolved = await target(value);
+      const handoff = await context.getHandoff(resolved, id);
+      return { handoff, markdown: context.renderHandoff(resolved, handoff) };
+    },
+    'context.sessions': async ([value]: [ContextTarget]) =>
+      context.listSessions(await target(value)),
+    'context.sessionEvidence': async ([value, id]: [ContextTarget, string]) =>
+      context.sessionEvidence(await target(value), id),
+    'context.endSession': async (
+      [value, id, summary]: [ContextTarget, string, Required<SessionSummaryInput>],
+      scope,
+    ) => context.endSession(await target(value), id, summary, scope),
+    'context.sessionForTerminal': ([terminalId]: [string]) =>
+      context.sessionForTerminal(terminalId),
+    'ai.start': ([input]: [StartAiSessionInput]) => engine.startAiSession(input),
+    'ai.attach': ([input]: [AttachTerminalInput]) => engine.attachTerminalSession(input),
     'sessions.getSettings': () => engine.sessionSettings.get(),
     'sessions.setSettings': ([input]: [unknown]) => engine.sessionSettings.update(input),
   };
@@ -255,7 +339,7 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
       }
       const args = parseInput(ENGINE_METHOD_PARAMS[name], params);
       const handler = handlers[name] as Handler;
-      return handler(args as never);
+      return handler(args as never, scope);
     },
   };
 }

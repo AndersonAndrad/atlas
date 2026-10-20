@@ -27,6 +27,7 @@ import { DeleteGroupDialog } from './DeleteGroupDialog';
 import { NameDialog } from './NameDialog';
 import { ProjectSheet, type ProjectSheetRequest } from './ProjectSheet';
 import { TerminalSidebar, membersOf } from './TerminalSidebar';
+import type { TerminalContextAction } from './TerminalPane';
 import { TerminalWorkspace } from './TerminalWorkspace';
 
 interface TerminalsViewProps {
@@ -41,6 +42,8 @@ interface TerminalsViewProps {
   subscribeCommands: (handler: (command: AppCommand) => void) => () => void;
   /** Opens the Git view on a terminal's repository. */
   onOpenGit: (terminalId: string) => void;
+  /** Shared context actions requested from a terminal. */
+  onContextAction: (terminalId: string, action: TerminalContextAction) => void;
 }
 
 type NameDialogState =
@@ -66,6 +69,7 @@ export function TerminalsView({
   onOpenRequestHandled,
   subscribeCommands,
   onOpenGit,
+  onContextAction,
 }: TerminalsViewProps) {
   const [workspace, setWorkspace] = useState<string>(UNGROUPED_WORKSPACE);
   const [focusRequest, setFocusRequest] = useState<{ sessionId: string; nonce: number } | null>(
@@ -265,6 +269,7 @@ export function TerminalsView({
               onRequestClose={(sessionId) => void requestClose(sessionId)}
               onProjectInfo={(sessionId) => setSheet({ kind: 'terminal', sessionId })}
               onOpenGit={onOpenGit}
+              onContextAction={onContextAction}
               onFontSize={preferences.changeFontSize}
               onPreferences={(changes) => void preferences.update(changes)}
               subscribeCommands={subscribeCommands}

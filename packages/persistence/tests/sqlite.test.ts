@@ -419,7 +419,7 @@ describe('SQLite persistence', () => {
       db.close();
 
       db = openDatabase({ filePath: v2Path });
-      expect(getSchemaVersion(db)).toBe(4);
+      expect(getSchemaVersion(db)).toBe(5);
       const rows = db
         .prepare(
           'SELECT auto_title, custom_title, group_position, current_cwd FROM terminal_sessions ORDER BY created_at',

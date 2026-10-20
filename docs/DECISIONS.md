@@ -340,3 +340,31 @@ superseded decisions are marked, not deleted.
   aborting could lose local changes).
 - **Consequences**: `--no-ff` always creates a merge commit. Clipboard writes go through the
   main process (`app.copyText`), since `navigator.clipboard` needs document focus.
+
+## ADR-039 — Shared Context before provider execution (PLAN-013, SDD-005 A1)
+
+- **Context**: SDD-005 depends on SDD-004 Milestone B (headless provider execution), which
+  does not exist yet.
+- **Decision**: Build the provider-independent Context Engine now and start Claude Code or
+  Codex in ATLAS terminals through their documented interactive prompt argument. Automatic
+  outcome capture waits for SDD-004 Milestone B (stage A2).
+- **Consequences**: Session outcomes are Git evidence plus summaries written or approved by
+  the user; handoff validations stay empty until execution evidence exists.
+
+## ADR-040 — Context owners, verification and untrusted content (PLAN-013)
+
+- **Decision**: Every record belongs to a project or a repository root resolved by the
+  Engine, or is global by explicit choice. Entries carry a verification level (`verified`
+  from Git, `user`, `observed`) and full revision history; decisions are superseded, never
+  erased. Content is redacted before storage and always presented to providers as reference
+  data, never as instructions, behind a reviewed first message.
+- **Alternatives**: Copying provider conversations (rejected by the specification); a
+  vector database (out of scope; FTS5 search with a repository abstraction instead).
+
+## ADR-041 — Prompt delivery through a private file (PLAN-013)
+
+- **Decision**: The first message is written to `<data>/context/prompts/<session>.md` (0600)
+  and passed as `"$(cat '<path>')"`; only the quoted path reaches the shell.
+- **Consequences**: Arbitrary context text can never be interpreted by the shell. POSIX
+  shells and PowerShell are supported; `cmd.exe` is not. Prompt files remain in the data
+  directory (private) until removed with it.

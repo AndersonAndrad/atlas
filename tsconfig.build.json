@@ -8,6 +8,7 @@
     { "path": "packages/projects" },
     { "path": "packages/terminal" },
     { "path": "packages/sessions" },
+    { "path": "packages/context" },
     { "path": "packages/persistence" },
     { "path": "apps/engine" },
     { "path": "apps/cli" }

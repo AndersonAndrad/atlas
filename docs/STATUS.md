@@ -1,21 +1,44 @@
 # ATLAS Status
 
-Last updated: 2026-10-20 — SDD-004 Milestone A (PLAN-008 revision 1, PLAN-009 revision 1).
+Last updated: 2026-10-20 — SDD-005 Milestone A, stage A1 (PLAN-013 revision 1).
 
-**Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B
-(ATLAS Sessions) implemented and validated on macOS (arm64). SDD-004 Milestone A (Git
-workflow, PLAN-008) and its improvements (PLAN-009: file review that approves by staging,
-per-project Conventional Commits enforcement, up to five pre-commit steps with durations,
-pending-action dots, changed-file counts in the Terminals sidebar) implemented and validated.
-Both await the developer's approval. Version 0.7.1 adds branch search in the Branches and
-Merge dialogs (PLAN-012); 0.7.0 added merges without auto-commit (with
-conflict reporting and abort) and commit counts on Push and Pull (PLAN-011); 0.6.1 moved Git
-operations into a side panel (PLAN-010). SDD-004 Milestone B (Claude Code and Codex execution) not started — it needs its
-own plan. Earlier: 0.6.0 (PLAN-009), 0.5.0 (PLAN-008).
+**Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
+SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
+Context) implemented and validated on macOS (arm64) with automated tests; all await the
+developer's approval. SDD-005 A1 still needs a manual check with the real Claude Code and
+Codex CLIs. SDD-004 Milestone B (provider execution) and SDD-005 stage A2, Milestones B and
+C are not started. Version 0.8.0 (schema v5).
 
-Earlier in this version line: 0.4.1 (PLAN-005: sidebar logo, full window title,
-ahead/behind per project in the Terminals sidebar) and 0.4.2 (PLAN-007: dialogs stay within
-bounds with long values).
+## SDD-005 Milestone A, stage A1 — Shared Context
+
+| Requirement | Summary                                                                                                  |
+| ----------- | -------------------------------------------------------------------------------------------------------- |
+| FR-501–503  | Scopes, entities and categories; entries with verification, source, file/commit references and revisions |
+| FR-504      | `SharedContextService` (packages/context), independent of Electron and providers                         |
+| FR-505/506  | Token-budgeted bundles with priorities; freshness checked against Git before every bundle                |
+| FR-507      | Engine-authorized owners per request; global only by explicit choice; redaction; untrusted content       |
+| FR-508–510  | Managed Claude Code / Codex sessions in ATLAS terminals; tracked terminals; no conversation access       |
+| FR-511–513  | Handoffs with Git evidence (both directions); session summaries with verified commits and files          |
+| FR-514      | Context view: overview, memory, tasks, decisions, sessions, handoffs; terminal and project entry points  |
+
+| Acceptance (§5)                                    | Evidence                                                                 |
+| -------------------------------------------------- | ------------------------------------------------------------------------ |
+| Persists independently of AI processes / restart   | Engine test "keeps context across restarts…"                             |
+| Works without orchestration; standalone workspaces | Engine and E2E tests (projects and repositories from terminals)          |
+| Project and task context separated                 | Engine bundle and handoff tests; UI scopes                               |
+| Bundles; revisions; source references              | Unit, Engine and E2E tests                                               |
+| Claude → Codex and Codex → Claude handoffs         | Engine and E2E tests with fake CLIs; **real CLIs: manual check pending** |
+| Ordinary sessions opt in; capture limits stated    | Start dialog (reviewed prompt), Sessions tab notice, SDD limitations     |
+| Permissions respected                              | Engine isolation test; IPC authorization test                            |
+| Automated tests pass                               | see below                                                                |
+
+Validation (2026-10-20, macOS arm64, Node 24.18.0): `pnpm test` 559/559 (38 files);
+`pnpm test:e2e` 57/57 in two consecutive runs; build ok (renderer 1,177 kB); typecheck,
+lint, format and audit clean.
+
+Staff review: no Critical or High findings. Low: the first message is regenerated when the
+session starts, so it can differ from the reviewed preview if the repository changes in
+between (documented).
 
 ## SDD-004 Milestone A — Git workflow
 

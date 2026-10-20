@@ -1,6 +1,6 @@
 import type { TerminalLayoutNode, TerminalPreferences, TerminalSession } from '@atlas/contracts';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
-import { TerminalPane, type TerminalPaneHandle } from './TerminalPane';
+import { TerminalPane, type TerminalContextAction, type TerminalPaneHandle } from './TerminalPane';
 
 export interface LayoutCallbacks {
   onFocusPane: (paneId: string) => void;
@@ -9,6 +9,7 @@ export interface LayoutCallbacks {
   onCloseTab: (sessionId: string) => void;
   onProjectInfo: (sessionId: string) => void;
   onOpenGit: (sessionId: string) => void;
+  onContextAction: (sessionId: string, action: TerminalContextAction) => void;
   onRatio: (splitId: string, ratio: number) => void;
   registerHandle: (paneId: string, handle: TerminalPaneHandle | null) => void;
 }
@@ -42,6 +43,7 @@ export function TerminalLayoutView(props: TerminalLayoutViewProps) {
         onCloseTab={() => props.onCloseTab(session.id)}
         onProjectInfo={() => props.onProjectInfo(session.id)}
         onOpenGit={() => props.onOpenGit(session.id)}
+        onContextAction={(action) => props.onContextAction(session.id, action)}
         registerHandle={props.registerHandle}
       />
     );

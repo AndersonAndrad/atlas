@@ -1,13 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access } from 'node:fs/promises';
+import { access, chmod, mkdir, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import {
   CreateProjectInputSchema,
   parseInput,
+  type AiSession,
+  type AttachTerminalInput,
+  type ContextTarget,
   type GitCommitContext,
+  type StartAiSessionInput,
+  type StartedAiSession,
   type GitRepositoryEntry,
   type GitStatus,
   type Project,
@@ -18,6 +23,7 @@ import {
 } from '@atlas/contracts';
 import {
   SqliteProjectRepository,
+  SqliteContextRepository,
   SqliteSessionRepository,
   SqliteSettingsRepository,
   SqliteTerminalGroupRepository,
@@ -33,6 +39,12 @@ import {
   type SessionChangeListener,
   type SessionWorkspaces,
 } from '@atlas/sessions';
+import {
+  SharedContextService,
+  continuationPrompt,
+  handoffMarkdown,
+  type ResolvedTarget,
+} from '@atlas/context';
 import { AtlasError, describeError, type Logger } from '@atlas/shared';
 import {
   TerminalGroups,
@@ -59,6 +71,8 @@ import {
   GitPreferencesStore,
   GitWorkspaceService,
   ProjectGitSettingsStore,
+  RepositoryEvidence,
+  redactCredentials,
   type CommitChecks,
   type GitExecutor,
   type GitRunner,
@@ -117,6 +131,17 @@ export interface Engine {
   readonly gitWorkspace: GitWorkspaceService;
   readonly gitOperations: GitOperationCoordinator;
   readonly gitPreferences: GitPreferencesStore;
+  /** Provider-independent shared context (SDD-005 Milestone A). */
+  readonly context: SharedContextService;
+  /**
+   * Authorizes a context target: an existing project, or a repository root the Engine
+   * resolved from a project or terminal. Null (global context) stays null.
+   */
+  resolveContextTarget(target: ContextTarget): Promise<ResolvedTarget>;
+  /** Starts Claude Code or Codex in a new terminal, optionally with a context prompt. */
+  startAiSession(input: StartAiSessionInput): Promise<StartedAiSession>;
+  /** Tracks an existing terminal as an AI session (best effort, no conversation access). */
+  attachTerminalSession(input: AttachTerminalInput): Promise<AiSession>;
   /** Per-project Conventional Commits enforcement and pre-commit steps. */
   readonly projectGitSettings: ProjectGitSettingsStore;
   /** Registered projects of an authorized repository with their commit settings. */
@@ -364,6 +389,14 @@ export function createEngine(options: EngineOptions = {}): Engine {
     },
   });
   const gitPreferences = new GitPreferencesStore(settings, logger);
+  const context = new SharedContextService({
+    repository: new SqliteContextRepository(db),
+    inspector: new RepositoryEvidence(options.gitExecutor ?? createGitExecutor({ env })),
+    clock,
+    generateId: randomUUID,
+    redact: redactCredentials,
+    logger,
+  });
   const projectGitSettings = new ProjectGitSettingsStore(settings, logger);
 
   // Roots resolved by the Engine itself; client-supplied paths are only accepted
@@ -432,6 +465,45 @@ export function createEngine(options: EngineOptions = {}): Engine {
       }
     }
     return found.sort((a, b) => a.name.localeCompare(b.name));
+  };
+
+  const requireGitRepository = async (repositoryRoot: string): Promise<string> => {
+    // Re-checking the sources of a known root is cheap (cached inspection) and
+    // reflects removed projects and closed terminals immediately.
+    const known = knownRepositories.get(repositoryRoot);
+    if (known !== undefined && (await stillResolves(known))) return repositoryRoot;
+    await discoverRepositories();
+    if (!knownRepositories.has(repositoryRoot)) {
+      throw new AtlasError('GIT_REPOSITORY_UNAVAILABLE');
+    }
+    return repositoryRoot;
+  };
+
+  const resolveContextTarget = async (target: ContextTarget): Promise<ResolvedTarget> => {
+    if ('projectId' in target) {
+      const { project } = await projects.getDetails(target.projectId);
+      return {
+        owner: { projectId: project.id, workspacePath: null },
+        directory: project.workspacePath,
+        label: project.name,
+      };
+    }
+    const root = await requireGitRepository(target.workspacePath);
+    return {
+      owner: { projectId: null, workspacePath: root },
+      directory: root,
+      label: path.basename(root),
+    };
+  };
+
+  /** Single-quoted for POSIX shells; the prompt file path is the only shell text. */
+  const shellQuote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
+  const promptCommand = (provider: string, file: string | null, shellName: string) => {
+    if (file === null) return provider;
+    if (/pwsh|powershell/i.test(shellName)) {
+      return `${provider} (Get-Content -Raw -LiteralPath '${file.replace(/'/g, "''")}')`;
+    }
+    return `${provider} "$(cat ${shellQuote(file)})"`;
   };
 
   const requireTerminals = (): TerminalService => {
@@ -504,16 +576,75 @@ export function createEngine(options: EngineOptions = {}): Engine {
         cwd: project.workspacePath,
       };
     },
-    requireGitRepository: async (repositoryRoot) => {
-      // Re-checking the sources of a known root is cheap (cached inspection) and
-      // reflects removed projects and closed terminals immediately.
-      const known = knownRepositories.get(repositoryRoot);
-      if (known !== undefined && (await stillResolves(known))) return repositoryRoot;
-      await discoverRepositories();
-      if (!knownRepositories.has(repositoryRoot)) {
-        throw new AtlasError('GIT_REPOSITORY_UNAVAILABLE');
+    requireGitRepository,
+    context,
+    resolveContextTarget,
+    startAiSession: async (input) => {
+      const service = requireTerminals();
+      const target = await resolveContextTarget(input.target);
+      let prompt: string | null = null;
+      if (input.handoffId !== undefined) {
+        prompt = continuationPrompt(
+          handoffMarkdown(await context.getHandoff(target, input.handoffId), target.label),
+        );
+      } else if (input.includeContext) {
+        const bundle = await context.bundle(target, {
+          ...(input.taskId ? { taskId: input.taskId } : {}),
+          provider: input.provider,
+          budgetTokens: input.budgetTokens ?? 6000,
+        });
+        prompt = continuationPrompt(bundle.markdown);
       }
-      return repositoryRoot;
+      const terminal = await service.create({
+        ...(target.owner.projectId !== null
+          ? { projectId: target.owner.projectId }
+          : { cwd: target.directory }),
+        title: input.provider === 'claude' ? 'Claude Code' : 'Codex',
+      });
+      const session = await context.startSession(target, {
+        provider: input.provider,
+        captureMode: 'managed',
+        ...(input.taskId ? { taskId: input.taskId } : {}),
+        ...(input.handoffId ? { handoffId: input.handoffId } : {}),
+        terminalId: terminal.id,
+      });
+      let file: string | null = null;
+      if (prompt !== null) {
+        // The prompt goes through a private file: its content never becomes shell text.
+        const directory = path.join(dataDir, 'context', 'prompts');
+        await mkdir(directory, { recursive: true, mode: 0o700 });
+        file = path.join(directory, `${session.id}.md`);
+        await writeFile(file, prompt, { mode: 0o600 });
+        await chmod(file, 0o600);
+      }
+      service.write(terminal.id, `${promptCommand(input.provider, file, terminal.shell.name)}\r`);
+      return { session, terminalId: terminal.id, prompt };
+    },
+    attachTerminalSession: async (input) => {
+      const terminal = requireTerminals().getById(input.terminalId);
+      const status = await git.inspect(terminal.currentCwd);
+      const target =
+        terminal.projectId !== null
+          ? await resolveContextTarget({ projectId: terminal.projectId })
+          : status.state === 'repository'
+            ? await resolveContextTarget({ workspacePath: status.snapshot.repositoryRoot })
+            : null;
+      if (target === null) {
+        throw new AtlasError('VALIDATION_FAILED', 'Terminal is not in a project or repository.', {
+          issues: [
+            {
+              field: 'terminalId',
+              message: 'Open this terminal in a project or Git repository to track it.',
+            },
+          ],
+        });
+      }
+      return context.startSession(target, {
+        provider: 'external',
+        captureMode: 'attached',
+        ...(input.taskId ? { taskId: input.taskId } : {}),
+        terminalId: terminal.id,
+      });
     },
     terminalSettings,
     terminals,
@@ -530,6 +661,12 @@ export function createEngine(options: EngineOptions = {}): Engine {
       const { project } = await projects.getDetails(id);
       // Sessions take over the directory before the association is cleared.
       await sessions.detachProject(project.id, project.workspacePath);
+      // Shared context stays available through the project's repository.
+      const status = await git.inspect(project.workspacePath);
+      await context.reassignProject(
+        project.id,
+        status.state === 'repository' ? status.snapshot.repositoryRoot : project.workspacePath,
+      );
       await projects.remove(project.id);
       await projectGitSettings.remove(project.id);
       await terminals?.detachProject(project.id);

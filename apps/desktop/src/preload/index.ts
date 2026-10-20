@@ -132,6 +132,38 @@ const api: AtlasApi = {
     onChanged: (listener) =>
       subscribe<SessionChangedEvent>(IPC_EVENT_CHANNELS.sessionChanged, listener),
   },
+  context: {
+    overview: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextOverview, ...args),
+    list: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextList, ...args),
+    global: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextGlobal, ...args),
+    record: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextRecord, ...args),
+    update: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextUpdate, ...args),
+    remove: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextRemove, ...args),
+    history: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextHistory, ...args),
+    tasks: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextTasks, ...args),
+    createTask: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextCreateTask, ...args),
+    updateTask: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextUpdateTask, ...args),
+    deleteTask: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextDeleteTask, ...args),
+    decisions: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextDecisions, ...args),
+    createDecision: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextCreateDecision, ...args),
+    setDecisionStatus: (...args) =>
+      ipcRenderer.invoke(IPC_CHANNELS.contextSetDecisionStatus, ...args),
+    bundle: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextBundle, ...args),
+    snapshot: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextSnapshot, ...args),
+    prepareHandoff: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextPrepareHandoff, ...args),
+    createHandoff: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextCreateHandoff, ...args),
+    handoffs: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextHandoffs, ...args),
+    handoff: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextHandoff, ...args),
+    sessions: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextSessions, ...args),
+    sessionEvidence: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextSessionEvidence, ...args),
+    endSession: (...args) => ipcRenderer.invoke(IPC_CHANNELS.contextEndSession, ...args),
+    sessionForTerminal: (...args) =>
+      ipcRenderer.invoke(IPC_CHANNELS.contextSessionForTerminal, ...args),
+  },
+  ai: {
+    start: (input) => ipcRenderer.invoke(IPC_CHANNELS.aiStart, input),
+    attach: (input) => ipcRenderer.invoke(IPC_CHANNELS.aiAttach, input),
+  },
   app: {
     info: () => ipcRenderer.invoke(IPC_CHANNELS.appInfo),
     copyText: (text) => ipcRenderer.invoke(IPC_CHANNELS.copyText, text),

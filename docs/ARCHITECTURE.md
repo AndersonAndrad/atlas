@@ -1,7 +1,8 @@
 # ATLAS Architecture
 
 Status: reflects SDD-001 (Project Registry), SDD-002 (Terminal Manager), SDD-003
-(Workspace & Git, ATLAS Sessions) and SDD-004 Milestone A (Git workflow).
+(Workspace & Git, ATLAS Sessions), SDD-004 Milestone A (Git workflow) and SDD-005
+Milestone A stage A1 (Shared Context).
 
 ## Overview
 
@@ -49,6 +50,7 @@ process is a thin, security-focused broker between the renderer and the Engine.
 | `packages/terminal`             | Terminal domain/application: `TerminalService`, lifecycle state machine, `TerminalSettings`, ports (PTY, mirror, shells, …)                                 | shared, contracts                       |
 | `packages/conventional-commits` | Conventional Commits 1.0.0 validator, stricter project rules, deterministic commit suggestions (no dependencies; also used by the renderer)                 | —                                       |
 | `packages/git`                  | Git inspection and workflow: porcelain parsers, `GitInspectionService`, `GitWorkspaceService`, `GitOperationCoordinator`, credential redaction, preferences | shared, contracts, conventional-commits |
+| `packages/context`              | Shared Context: `SharedContextService`, bundles and handoff rendering, `ContextRepository` / `RepositoryInspector` ports                                    | shared, contracts                       |
 | `packages/persistence`          | SQLite, migrations, project/settings/terminal-session repositories                                                                                          | shared, contracts, ports                |
 | `apps/engine`                   | Composition root `createEngine()`, `startEngineHost()`, adapters (node-pty, headless mirror, shells), RPC dispatcher + socket                               | all packages, node-pty, xterm           |
 | `apps/cli`                      | `atlas` command line client                                                                                                                                 | engine                                  |
@@ -301,6 +303,30 @@ Full description: `docs/sdd/SDD-004-git-and-ai-execution.md`, Part I.
   `settingsInvalid: true` (both optional, absent when readable); Settings → Git warns
   "Stored Git preferences are invalid; save to replace them." and the commit dialog shows
   the same message with Commit disabled.
+
+## Shared Context (SDD-005 Milestone A, stage A1)
+
+Full description: `docs/sdd/SDD-005-multi-agent-and-shared-context.md`, Part I.
+
+```text
+ Context view / terminal menu / CLI ──► context.* / ai.* (Engine; targets authorized)
+                                              │
+                         SharedContextService (packages/context)
+                          │                        │
+          SqliteContextRepository          RepositoryEvidence (packages/git)
+          (migration v5, FTS5 search)      state, file hashes, ancestry, commits/files
+                                              │
+   ai.start ─► AiSession + terminal ─► `claude|codex "$(cat <0600 prompt file>)"`
+```
+
+- Records belong to a project or a repository root (or are global by explicit choice);
+  every request is resolved by the Engine and scoped to that owner.
+- Entries are versioned (`context_revisions`); verification distinguishes Git evidence,
+  the user's statements and (later) agent observations.
+- Bundles check freshness against Git before every use and wrap stored content as
+  untrusted reference data within a token budget.
+- Managed AI sessions run the provider CLIs in ATLAS terminals; ATLAS never reads their
+  conversations. Session summaries combine Git evidence with the user's summary.
 
 ### Project context of a terminal
 

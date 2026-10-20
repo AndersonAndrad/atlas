@@ -6,3 +6,4 @@ export { GitInspectionService, type GitInspectionOptions } from './inspection-se
 export * from './workspace-service.js';
 export * from './preferences.js';
 export * from './pre-commit.js';
+export * from './repository-evidence.js';
