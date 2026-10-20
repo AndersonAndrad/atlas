@@ -1,16 +1,20 @@
-import { SquareTerminal, TriangleAlert } from 'lucide-react';
+import { ListChecks, SquareTerminal, TriangleAlert } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { AVAILABILITY_LABELS, formatDate, gitSummary } from '@/format';
 import type { ProjectDetails } from '@/types';
+import { useProjectGit } from '@/terminal/hooks/useGitStatus';
+import { GitDetails } from './git/GitDetails';
 import { StatusBadge } from './StatusBadge';
 
 interface ProjectDetailsPanelProps {
   details: ProjectDetails;
-  onEdit: () => void;
-  onRemove: () => void;
-  onOpenTerminal: () => void;
+  /** Actions are hidden when not provided (e.g. in the quick view from a terminal). */
+  onEdit?: () => void;
+  onRemove?: () => void;
+  onOpenTerminal?: () => void;
+  onNewSession?: () => void;
 }
 
 export function ProjectDetailsPanel({
@@ -18,10 +22,12 @@ export function ProjectDetailsPanel({
   onEdit,
   onRemove,
   onOpenTerminal,
+  onNewSession,
 }: ProjectDetailsPanelProps) {
   const { project, availability, git } = details;
   const unavailable = availability.status !== 'available';
   const repositoryRoot = git.repositoryRoot ?? project.git.repositoryRoot;
+  const projectGit = useProjectGit(project.id);
 
   return (
     <section
@@ -37,16 +43,28 @@ export function ProjectDetailsPanel({
           <StatusBadge status={availability.status} />
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={onOpenTerminal} disabled={unavailable}>
-            <SquareTerminal />
-            Open terminal
-          </Button>
-          <Button variant="outline" onClick={onEdit}>
-            Edit
-          </Button>
-          <Button variant="destructive" onClick={onRemove}>
-            Remove
-          </Button>
+          {onOpenTerminal && (
+            <Button variant="secondary" onClick={onOpenTerminal} disabled={unavailable}>
+              <SquareTerminal />
+              Open terminal
+            </Button>
+          )}
+          {onNewSession && (
+            <Button variant="secondary" onClick={onNewSession}>
+              <ListChecks />
+              New session
+            </Button>
+          )}
+          {onEdit && (
+            <Button variant="outline" onClick={onEdit}>
+              Edit
+            </Button>
+          )}
+          {onRemove && (
+            <Button variant="destructive" onClick={onRemove}>
+              Remove
+            </Button>
+          )}
         </div>
       </header>
 
@@ -58,9 +76,11 @@ export function ProjectDetailsPanel({
               <strong>{AVAILABILITY_LABELS[availability.status]}.</strong> The project is still
               registered. If it was moved, update its directory.
             </p>
-            <Button variant="outline" size="sm" onClick={onEdit}>
-              Update directory
-            </Button>
+            {onEdit && (
+              <Button variant="outline" size="sm" onClick={onEdit}>
+                Update directory
+              </Button>
+            )}
           </AlertDescription>
         </Alert>
       )}
@@ -114,6 +134,12 @@ export function ProjectDetailsPanel({
         <dt className="text-muted-foreground">Status checked</dt>
         <dd>{formatDate(availability.checkedAt)}</dd>
       </dl>
+
+      <GitDetails
+        status={projectGit.status}
+        loading={projectGit.loading}
+        onRefresh={projectGit.refresh}
+      />
     </section>
   );
 }

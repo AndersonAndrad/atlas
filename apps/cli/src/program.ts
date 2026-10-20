@@ -1,11 +1,21 @@
+import {
+  EXECUTION_PROFILES,
+  isFinalSessionStatus,
+  isFinalTerminalStatus,
+  type EngineMethod,
+  type EngineMethodParams,
+  type AtlasSessionStatus,
+  type EngineMethodResults,
+  type SessionAction,
+} from '@atlas/contracts';
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
-import { isFinalTerminalStatus } from '@atlas/contracts';
 import {
   FileLogger,
   connectToEngine,
   createEngine,
+  createEngineDispatcher,
   resolveDataDir,
   type Engine,
   type EngineOptions,
@@ -14,13 +24,18 @@ import {
 import { AtlasError, describeError, toSerializedError, type Logger } from '@atlas/shared';
 import { Command, CommanderError } from 'commander';
 import {
+  formatGitStatus,
   formatProjectDetails,
   formatProjectList,
+  formatSessionDetails,
+  formatSessionList,
+  formatSessionTasks,
   formatTerminalDetails,
   formatTerminalList,
+  sessionStatusLabel,
 } from './format.js';
 
-export const CLI_VERSION = '0.2.0';
+export const CLI_VERSION = '0.4.0';
 
 export interface CliIo {
   stdout: (text: string) => void;
@@ -126,8 +141,14 @@ export async function runCli(
     .argument('<id>', 'project id')
     .option('--json', 'output JSON')
     .action(async (id: string, options: { json?: boolean }) => {
-      const details = await getEngine().projects.getDetails(id);
-      print(Boolean(options.json), details, formatProjectDetails(details));
+      const engine = getEngine();
+      const details = await engine.projects.getDetails(id);
+      const git = await engine.projectGit(details.project.id);
+      print(
+        Boolean(options.json),
+        { ...details, gitStatus: git },
+        formatProjectDetails(details) + formatGitStatus(git),
+      );
     });
 
   project
@@ -150,27 +171,25 @@ export async function runCli(
           return;
         }
       }
-      await assertNoActiveTerminals(existing.project.id);
       await getEngine().removeProject(existing.project.id);
+      await detachRunningTerminals(existing.project.id);
       io.stdout(`Removed "${existing.project.name}" from the registry. No files were deleted.\n`);
     });
 
-  /** Refuses to remove a project whose terminals are running in ATLAS Control. */
-  const assertNoActiveTerminals = async (projectId: string) => {
+  /**
+   * Terminals of a removed project keep running as standalone terminals. Tells a
+   * running Engine so its in-memory sessions drop the association too.
+   */
+  const detachRunningTerminals = async (projectId: string) => {
     let client: EngineSocketClient;
     try {
       client = await getEngineClient();
     } catch (error) {
-      // No running Engine means no live terminals can exist.
+      // No running Engine means no live terminals; stored ones were updated by the database.
       if (error instanceof AtlasError && error.code === 'ENGINE_UNAVAILABLE') return;
       throw error;
     }
-    const sessions = await client.call('terminals.list', { projectId });
-    if (sessions.some((session) => !isFinalTerminalStatus(session.status))) {
-      throw new AtlasError('PROJECT_HAS_ACTIVE_TERMINALS', undefined, {
-        details: { projectId },
-      });
-    }
+    await client.call('terminals.detachProject', projectId);
   };
 
   const terminal = program
@@ -193,16 +212,30 @@ export async function runCli(
 
   terminal
     .command('open')
-    .description('Open a terminal in a registered project (shown in ATLAS Control)')
-    .requiredOption('-p, --project <id>', 'project id')
+    .description(
+      'Open a terminal (shown in ATLAS Control): in a registered project, in a directory, ' +
+        'or in the default working directory',
+    )
+    .option('-p, --project <id>', 'project id (starts in the project directory)')
+    .option('-C, --cwd <path>', 'directory for a standalone terminal')
     .option('-s, --shell <id>', 'shell id (defaults to the configured default shell)')
-    .option('--title <title>', 'tab title')
+    .option('--title <title>', 'custom name')
     .option('--json', 'output JSON')
     .action(
-      async (options: { project: string; shell?: string; title?: string; json?: boolean }) => {
+      async (options: {
+        project?: string;
+        cwd?: string;
+        shell?: string;
+        title?: string;
+        json?: boolean;
+      }) => {
+        if (options.project !== undefined && options.cwd !== undefined) {
+          throw new CliUsageError('Use either --project or --cwd, not both.');
+        }
         const client = await getEngineClient();
         const session = await client.call('terminals.create', {
-          projectId: options.project,
+          ...(options.project !== undefined ? { projectId: options.project } : {}),
+          ...(options.cwd !== undefined ? { cwd: path.resolve(io.cwd, options.cwd) } : {}),
           ...(options.shell !== undefined ? { shellId: options.shell } : {}),
           ...(options.title !== undefined ? { title: options.title } : {}),
         });
@@ -214,8 +247,30 @@ export async function runCli(
         print(
           Boolean(options.json),
           session,
-          `Opened terminal "${session.title}" (${session.id})\n`,
+          `Opened terminal "${session.title}" (${session.id}) in ${session.cwd}\n`,
         );
+      },
+    );
+
+  terminal
+    .command('rename')
+    .description('Set a custom terminal name, or restore the automatic one with --auto')
+    .argument('<id>', 'terminal id')
+    .argument('[title]', 'new name')
+    .option('--auto', 'restore the automatic name')
+    .option('--json', 'output JSON')
+    .action(
+      async (
+        id: string,
+        title: string | undefined,
+        options: { auto?: boolean; json?: boolean },
+      ) => {
+        if ((title === undefined) === !options.auto) {
+          throw new CliUsageError('Provide a new name or --auto.');
+        }
+        const client = await getEngineClient();
+        const session = await client.call('terminals.rename', id, options.auto ? null : title!);
+        print(Boolean(options.json), session, `Terminal renamed to "${session.title}".\n`);
       },
     );
 
@@ -258,6 +313,153 @@ export async function runCli(
       );
     });
 
+  /**
+   * Session commands go to the running Engine host (so ATLAS Control updates
+   * live); without one they use the same Engine services on the database.
+   */
+  const sessionCall = async <M extends EngineMethod>(
+    method: M,
+    ...params: EngineMethodParams<M>
+  ): Promise<EngineMethodResults[M]> => {
+    let client: EngineSocketClient | undefined;
+    try {
+      client = await getEngineClient();
+    } catch (error) {
+      if (!(error instanceof AtlasError && error.code === 'ENGINE_UNAVAILABLE')) throw error;
+    }
+    if (client !== undefined) return client.call(method, ...params);
+    const result = await createEngineDispatcher(getEngine()).call(method, params, 'cli');
+    return result as EngineMethodResults[M];
+  };
+
+  const session = program
+    .command('session')
+    .description('Manage ATLAS Sessions (orchestration records; no AI execution yet)');
+
+  session
+    .command('create')
+    .description('Create a draft session in a project, in a directory, or without a workspace')
+    .requiredOption('-n, --name <name>', 'session name')
+    .requiredOption('-o, --objective <text>', 'what the session should achieve')
+    .option('-p, --project <id>', 'registered project to work in')
+    .option('-C, --cwd <path>', 'standalone workspace directory')
+    .option('--profile <profile>', `execution profile (${EXECUTION_PROFILES.join(', ')})`)
+    .option('-c, --constraint <text>', 'initial constraint (repeatable)', collect, [] as string[])
+    .option('--json', 'output JSON')
+    .action(
+      async (options: {
+        name: string;
+        objective: string;
+        project?: string;
+        cwd?: string;
+        profile?: string;
+        constraint: string[];
+        json?: boolean;
+      }) => {
+        if (options.project !== undefined && options.cwd !== undefined) {
+          throw new CliUsageError('Use either --project or --cwd, not both.');
+        }
+        const created = await sessionCall('sessions.create', {
+          name: options.name,
+          objective: options.objective,
+          ...(options.project !== undefined ? { projectId: options.project } : {}),
+          ...(options.cwd !== undefined
+            ? { workspacePath: path.resolve(io.cwd, options.cwd) }
+            : {}),
+          ...(options.profile !== undefined
+            ? { executionProfile: options.profile.toUpperCase() }
+            : {}),
+          constraints: options.constraint,
+        });
+        print(
+          Boolean(options.json),
+          created,
+          `Created draft session "${created.name}" (${created.id})\n`,
+        );
+      },
+    );
+
+  session
+    .command('list')
+    .description('List sessions (archived ones only with --all)')
+    .option('-p, --project <id>', 'only sessions of this project')
+    .option('-a, --all', 'include archived sessions')
+    .option('--json', 'output JSON')
+    .action(async (options: { project?: string; all?: boolean; json?: boolean }) => {
+      const items = await sessionCall('sessions.list', {
+        ...(options.all ? { includeArchived: true } : {}),
+        ...(options.project !== undefined ? { projectId: options.project } : {}),
+      });
+      print(Boolean(options.json), items, formatSessionList(items));
+    });
+
+  session
+    .command('show')
+    .description('Show session details and recent events')
+    .argument('<id>', 'session id')
+    .option('--json', 'output JSON')
+    .action(async (id: string, options: { json?: boolean }) => {
+      const details = await sessionCall('sessions.get', id);
+      const events = await sessionCall('sessions.events', details.session.id);
+      print(Boolean(options.json), { ...details, events }, formatSessionDetails(details, events));
+    });
+
+  session
+    .command('tasks')
+    .description('List the tasks of a session and their dependencies')
+    .argument('<id>', 'session id')
+    .option('--json', 'output JSON')
+    .action(async (id: string, options: { json?: boolean }) => {
+      const tasks = await sessionCall('sessions.tasks', id);
+      print(Boolean(options.json), tasks, formatSessionTasks(tasks));
+    });
+
+  const lifecycle: [string, SessionAction, string][] = [
+    ['ready', 'markReady', 'Mark a draft as ready (checks the workspace)'],
+    ['start', 'start', 'Start a ready session (it waits for an executor until SDD-004)'],
+    ['pause', 'pause', 'Pause a session'],
+    ['resume', 'resume', 'Resume a paused or interrupted session'],
+    ['archive', 'archive', 'Archive a completed, failed or cancelled session'],
+  ];
+  for (const [name, action, description] of lifecycle) {
+    session
+      .command(name)
+      .description(description)
+      .argument('<id>', 'session id')
+      .option('--json', 'output JSON')
+      .action(async (id: string, options: { json?: boolean }) => {
+        const updated = await sessionCall('sessions.perform', id, action);
+        print(Boolean(options.json), updated, sessionUpdated(updated.name, updated.status, action));
+      });
+  }
+
+  session
+    .command('cancel')
+    .description('Cancel a session and its unfinished tasks')
+    .argument('<id>', 'session id')
+    .option('-y, --yes', 'skip the confirmation prompt')
+    .option('--json', 'output JSON')
+    .action(async (id: string, options: { yes?: boolean; json?: boolean }) => {
+      const details = await sessionCall('sessions.get', id);
+      if (isFinalSessionStatus(details.session.status)) {
+        throw new AtlasError('SESSION_TRANSITION_INVALID');
+      }
+      if (!options.yes) {
+        if (!io.isInteractive) {
+          throw new CliUsageError('Confirmation required. Re-run with --yes to cancel.');
+        }
+        const confirmed = await io.confirm(
+          `Cancel session "${details.session.name}"? This cannot be undone.`,
+        );
+        if (!confirmed) {
+          io.stdout('Aborted.\n');
+          return;
+        }
+      }
+      const cancelled = await sessionCall('sessions.perform', details.session.id, 'cancel');
+      print(Boolean(options.json), cancelled, `Session "${cancelled.name}" is cancelled.\n`);
+    });
+
   try {
     await program.parseAsync(argv, { from: 'user' });
     return 0;
@@ -270,6 +472,14 @@ export async function runCli(
 }
 
 class CliUsageError extends Error {}
+
+function sessionUpdated(name: string, status: AtlasSessionStatus, action: SessionAction): string {
+  if (action === 'archive') return `Session "${name}" is archived.\n`;
+  if (status === 'WAITING_EXECUTOR') {
+    return `Session "${name}" is waiting for an executor. No execution adapter is installed yet.\n`;
+  }
+  return `Session "${name}" is ${sessionStatusLabel(status)}.\n`;
+}
 
 function cliDataDir(options: EngineOptions): string {
   return (

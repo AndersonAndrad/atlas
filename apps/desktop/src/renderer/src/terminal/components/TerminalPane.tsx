@@ -3,11 +3,13 @@ import {
   type TerminalPreferences,
   type TerminalSession,
 } from '@atlas/contracts';
-import { ChevronDown, ChevronUp, RotateCcw, Search, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Info, RotateCcw, Search, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { GitBadges } from '@/components/git/GitBadges';
+import { useTerminalGit } from '../hooks/useGitStatus';
 import { TerminalView } from '../state/terminal-view';
 import { endedSummary } from '../format';
 import { TerminalStatusDot } from './TerminalStatusDot';
@@ -21,6 +23,8 @@ export interface TerminalPaneHandle {
 interface TerminalPaneProps {
   paneId: string;
   session: TerminalSession;
+  /** Name of the associated project, if any. */
+  projectName: string | undefined;
   preferences: TerminalPreferences;
   active: boolean;
   /** Only one pane is visible: hiding it would leave the workspace empty. */
@@ -29,12 +33,15 @@ interface TerminalPaneProps {
   onHide: () => void;
   onRestart: () => void;
   onCloseTab: () => void;
+  /** Opens the project details (or offers to register the directory). */
+  onProjectInfo: () => void;
   registerHandle: (paneId: string, handle: TerminalPaneHandle | null) => void;
 }
 
 export function TerminalPane({
   paneId,
   session,
+  projectName,
   preferences,
   active,
   onlyPane,
@@ -42,8 +49,15 @@ export function TerminalPane({
   onHide,
   onRestart,
   onCloseTab,
+  onProjectInfo,
   registerHandle,
 }: TerminalPaneProps) {
+  const git = useTerminalGit(session.id, session.currentCwd, session.status === 'RUNNING');
+  const snapshot = git.context?.git.state === 'repository' ? git.context.git.snapshot : null;
+  const directoryTip =
+    session.cwdSource === 'detected'
+      ? session.currentCwd
+      : `${session.currentCwd} (initial directory; the current one could not be detected)`;
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<TerminalView | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -128,12 +142,27 @@ export function TerminalPane({
       onMouseDown={onFocus}
       onFocus={onFocus}
     >
-      <header className="text-muted-foreground flex h-7 shrink-0 items-center gap-2 border-b px-2 text-xs">
+      <header className="text-muted-foreground flex h-8 shrink-0 items-center gap-2 border-b px-2 text-xs">
         <TerminalStatusDot status={session.status} />
-        <span className="truncate" data-testid="pane-title">
+        <span className="text-foreground/90 truncate" data-testid="pane-title" title={directoryTip}>
           {session.title}
         </span>
+        {projectName && (
+          <span className="hidden truncate md:inline" data-testid="pane-project">
+            · {projectName}
+          </span>
+        )}
+        {snapshot && <GitBadges snapshot={snapshot} />}
         <span className="ml-auto flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Project details"
+            title="Project details"
+            onClick={onProjectInfo}
+          >
+            <Info />
+          </Button>
           <Button
             variant="ghost"
             size="icon-xs"

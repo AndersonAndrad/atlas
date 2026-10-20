@@ -4,6 +4,7 @@ import {
   IPC_SEND_CHANNELS,
   type AppCommand,
   type AtlasApi,
+  type SessionChangedEvent,
   type TerminalEventMessage,
 } from '@atlas/contracts/ipc';
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
@@ -30,7 +31,10 @@ const api: AtlasApi = {
     getSelected: () => ipcRenderer.invoke(IPC_CHANNELS.getSelectedProject),
   },
   dialog: {
-    chooseDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.chooseDirectory),
+    chooseDirectory: (purpose) =>
+      purpose === undefined
+        ? ipcRenderer.invoke(IPC_CHANNELS.chooseDirectory)
+        : ipcRenderer.invoke(IPC_CHANNELS.chooseDirectory, purpose),
   },
   terminals: {
     list: (projectId) =>
@@ -39,6 +43,13 @@ const api: AtlasApi = {
         : ipcRenderer.invoke(IPC_CHANNELS.listTerminals, projectId),
     create: (input) => ipcRenderer.invoke(IPC_CHANNELS.createTerminal, input),
     rename: (id, title) => ipcRenderer.invoke(IPC_CHANNELS.renameTerminal, id, title),
+    associate: (id, projectId) => ipcRenderer.invoke(IPC_CHANNELS.associateTerminal, id, projectId),
+    move: (id, groupId, position) =>
+      ipcRenderer.invoke(IPC_CHANNELS.moveTerminal, id, groupId, position),
+    projectContext: (id) => ipcRenderer.invoke(IPC_CHANNELS.terminalProjectContext, id),
+    git: (id) => ipcRenderer.invoke(IPC_CHANNELS.terminalGit, id),
+    registerProject: (id, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.registerTerminalProject, id, input),
     terminate: (id) => ipcRenderer.invoke(IPC_CHANNELS.terminateTerminal, id),
     restart: (id) => ipcRenderer.invoke(IPC_CHANNELS.restartTerminal, id),
     dismiss: (id) => ipcRenderer.invoke(IPC_CHANNELS.dismissTerminal, id),
@@ -61,7 +72,40 @@ const api: AtlasApi = {
     onEvent: (listener) =>
       subscribe<TerminalEventMessage>(IPC_EVENT_CHANNELS.terminalEvent, listener),
   },
+  groups: {
+    list: () => ipcRenderer.invoke(IPC_CHANNELS.listGroups),
+    create: (name) => ipcRenderer.invoke(IPC_CHANNELS.createGroup, name),
+    rename: (id, name) => ipcRenderer.invoke(IPC_CHANNELS.renameGroup, id, name),
+    setCollapsed: (id, collapsed) =>
+      ipcRenderer.invoke(IPC_CHANNELS.setGroupCollapsed, id, collapsed),
+    move: (id, position) => ipcRenderer.invoke(IPC_CHANNELS.moveGroup, id, position),
+    delete: (id, options) => ipcRenderer.invoke(IPC_CHANNELS.deleteGroup, id, options),
+  },
+  git: {
+    project: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.projectGit, projectId),
+  },
+  sessions: {
+    list: (filter) =>
+      filter === undefined
+        ? ipcRenderer.invoke(IPC_CHANNELS.listSessions)
+        : ipcRenderer.invoke(IPC_CHANNELS.listSessions, filter),
+    get: (id) => ipcRenderer.invoke(IPC_CHANNELS.getSession, id),
+    create: (input) => ipcRenderer.invoke(IPC_CHANNELS.createSession, input),
+    update: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.updateSession, id, input),
+    perform: (id, action) => ipcRenderer.invoke(IPC_CHANNELS.performSessionAction, id, action),
+    events: (id) => ipcRenderer.invoke(IPC_CHANNELS.sessionEvents, id),
+    addTask: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.addSessionTask, id, input),
+    updateTask: (id, taskId, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.updateSessionTask, id, taskId, input),
+    removeTask: (id, taskId) => ipcRenderer.invoke(IPC_CHANNELS.removeSessionTask, id, taskId),
+    cancelTask: (id, taskId) => ipcRenderer.invoke(IPC_CHANNELS.cancelSessionTask, id, taskId),
+    getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.getSessionSettings),
+    setSettings: (input) => ipcRenderer.invoke(IPC_CHANNELS.setSessionSettings, input),
+    onChanged: (listener) =>
+      subscribe<SessionChangedEvent>(IPC_EVENT_CHANNELS.sessionChanged, listener),
+  },
   app: {
+    info: () => ipcRenderer.invoke(IPC_CHANNELS.appInfo),
     onCommand: (listener) => subscribe<AppCommand>(IPC_EVENT_CHANNELS.appCommand, listener),
     onEngineRestarted: (listener) =>
       subscribe<undefined>(IPC_EVENT_CHANNELS.engineRestarted, () => listener()),

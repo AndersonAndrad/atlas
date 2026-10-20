@@ -4,7 +4,13 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { ProjectDetails, TerminalSession } from '@atlas/contracts';
+import type {
+  AtlasSession,
+  AtlasSessionListItem,
+  ProjectDetails,
+  SessionChangedEvent,
+  TerminalSession,
+} from '@atlas/contracts';
 import { startEngineHost, type EngineHost } from '@atlas/engine';
 import {
   FakeMirrorFactory,
@@ -72,6 +78,28 @@ describe('atlas CLI', () => {
       git: { isRepository: true, repositoryRoot: workspace },
     });
     expect(details.git.branch).toBe('main');
+  });
+
+  it('shows Git details, or a plain-folder state, for a project', async () => {
+    const added = JSON.parse(
+      (await run(['project', 'add', workspace, '--json'])).out,
+    ) as ProjectDetails;
+    const shown = await run(['project', 'show', added.project.id]);
+    expect(shown.code).toBe(0);
+    // The test workspace has a hand-made .git without objects: git refuses it or reports it.
+    expect(shown.out).toMatch(/\nGit/);
+
+    const plain = path.join(temp.dir, 'plain');
+    mkdirSync(plain);
+    const plainProject = JSON.parse(
+      (await run(['project', 'add', plain, '--json'])).out,
+    ) as ProjectDetails;
+    const json = JSON.parse(
+      (await run(['project', 'show', plainProject.project.id, '--json'])).out,
+    ) as {
+      gitStatus: { state: string };
+    };
+    expect(json.gitStatus.state).toBe('not-repository');
   });
 
   it('lists and shows registered projects', async () => {
@@ -226,7 +254,7 @@ describe('atlas CLI', () => {
       expect(list.out).toMatch(/Dev\s+running\s+zsh/);
 
       const shown = await run(['terminal', 'show', session.id]);
-      expect(shown.out).toContain(`Directory  ${workspace}`);
+      expect(shown.out).toMatch(new RegExp(`Directory +${workspace}`));
 
       const refused = await run(['terminal', 'close', session.id]);
       expect(refused.code).toBe(2);
@@ -251,18 +279,150 @@ describe('atlas CLI', () => {
       expect(missing.err).toContain('The terminal could not be found');
     });
 
-    it('refuses to remove a project with running terminals', async () => {
+    it('keeps terminals running when their project is removed', async () => {
       await startHost();
       const projectId = await addProject();
       await run(['terminal', 'open', '--project', projectId]);
 
-      const refused = await run(['project', 'remove', projectId, '--yes']);
-      expect(refused.code).toBe(1);
-      expect(refused.err).toContain('has running terminals');
-
-      const [session] = host!.engine.terminals!.list(projectId);
-      await host!.engine.terminals!.terminate(session!.id);
       expect((await run(['project', 'remove', projectId, '--yes'])).code).toBe(0);
+      expect(host!.engine.terminals!.list()).toEqual([
+        expect.objectContaining({ projectId: null, status: 'RUNNING' }),
+      ]);
+    });
+
+    it('opens standalone terminals and renames them', async () => {
+      await startHost();
+      const folder = path.join(temp.dir, 'tools');
+      mkdirSync(folder);
+      const opened = await run(['terminal', 'open', '--cwd', 'tools', '--json']);
+      const session = JSON.parse(opened.out) as TerminalSession;
+      expect(session).toMatchObject({ projectId: null, cwd: folder, title: 'tools' });
+
+      expect((await run(['terminal', 'rename', session.id, 'Docker Services'])).out).toBe(
+        'Terminal renamed to "Docker Services".\n',
+      );
+      expect((await run(['terminal', 'rename', session.id, '--auto'])).out).toBe(
+        'Terminal renamed to "tools".\n',
+      );
+      expect((await run(['terminal', 'rename', session.id])).code).toBe(2);
+      expect(
+        (await run(['terminal', 'open', '--cwd', 'tools', '--project', session.id])).code,
+      ).toBe(2);
+    });
+  });
+
+  describe('session commands', () => {
+    let host: EngineHost | undefined;
+    afterEach(async () => {
+      await host?.stop();
+      host = undefined;
+    });
+
+    const create = async (...extra: string[]) => {
+      const result = await run([
+        'session',
+        'create',
+        '--name',
+        'NOVA auth',
+        '--objective',
+        'Implement authentication',
+        '--json',
+        ...extra,
+      ]);
+      expect(result.err).toBe('');
+      return JSON.parse(result.out) as AtlasSession;
+    };
+
+    it('manages sessions without a running Engine', async () => {
+      const projectId = (
+        JSON.parse((await run(['project', 'add', workspace, '--json'])).out) as ProjectDetails
+      ).project.id;
+      const session = await create(
+        '--project',
+        projectId,
+        '--profile',
+        'economy',
+        '-c',
+        'No network',
+      );
+      expect(session).toMatchObject({
+        status: 'DRAFT',
+        projectId,
+        executionProfile: 'ECONOMY',
+        constraints: ['No network'],
+      });
+      await create('--cwd', 'my-app');
+
+      const list = await run(['session', 'list', '--json']);
+      expect(
+        (JSON.parse(list.out) as AtlasSessionListItem[]).map((item) => item.projectName),
+      ).toEqual([null, 'my-app']);
+      expect((await run(['session', 'list'])).out).toContain('NOVA auth');
+
+      expect((await run(['session', 'ready', session.id])).out).toBe(
+        'Session "NOVA auth" is ready.\n',
+      );
+      expect((await run(['session', 'start', session.id])).out).toBe(
+        'Session "NOVA auth" is waiting for an executor. No execution adapter is installed yet.\n',
+      );
+      const shown = await run(['session', 'show', session.id]);
+      expect(shown.out).toContain('waiting for executor');
+      expect(shown.out).toContain('Executing          no');
+      expect(shown.out).toContain('SESSION_WAITING_EXECUTOR ready → waiting for executor');
+      expect((await run(['session', 'tasks', session.id])).out).toBe('No tasks.\n');
+
+      const invalid = await run(['session', 'ready', session.id]);
+      expect(invalid.code).toBe(1);
+      expect(invalid.err).toContain('not available in the current session status');
+
+      expect((await run(['session', 'cancel', session.id])).code).toBe(2);
+      expect((await run(['session', 'cancel', session.id, '--yes'])).out).toBe(
+        'Session "NOVA auth" is cancelled.\n',
+      );
+      expect((await run(['session', 'archive', session.id])).code).toBe(0);
+      expect((await run(['session', 'list', '--json'])).out).not.toContain(session.id);
+      expect((await run(['session', 'list', '--all', '--json'])).out).toContain(session.id);
+    });
+
+    it('validates arguments', async () => {
+      expect((await run(['session', 'create', '--name', 'x'])).code).toBe(2);
+      expect(
+        (await run(['session', 'create', '-n', 'x', '-o', 'y', '--project', 'a', '--cwd', '.']))
+          .code,
+      ).toBe(2);
+      const badProfile = await run([
+        'session',
+        'create',
+        '-n',
+        'x',
+        '-o',
+        'y',
+        '--profile',
+        'turbo',
+      ]);
+      expect(badProfile.code).toBe(1);
+      expect((await run(['session', 'show', 'not-an-id'])).code).toBe(1);
+      expect(
+        (await run(['session', 'show', '00000000-0000-4000-8000-00000000abcd'])).err,
+      ).toContain('The session could not be found.');
+    });
+
+    it('goes through the running Engine so ATLAS Control sees changes live', async () => {
+      host = await startEngineHost({
+        dataDir,
+        component: 'test',
+        terminals: {
+          spawner: new FakePtySpawner(),
+          mirrors: new FakeMirrorFactory(),
+          shells: new FakeShellProvider(),
+        },
+      });
+      const received: SessionChangedEvent[] = [];
+      host.onSessionChanged((event) => received.push(event));
+      const session = await create();
+      expect((await run(['session', 'ready', session.id])).code).toBe(0);
+      expect(received.map((event) => event.sessionId)).toEqual([session.id, session.id]);
+      expect((await host.engine.sessions.get(session.id)).status).toBe('READY');
     });
   });
 });

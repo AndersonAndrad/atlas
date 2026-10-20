@@ -1,11 +1,15 @@
 # ATLAS
 
+<p align="center">
+  <img src="docs/assets/atlas-logo.png" alt="ATLAS — Autonomous Task Leadership &amp; Agent System" width="640" />
+</p>
+
 **Autonomous Task Leadership & Agent System** — a local-first development environment
 for managing multiple projects and their terminals (and, in future specifications, AI
 agent teams).
 
-Implemented: **SDD-001 — Project Registry** and **SDD-002 — Terminal Manager** (see
-`docs/sdd/`).
+Implemented: **SDD-001 — Project Registry**, **SDD-002 — Terminal Manager** and
+**SDD-003 — Workspace, Git and ATLAS Sessions** (see `docs/sdd/`).
 
 ## Requirements
 
@@ -39,10 +43,24 @@ The project commands work without the desktop app and share its database.
 
 ```bash
 pnpm atlas terminal list [--project <id>] [--json]
-pnpm atlas terminal open --project <id> [--shell <shell-id>] [--title <title>] [--json]
+pnpm atlas terminal open [--project <id> | --cwd <path>] [--shell <shell-id>] [--title <name>] [--json]
+pnpm atlas terminal rename <terminal-id> (<name> | --auto)
 pnpm atlas terminal show <terminal-id> [--json]
 pnpm atlas terminal close <terminal-id> [--yes]
 ```
+
+```bash
+pnpm atlas session create --name <name> --objective <text> [--project <id> | --cwd <path>] [--profile economy|balanced|maximum] [--constraint <text>...]
+pnpm atlas session list [--project <id>] [--all]
+pnpm atlas session show <session-id>
+pnpm atlas session tasks <session-id>
+pnpm atlas session ready|start|pause|resume|archive <session-id>
+pnpm atlas session cancel <session-id> [--yes]
+# add --json for machine-readable output
+```
+
+Session commands use the running app's Engine when it is open (so it updates live) and the
+database directly otherwise.
 
 Terminal commands talk to the Engine of the running ATLAS Control app through an
 authenticated local socket; they fail with "The ATLAS Engine is not running" otherwise.
@@ -50,11 +68,23 @@ Terminals opened from the CLI appear as tabs in the app.
 
 ### Terminals
 
-Open **Terminals** in the sidebar (or "Open terminal" on a project). Each project has its
-own tabs and split panes; switching projects never stops processes. Keyboard shortcuts
+Open **Terminals** in the sidebar (or "Open terminal" on a project). Terminals can belong
+to a project or be standalone (default directory, configurable in Settings, or any folder
+chosen in the picker). Organize them in groups — each group has its own tabs and split
+panes, and switching groups never stops processes. Terminal headers show the branch,
+modified/staged counts and ahead/behind of the repository the shell is in; project details
+show the full Git summary (read-only; ATLAS never fetches or changes repositories). Keyboard shortcuts
 are listed in the application menu and in `docs/sdd/SDD-002-terminal-manager.md`.
 Quitting ATLAS terminates all terminal processes (it asks first while any are running).
 Extra shells, such as a WSL launcher, can be added in `<data dir>/shells.json`.
+
+### Sessions
+
+Open **Sessions** in the sidebar (or "New session" on a project). A session records an
+objective, a workspace (project, folder or none), an execution profile, constraints and a
+plan of tasks with dependencies; its lifecycle and every change are kept in an event
+history. No AI provider is involved yet: a started session waits for an executor, and the
+app always shows that nothing is executing.
 
 ### Headless Engine
 

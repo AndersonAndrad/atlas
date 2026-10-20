@@ -12,14 +12,30 @@ import {
   TerminalIdSchema,
   TerminalInputDataSchema,
   TerminalRowsSchema,
-  TerminalTitleSchema,
+  TerminalCustomTitleSchema,
+  TerminalGroupIdSchema,
+  TerminalGroupNameSchema,
   type ShellCatalog,
+  type TerminalGroup,
   type TerminalAttachment,
   type TerminalCloseInfo,
   type TerminalPreferences,
   type TerminalSession,
 } from './terminal.js';
-import type { TerminalWorkspaceLayout } from './terminal-layout.js';
+import { TerminalWorkspaceKeySchema, type TerminalWorkspaceLayout } from './terminal-layout.js';
+import type { GitStatus, TerminalGitContext, TerminalProjectContext } from './git.js';
+import {
+  AtlasSessionIdSchema,
+  ListSessionsInputSchema,
+  SessionActionSchema,
+  SessionTaskIdSchema,
+  type AtlasSession,
+  type AtlasSessionDetails,
+  type AtlasSessionListItem,
+  type SessionEvent,
+  type SessionSettings,
+  type SessionTask,
+} from './session.js';
 
 /** Identifies who receives output events of an attached terminal view. */
 export const SubscriberIdSchema = z.string().regex(/^[A-Za-z0-9:_-]{1,128}$/);
@@ -27,6 +43,11 @@ export const SubscriberIdSchema = z.string().regex(/^[A-Za-z0-9:_-]{1,128}$/);
 const Unknown = z.unknown();
 const Id = ProjectIdSchema;
 const TerminalId = TerminalIdSchema;
+const GroupId = TerminalGroupIdSchema;
+const WorkspaceKey = TerminalWorkspaceKeySchema;
+const Position = z.number().int().min(0).max(10_000);
+const SessionId = AtlasSessionIdSchema;
+const TaskId = SessionTaskIdSchema;
 
 /**
  * Parameter schemas of every Engine method. The Engine validates each request
@@ -51,7 +72,13 @@ export const ENGINE_METHOD_PARAMS = {
   'terminals.create': z.tuple([Unknown]),
   'terminals.write': z.tuple([TerminalId, TerminalInputDataSchema]),
   'terminals.resize': z.tuple([TerminalId, TerminalColumnsSchema, TerminalRowsSchema]),
-  'terminals.rename': z.tuple([TerminalId, TerminalTitleSchema]),
+  'terminals.rename': z.tuple([TerminalId, TerminalCustomTitleSchema]),
+  'terminals.associate': z.tuple([TerminalId, Id.nullable()]),
+  'terminals.move': z.tuple([TerminalId, GroupId.nullable(), Position]),
+  'terminals.projectContext': z.tuple([TerminalId]),
+  'terminals.git': z.tuple([TerminalId]),
+  'terminals.registerProject': z.tuple([TerminalId, Unknown]),
+  'terminals.detachProject': z.tuple([Id]),
   'terminals.terminate': z.tuple([TerminalId]),
   'terminals.restart': z.tuple([TerminalId]),
   'terminals.dismiss': z.tuple([TerminalId]),
@@ -69,15 +96,40 @@ export const ENGINE_METHOD_PARAMS = {
   'terminals.shells': z.tuple([]),
   'terminals.getPreferences': z.tuple([]),
   'terminals.setPreferences': z.tuple([Unknown]),
-  'terminals.getLayout': z.tuple([Id]),
-  'terminals.setLayout': z.tuple([Id, Unknown]),
+  'terminals.getLayout': z.tuple([WorkspaceKey]),
+  'terminals.setLayout': z.tuple([WorkspaceKey, Unknown]),
+
+  'groups.list': z.tuple([]),
+  'groups.create': z.tuple([TerminalGroupNameSchema]),
+  'groups.rename': z.tuple([GroupId, TerminalGroupNameSchema]),
+  'groups.setCollapsed': z.tuple([GroupId, z.boolean()]),
+  'groups.move': z.tuple([GroupId, Position]),
+  'groups.delete': z.tuple([GroupId, z.strictObject({ terminateTerminals: z.boolean() })]),
+
+  'git.project': z.tuple([Id]),
   'terminals.closeAllInfo': z.tuple([]),
+
+  'sessions.list': z.tuple([ListSessionsInputSchema]),
+  'sessions.get': z.tuple([SessionId]),
+  'sessions.create': z.tuple([Unknown]),
+  'sessions.update': z.tuple([SessionId, Unknown]),
+  'sessions.perform': z.tuple([SessionId, SessionActionSchema]),
+  'sessions.tasks': z.tuple([SessionId]),
+  'sessions.events': z.tuple([SessionId]),
+  'sessions.addTask': z.tuple([SessionId, Unknown]),
+  'sessions.updateTask': z.tuple([SessionId, TaskId, Unknown]),
+  'sessions.removeTask': z.tuple([SessionId, TaskId]),
+  'sessions.cancelTask': z.tuple([SessionId, TaskId]),
+  'sessions.getSettings': z.tuple([]),
+  'sessions.setSettings': z.tuple([Unknown]),
 } as const;
 
 export type EngineMethod = keyof typeof ENGINE_METHOD_PARAMS;
 
 export interface EngineStatus {
+  engineVersion: string;
   dataDir: string;
+  logFile: string;
   schemaVersion: number;
   pid: number;
   activeTerminals: number;
@@ -100,6 +152,12 @@ export interface EngineMethodResults {
   'terminals.write': null;
   'terminals.resize': null;
   'terminals.rename': TerminalSession;
+  'terminals.associate': TerminalSession;
+  'terminals.move': TerminalSession;
+  'terminals.projectContext': TerminalProjectContext;
+  'terminals.git': TerminalGitContext;
+  'terminals.registerProject': { project: Project; session: TerminalSession };
+  'terminals.detachProject': null;
   'terminals.terminate': TerminalSession;
   'terminals.restart': TerminalSession;
   'terminals.dismiss': null;
@@ -114,7 +172,27 @@ export interface EngineMethodResults {
   'terminals.setPreferences': TerminalPreferences;
   'terminals.getLayout': TerminalWorkspaceLayout | null;
   'terminals.setLayout': null;
+  'groups.list': TerminalGroup[];
+  'groups.create': TerminalGroup;
+  'groups.rename': TerminalGroup;
+  'groups.setCollapsed': TerminalGroup;
+  'groups.move': TerminalGroup[];
+  'groups.delete': null;
+  'git.project': GitStatus;
   'terminals.closeAllInfo': { runningSessions: number; busySessions: number };
+  'sessions.list': AtlasSessionListItem[];
+  'sessions.get': AtlasSessionDetails;
+  'sessions.create': AtlasSession;
+  'sessions.update': AtlasSession;
+  'sessions.perform': AtlasSession;
+  'sessions.tasks': SessionTask[];
+  'sessions.events': SessionEvent[];
+  'sessions.addTask': SessionTask;
+  'sessions.updateTask': SessionTask;
+  'sessions.removeTask': null;
+  'sessions.cancelTask': SessionTask;
+  'sessions.getSettings': SessionSettings;
+  'sessions.setSettings': SessionSettings;
 }
 
 export type EngineMethodParams<M extends EngineMethod> = z.input<(typeof ENGINE_METHOD_PARAMS)[M]>;
@@ -127,4 +205,12 @@ export const CLI_ENGINE_METHODS: readonly EngineMethod[] = [
   'terminals.create',
   'terminals.terminate',
   'terminals.closeInfo',
+  'terminals.rename',
+  'terminals.detachProject',
+  'sessions.list',
+  'sessions.get',
+  'sessions.create',
+  'sessions.perform',
+  'sessions.tasks',
+  'sessions.events',
 ];

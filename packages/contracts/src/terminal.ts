@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ProjectIdSchema } from './project.js';
+import { ProjectIdSchema, WorkspacePathSchema } from './project.js';
 
 export const TERMINAL_STATUSES = [
   'CREATED',
@@ -78,13 +78,28 @@ export const TerminalDimensionsSchema = z.strictObject({
 
 export type TerminalDimensions = z.infer<typeof TerminalDimensionsSchema>;
 
-export const CreateTerminalInputSchema = z.strictObject({
-  projectId: ProjectIdSchema,
-  shellId: ShellIdSchema.optional(),
-  title: TerminalTitleSchema.optional(),
-  columns: TerminalColumnsSchema.optional(),
-  rows: TerminalRowsSchema.optional(),
-});
+export const TerminalGroupIdSchema = z.uuid({ message: 'Invalid group identifier.' });
+
+/**
+ * A terminal starts either in a registered project (its directory comes from the
+ * registry) or standalone: in `cwd` when given, otherwise in the configured
+ * default working directory. `cwd` is validated by the Engine; desktop clients may
+ * only pass directories chosen in the native picker.
+ */
+export const CreateTerminalInputSchema = z
+  .strictObject({
+    projectId: ProjectIdSchema.optional(),
+    cwd: WorkspacePathSchema.optional(),
+    shellId: ShellIdSchema.optional(),
+    title: TerminalTitleSchema.optional(),
+    groupId: TerminalGroupIdSchema.optional(),
+    columns: TerminalColumnsSchema.optional(),
+    rows: TerminalRowsSchema.optional(),
+  })
+  .refine((input) => input.projectId === undefined || input.cwd === undefined, {
+    message: 'A terminal starts in a project or in a directory, not both.',
+    path: ['cwd'],
+  });
 
 export type CreateTerminalInput = z.input<typeof CreateTerminalInputSchema>;
 
@@ -93,6 +108,36 @@ export const TerminalInputDataSchema = z.string().max(TERMINAL_INPUT_MAX_LENGTH)
 export const ListTerminalsInputSchema = z
   .strictObject({ projectId: ProjectIdSchema.optional() })
   .default({});
+
+/** `null` removes the custom name and restores the automatic one. */
+export const TerminalCustomTitleSchema = TerminalTitleSchema.nullable();
+
+export const TERMINAL_GROUP_NAME_MAX_LENGTH = 60;
+export const TERMINAL_GROUPS_MAX_COUNT = 50;
+
+export const TerminalGroupNameSchema = z
+  .string()
+  .trim()
+  .min(1, 'Name is required.')
+  .max(
+    TERMINAL_GROUP_NAME_MAX_LENGTH,
+    `Name must be at most ${TERMINAL_GROUP_NAME_MAX_LENGTH} characters.`,
+  )
+  // eslint-disable-next-line no-control-regex
+  .refine((value) => !/[\u0000-\u001f\u007f]/.test(value), 'Name contains invalid characters.');
+
+/** A user-defined collection of terminals, possibly from different projects. */
+export interface TerminalGroup {
+  id: string;
+  name: string;
+  /** Zero-based display order. */
+  position: number;
+  collapsed: boolean;
+  createdAt: string;
+}
+
+/** Where a terminal's working directory information comes from. */
+export type TerminalCwdSource = 'detected' | 'initial';
 
 export interface TerminalShellRef {
   id: string;
@@ -103,11 +148,24 @@ export interface TerminalShellRef {
 /** Metadata of a terminal session. Runtime handles never leave the Engine. */
 export interface TerminalSession {
   id: string;
-  projectId: string;
+  /** Associated registered project; `null` for standalone terminals. */
+  projectId: string | null;
+  /** Effective name: the custom name when set, otherwise the automatic one. */
   title: string;
+  /** User-defined name; never overwritten by automatic naming. */
+  customTitle: string | null;
+  /** Generated name (from the current directory); kept even when a custom name exists. */
+  autoTitle: string;
+  groupId: string | null;
+  /** Order inside its group (or among ungrouped terminals). */
+  groupPosition: number;
   shell: TerminalShellRef;
   /** Working directory the shell was started in. */
   cwd: string;
+  /** Last known working directory of the shell; equals `cwd` until detected. */
+  currentCwd: string;
+  /** `detected` when read from the operating system, `initial` otherwise. */
+  cwdSource: TerminalCwdSource;
   status: TerminalStatus;
   pid?: number;
   exitCode?: number;
@@ -156,7 +214,10 @@ export interface TerminalAttachment {
 export type TerminalEvent =
   | { type: 'output'; sessionId: string; seq: number; data: string }
   | { type: 'session'; session: TerminalSession }
-  | { type: 'removed'; sessionId: string; projectId: string };
+  | { type: 'removed'; sessionId: string; projectId: string | null }
+  | { type: 'groups'; groups: TerminalGroup[] }
+  /** Git state of a repository may have changed; clients re-request snapshots. */
+  | { type: 'git'; repositoryRoot: string };
 
 export const TERMINAL_FONT_FAMILIES = ['system', 'menlo', 'sf-mono', 'monaco', 'courier'] as const;
 export type TerminalFontFamily = (typeof TERMINAL_FONT_FAMILIES)[number];
@@ -171,12 +232,15 @@ const FontFamilySchema = z.enum(TERMINAL_FONT_FAMILIES);
 const ScrollbackSchema = z.number().int().min(TERMINAL_SCROLLBACK_MIN).max(TERMINAL_SCROLLBACK_MAX);
 /** `null` follows the operating system and $SHELL. */
 const DefaultShellSchema = ShellIdSchema.nullable();
+/** `null` uses the user's home directory. */
+const DefaultWorkingDirectorySchema = WorkspacePathSchema.nullable();
 
 export const TerminalPreferencesSchema = z.strictObject({
   fontSize: FontSizeSchema.default(13),
   fontFamily: FontFamilySchema.default('system'),
   scrollback: ScrollbackSchema.default(5000),
   defaultShellId: DefaultShellSchema.default(null),
+  defaultWorkingDirectory: DefaultWorkingDirectorySchema.default(null),
 });
 
 export type TerminalPreferences = z.output<typeof TerminalPreferencesSchema>;
@@ -188,6 +252,7 @@ export const UpdateTerminalPreferencesSchema = z
     fontFamily: FontFamilySchema.optional(),
     scrollback: ScrollbackSchema.optional(),
     defaultShellId: DefaultShellSchema.optional(),
+    defaultWorkingDirectory: DefaultWorkingDirectorySchema.optional(),
   })
   .refine((input) => Object.values(input).some((value) => value !== undefined), {
     message: 'At least one preference must be provided.',

@@ -48,6 +48,7 @@ export const TERMINAL_SHORTCUTS: readonly ShortcutDefinition[] = [
 const VIEW_SHORTCUTS: readonly ShortcutDefinition[] = [
   { command: 'view.projects', label: 'Projects', mac: 'Cmd+1', other: 'Ctrl+Shift+1' },
   { command: 'view.terminals', label: 'Terminals', mac: 'Cmd+2', other: 'Ctrl+Shift+2' },
+  { command: 'view.sessions', label: 'Sessions', mac: 'Cmd+3', other: 'Ctrl+Shift+3' },
 ];
 
 export interface MenuOptions {
@@ -77,7 +78,18 @@ export function buildMenuTemplate(options: MenuOptions): MenuItemConstructorOpti
     template.push({
       label: options.appName,
       submenu: [
-        { role: 'about' },
+        {
+          id: 'app.about',
+          label: `About ${options.appName}`,
+          click: () => options.sendCommand('app.about'),
+        },
+        { type: 'separator' },
+        {
+          id: 'app.settings',
+          label: 'Settings…',
+          accelerator: 'Cmd+,',
+          click: () => options.sendCommand('app.settings'),
+        },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -154,5 +166,23 @@ export function buildMenuTemplate(options: MenuOptions): MenuItemConstructorOpti
         : [{ role: 'minimize' }],
     },
   );
+  if (!isMac) {
+    template.push({
+      label: 'Help',
+      submenu: [
+        {
+          id: 'app.settings',
+          label: 'Settings',
+          accelerator: 'Ctrl+,',
+          click: () => options.sendCommand('app.settings'),
+        },
+        {
+          id: 'app.about',
+          label: `About ${options.appName}`,
+          click: () => options.sendCommand('app.about'),
+        },
+      ],
+    });
+  }
   return template;
 }

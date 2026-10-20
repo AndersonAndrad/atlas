@@ -15,10 +15,10 @@ let paneCounter = 0;
 export const newLayoutId = () => `p${Date.now().toString(36)}${(paneCounter++).toString(36)}`;
 
 /**
- * Pane layout of one project's terminal workspace. It is presentation state:
+ * Pane layout of one terminal workspace (a group or the ungrouped terminals). It is presentation state:
  * loaded from and saved to the Engine, and repaired whenever sessions change.
  */
-export function useWorkspaceLayout(projectId: string, sessions: TerminalSession[]) {
+export function useWorkspaceLayout(workspace: string, sessions: TerminalSession[]) {
   const [layout, setLayout] = useState<TerminalWorkspaceLayout | null>(null);
   const loadedRef = useRef(false);
   const sessionIds = sessions.map((session) => session.id).join(',');
@@ -26,7 +26,7 @@ export function useWorkspaceLayout(projectId: string, sessions: TerminalSession[
   useEffect(() => {
     let cancelled = false;
     loadedRef.current = false;
-    unwrap(api().terminals.getLayout(projectId))
+    unwrap(api().terminals.getLayout(workspace))
       .catch(() => null)
       .then((saved) => {
         if (cancelled) return;
@@ -44,7 +44,7 @@ export function useWorkspaceLayout(projectId: string, sessions: TerminalSession[
     };
     // Load once per project; session changes are reconciled below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [workspace]);
 
   // Sessions closed elsewhere (another pane, the CLI) leave their pane.
   useEffect(() => {
@@ -71,16 +71,16 @@ export function useWorkspaceLayout(projectId: string, sessions: TerminalSession[
     unsavedRef.current = layout;
     const timer = setTimeout(() => {
       unsavedRef.current = null;
-      void api().terminals.setLayout(projectId, layout);
+      void api().terminals.setLayout(workspace, layout);
     }, SAVE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [layout, projectId]);
+  }, [layout, workspace]);
   useEffect(
     () => () => {
       if (unsavedRef.current !== null)
-        void api().terminals.setLayout(projectId, unsavedRef.current);
+        void api().terminals.setLayout(workspace, unsavedRef.current);
     },
-    [projectId],
+    [workspace],
   );
 
   const update = useCallback(

@@ -1,4 +1,5 @@
 import { describeError } from '@atlas/shared';
+import type { SessionChangeListener } from '@atlas/sessions';
 import type { TerminalEventListener } from '@atlas/terminal';
 import { createEngine, type Engine, type EngineOptions } from './engine.js';
 import { createEngineDispatcher, type EngineDispatcher } from './rpc/dispatcher.js';
@@ -15,12 +16,16 @@ export interface EngineHost {
   readonly dispatcher: EngineDispatcher;
   readonly socket: EngineSocketServer | undefined;
   onTerminalEvent(listener: TerminalEventListener): () => void;
+  onSessionChanged(listener: SessionChangeListener): () => void;
   /** Terminates terminals, stops serving clients and closes the database. */
   stop(): Promise<void>;
 }
 
 export async function startEngineHost(options: EngineHostOptions = {}): Promise<EngineHost> {
-  const engine = createEngine({ ...options, terminals: options.terminals ?? {} });
+  const engine = createEngine({
+    ...options,
+    terminals: { watchRepositories: true, ...options.terminals },
+  });
   let socket: EngineSocketServer | undefined;
   try {
     await engine.initialize();
@@ -41,6 +46,7 @@ export async function startEngineHost(options: EngineHostOptions = {}): Promise<
       dispatcher,
       socket,
       onTerminalEvent: (listener) => engine.terminals!.onEvent(listener),
+      onSessionChanged: (listener) => engine.onSessionChanged(listener),
       stop: () => {
         stopping ??= (async () => {
           try {

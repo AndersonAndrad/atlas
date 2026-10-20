@@ -179,6 +179,35 @@ export class ProjectService {
     return inspection.resolvedPath;
   }
 
+  /**
+   * Validates any absolute directory (not necessarily registered) and returns its
+   * realpath. Used for standalone terminals.
+   */
+  async resolveAvailableDirectory(inputPath: string): Promise<string> {
+    const inspection = await this.inspectAvailableDirectory(inputPath);
+    return inspection.resolvedPath!;
+  }
+
+  /** Returns the registered project whose directory contains `directory`, if any. */
+  async findContaining(directory: string): Promise<Project | null> {
+    if (!isAbsoluteForPlatform(directory, this.deps.platform)) return null;
+    const key = toPathKey(normalizeAbsolutePath(directory, this.deps.platform), this.deps.platform);
+    const separator = this.deps.platform === 'win32' ? '\\' : '/';
+    let best: Project | null = null;
+    let bestLength = -1;
+    for (const project of await this.deps.projects.findAll()) {
+      const projectKey = toPathKey(project.workspacePath, this.deps.platform);
+      const prefix = projectKey.endsWith(separator) ? projectKey : projectKey + separator;
+      const contains = key === projectKey || key.startsWith(prefix);
+      // The deepest registered directory wins (nested projects).
+      if (contains && projectKey.length > bestLength) {
+        best = project;
+        bestLength = projectKey.length;
+      }
+    }
+    return best;
+  }
+
   async getDetails(id: string): Promise<ProjectDetails> {
     const project = await this.getExisting(id);
     const selectedId = await this.deps.settings.get(SELECTED_PROJECT_SETTING);

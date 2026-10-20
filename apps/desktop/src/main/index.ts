@@ -1,6 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { AppInfo } from '@atlas/contracts';
 import { IPC_EVENT_CHANNELS, type AppCommand } from '@atlas/contracts/ipc';
 import { FileLogger, resolveDataDir } from '@atlas/engine';
 import { describeError } from '@atlas/shared';
@@ -23,6 +24,9 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const devServerUrl = process.env.ELECTRON_RENDERER_URL;
 const rendererFile = path.join(currentDir, '../renderer/index.html');
 const engineHostEntry = path.join(currentDir, 'engine-host.js');
+
+// Injected at build time by electron.vite.config.ts.
+declare const __ATLAS_BUILD_ID__: string;
 
 const dataDir = resolveDataDir({
   env: process.env,
@@ -84,7 +88,7 @@ function createMainWindow(): BrowserWindow {
     minWidth: 380,
     minHeight: 520,
     show: false,
-    title: 'ATLAS',
+    title: 'ATLAS — Autonomous Task Leadership & Agent System',
     backgroundColor: '#0a0a0a',
     webPreferences: {
       preload: path.join(currentDir, '../preload/index.cjs'),
@@ -166,6 +170,10 @@ async function bootstrap(): Promise<void> {
     logger,
     onEvent: (message) => {
       // Output goes only to the view that attached it; lifecycle events to the window.
+      if (message.event.type === 'session-changed') {
+        sendToRenderer(IPC_EVENT_CHANNELS.sessionChanged, message.event);
+        return;
+      }
       if (message.subscriberId === undefined) {
         sendToRenderer(IPC_EVENT_CHANNELS.terminalEvent, { event: message.event });
         return;
@@ -196,6 +204,7 @@ async function bootstrap(): Promise<void> {
     showOpenDialog: (options) =>
       mainWindow ? dialog.showOpenDialog(mainWindow, options) : dialog.showOpenDialog(options),
     subscriberId,
+    appInfo,
   });
 
   Menu.setApplicationMenu(
@@ -211,6 +220,27 @@ async function bootstrap(): Promise<void> {
   );
 
   mainWindow = createMainWindow();
+}
+
+/** Version and environment details for About, Settings and diagnostics. */
+async function appInfo(): Promise<AppInfo> {
+  const status = await engine!.call('engine.status');
+  return {
+    appName: 'ATLAS Control',
+    desktopVersion: app.getVersion(),
+    engineVersion: status.engineVersion,
+    channel: app.isPackaged ? 'production' : 'development',
+    buildId: __ATLAS_BUILD_ID__ === '' ? null : __ATLAS_BUILD_ID__,
+    platform: process.platform,
+    arch: process.arch,
+    osVersion: os.release(),
+    electronVersion: process.versions.electron,
+    chromeVersion: process.versions.chrome,
+    nodeVersion: process.versions.node,
+    dataDir: status.dataDir,
+    logFile: status.logFile,
+    schemaVersion: status.schemaVersion,
+  };
 }
 
 /** Asks before quitting when terminals are running. Resolves to true to quit. */

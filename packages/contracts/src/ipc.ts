@@ -6,9 +6,12 @@ import type {
   ProjectPathInspection,
   UpdateProjectInput,
 } from './project.js';
+import type { AppInfo } from './app-info.js';
+import type { GitStatus, TerminalGitContext, TerminalProjectContext } from './git.js';
 import type {
   CreateTerminalInput,
   ShellCatalog,
+  TerminalGroup,
   TerminalAttachment,
   TerminalCloseInfo,
   TerminalEvent,
@@ -17,6 +20,22 @@ import type {
   UpdateTerminalPreferencesInput,
 } from './terminal.js';
 import type { TerminalWorkspaceLayout } from './terminal-layout.js';
+import type {
+  AtlasSession,
+  AtlasSessionDetails,
+  AtlasSessionListItem,
+  CreateSessionInput,
+  CreateSessionTaskInput,
+  ListSessionsInput,
+  SessionAction,
+  SessionChangedEvent,
+  SessionEvent,
+  SessionSettings,
+  SessionTask,
+  UpdateSessionInput,
+  UpdateSessionSettingsInput,
+  UpdateSessionTaskInput,
+} from './session.js';
 
 export const IPC_CHANNELS = {
   listProjects: 'atlas:projects:list',
@@ -43,6 +62,34 @@ export const IPC_CHANNELS = {
   setTerminalPreferences: 'atlas:terminals:set-preferences',
   getTerminalLayout: 'atlas:terminals:get-layout',
   setTerminalLayout: 'atlas:terminals:set-layout',
+  associateTerminal: 'atlas:terminals:associate',
+  moveTerminal: 'atlas:terminals:move',
+  terminalProjectContext: 'atlas:terminals:project-context',
+  terminalGit: 'atlas:terminals:git',
+  registerTerminalProject: 'atlas:terminals:register-project',
+
+  listGroups: 'atlas:groups:list',
+  createGroup: 'atlas:groups:create',
+  renameGroup: 'atlas:groups:rename',
+  setGroupCollapsed: 'atlas:groups:set-collapsed',
+  moveGroup: 'atlas:groups:move',
+  deleteGroup: 'atlas:groups:delete',
+
+  projectGit: 'atlas:git:project',
+  appInfo: 'atlas:app:info',
+
+  listSessions: 'atlas:sessions:list',
+  getSession: 'atlas:sessions:get',
+  createSession: 'atlas:sessions:create',
+  updateSession: 'atlas:sessions:update',
+  performSessionAction: 'atlas:sessions:perform',
+  sessionEvents: 'atlas:sessions:events',
+  addSessionTask: 'atlas:sessions:add-task',
+  updateSessionTask: 'atlas:sessions:update-task',
+  removeSessionTask: 'atlas:sessions:remove-task',
+  cancelSessionTask: 'atlas:sessions:cancel-task',
+  getSessionSettings: 'atlas:sessions:get-settings',
+  setSessionSettings: 'atlas:sessions:set-settings',
 } as const;
 
 /** Fire-and-forget channels used for high-frequency terminal traffic. */
@@ -55,9 +102,12 @@ export const IPC_SEND_CHANNELS = {
 /** Channels the main process uses to push events to the renderer. */
 export const IPC_EVENT_CHANNELS = {
   terminalEvent: 'atlas:terminals:event',
+  sessionChanged: 'atlas:sessions:changed',
   appCommand: 'atlas:app:command',
   engineRestarted: 'atlas:engine:restarted',
 } as const;
+
+export type { SessionChangedEvent } from './session.js';
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
 
@@ -72,6 +122,7 @@ export interface DirectoryChoice {
 export const APP_COMMANDS = [
   'view.projects',
   'view.terminals',
+  'view.sessions',
   'terminal.new',
   'terminal.close',
   'terminal.next',
@@ -85,6 +136,8 @@ export const APP_COMMANDS = [
   'terminal.fontIncrease',
   'terminal.fontDecrease',
   'terminal.fontReset',
+  'app.about',
+  'app.settings',
 ] as const;
 
 export type AppCommand = (typeof APP_COMMANDS)[number];
@@ -116,12 +169,26 @@ export interface AtlasApi {
     getSelected(): Promise<IpcResult<ProjectDetails | null>>;
   };
   dialog: {
-    chooseDirectory(): Promise<IpcResult<DirectoryChoice>>;
+    /** `purpose` only changes the dialog title. */
+    chooseDirectory(
+      purpose?: 'project' | 'terminal' | 'default-directory' | 'session',
+    ): Promise<IpcResult<DirectoryChoice>>;
   };
   terminals: {
     list(projectId?: string): Promise<IpcResult<TerminalSession[]>>;
     create(input: CreateTerminalInput): Promise<IpcResult<TerminalSession>>;
-    rename(id: string, title: string): Promise<IpcResult<TerminalSession>>;
+    /** `null` restores the automatic name. */
+    rename(id: string, title: string | null): Promise<IpcResult<TerminalSession>>;
+    associate(id: string, projectId: string | null): Promise<IpcResult<TerminalSession>>;
+    /** Moves into a group (`null`: ungrouped) at a position; never restarts the process. */
+    move(id: string, groupId: string | null, position: number): Promise<IpcResult<TerminalSession>>;
+    projectContext(id: string): Promise<IpcResult<TerminalProjectContext>>;
+    git(id: string): Promise<IpcResult<TerminalGitContext>>;
+    /** Registers the terminal's current directory (known by the Engine) as a project. */
+    registerProject(
+      id: string,
+      input: { name: string; description?: string; tags?: string[] },
+    ): Promise<IpcResult<{ project: Project; session: TerminalSession }>>;
     terminate(id: string): Promise<IpcResult<TerminalSession>>;
     restart(id: string): Promise<IpcResult<TerminalSession>>;
     /** Terminates the process if needed and closes the tab. */
@@ -139,8 +206,9 @@ export interface AtlasApi {
     shells(): Promise<IpcResult<ShellCatalog>>;
     getPreferences(): Promise<IpcResult<TerminalPreferences>>;
     setPreferences(input: UpdateTerminalPreferencesInput): Promise<IpcResult<TerminalPreferences>>;
-    getLayout(projectId: string): Promise<IpcResult<TerminalWorkspaceLayout | null>>;
-    setLayout(projectId: string, layout: TerminalWorkspaceLayout): Promise<IpcResult<null>>;
+    /** `workspace` is a group id or `ungrouped`. */
+    getLayout(workspace: string): Promise<IpcResult<TerminalWorkspaceLayout | null>>;
+    setLayout(workspace: string, layout: TerminalWorkspaceLayout): Promise<IpcResult<null>>;
     write(id: string, data: string): void;
     resize(id: string, columns: number, rows: number): void;
     /** Reports how many output characters the view has rendered (flow control). */
@@ -148,7 +216,41 @@ export interface AtlasApi {
     /** Output events carry the id of the view they are addressed to. */
     onEvent(listener: (message: TerminalEventMessage) => void): Unsubscribe;
   };
+  groups: {
+    list(): Promise<IpcResult<TerminalGroup[]>>;
+    create(name: string): Promise<IpcResult<TerminalGroup>>;
+    rename(id: string, name: string): Promise<IpcResult<TerminalGroup>>;
+    setCollapsed(id: string, collapsed: boolean): Promise<IpcResult<TerminalGroup>>;
+    move(id: string, position: number): Promise<IpcResult<TerminalGroup[]>>;
+    /** Terminals become ungrouped unless `terminateTerminals` is confirmed. */
+    delete(id: string, options: { terminateTerminals: boolean }): Promise<IpcResult<null>>;
+  };
+  git: {
+    project(projectId: string): Promise<IpcResult<GitStatus>>;
+  };
+  sessions: {
+    list(filter?: ListSessionsInput): Promise<IpcResult<AtlasSessionListItem[]>>;
+    get(id: string): Promise<IpcResult<AtlasSessionDetails>>;
+    /** `workspacePath` must come from the directory picker. */
+    create(input: CreateSessionInput): Promise<IpcResult<AtlasSession>>;
+    update(id: string, input: UpdateSessionInput): Promise<IpcResult<AtlasSession>>;
+    perform(id: string, action: SessionAction): Promise<IpcResult<AtlasSession>>;
+    events(id: string): Promise<IpcResult<SessionEvent[]>>;
+    addTask(id: string, input: CreateSessionTaskInput): Promise<IpcResult<SessionTask>>;
+    updateTask(
+      id: string,
+      taskId: string,
+      input: UpdateSessionTaskInput,
+    ): Promise<IpcResult<SessionTask>>;
+    removeTask(id: string, taskId: string): Promise<IpcResult<null>>;
+    cancelTask(id: string, taskId: string): Promise<IpcResult<SessionTask>>;
+    getSettings(): Promise<IpcResult<SessionSettings>>;
+    setSettings(input: UpdateSessionSettingsInput): Promise<IpcResult<SessionSettings>>;
+    /** A session, its tasks or its history changed (in any client). */
+    onChanged(listener: (event: SessionChangedEvent) => void): Unsubscribe;
+  };
   app: {
+    info(): Promise<IpcResult<AppInfo>>;
     onCommand(listener: (command: AppCommand) => void): Unsubscribe;
     /** The Engine process restarted; terminal state must be reloaded. */
     onEngineRestarted(listener: () => void): Unsubscribe;

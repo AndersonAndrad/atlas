@@ -1,6 +1,7 @@
 import {
   CLI_ENGINE_METHODS,
   ENGINE_METHOD_PARAMS,
+  UNGROUPED_WORKSPACE,
   parseInput,
   type CreateProjectInput,
   type CreateTerminalInput,
@@ -33,6 +34,12 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     }
     return engine.terminals;
   };
+  const groups = () => {
+    if (engine.terminalGroups === undefined) {
+      throw new AtlasError('ENGINE_UNAVAILABLE', 'Terminal runtime is not enabled.');
+    }
+    return engine.terminalGroups;
+  };
   const { projects } = engine;
 
   const handlers: {
@@ -41,7 +48,9 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     ) => Promise<EngineMethodResults[M]> | EngineMethodResults[M];
   } = {
     'engine.status': () => ({
+      engineVersion: engine.engineVersion,
       dataDir: engine.dataDir,
+      logFile: engine.logFile,
       schemaVersion: engine.schemaVersion(),
       pid: process.pid,
       activeTerminals: engine.terminals?.activeCount() ?? 0,
@@ -76,7 +85,19 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
       terminals().resize(id, columns, rows);
       return null;
     },
-    'terminals.rename': ([id, title]: [string, string]) => terminals().rename(id, title),
+    'terminals.rename': ([id, title]: [string, string | null]) => terminals().rename(id, title),
+    'terminals.associate': ([id, projectId]: [string, string | null]) =>
+      terminals().associate(id, projectId),
+    'terminals.move': ([id, groupId, position]: [string, string | null, number]) =>
+      terminals().move(id, groupId, position),
+    'terminals.projectContext': ([id]: [string]) => engine.terminalProjectContext(id),
+    'terminals.git': ([id]: [string]) => engine.terminalGit(id),
+    'terminals.registerProject': ([id, input]: [string, unknown]) =>
+      engine.registerProjectFromTerminal(id, input),
+    'terminals.detachProject': async ([projectId]: [string]) => {
+      await terminals().detachProject(projectId);
+      return null;
+    },
     'terminals.terminate': ([id]: [string]) => terminals().terminate(id),
     'terminals.restart': ([id]: [string]) => terminals().restart(id),
     'terminals.dismiss': async ([id]: [string]) => {
@@ -104,15 +125,48 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     },
     'terminals.shells': () => terminals().shellCatalog(),
     'terminals.getPreferences': () => engine.terminalSettings.getPreferences(),
-    'terminals.setPreferences': ([input]: [unknown]) =>
-      engine.terminalSettings.updatePreferences(input),
-    'terminals.getLayout': ([projectId]: [string]) => engine.terminalSettings.getLayout(projectId),
-    'terminals.setLayout': async ([projectId, layout]: [string, unknown]) => {
-      await projects.getDetails(projectId);
-      await engine.terminalSettings.setLayout(projectId, layout);
+    'terminals.setPreferences': ([input]: [unknown]) => engine.updateTerminalPreferences(input),
+    'terminals.getLayout': ([workspace]: [string]) => engine.terminalSettings.getLayout(workspace),
+    'terminals.setLayout': async ([workspace, layout]: [string, unknown]) => {
+      if (workspace !== UNGROUPED_WORKSPACE && !(await groups().exists(workspace))) {
+        throw new AtlasError('VALIDATION_FAILED', 'The terminal group does not exist.');
+      }
+      await engine.terminalSettings.setLayout(workspace, layout);
       return null;
     },
     'terminals.closeAllInfo': () => terminals().closeAllInfo(),
+
+    'groups.list': () => groups().list(),
+    'groups.create': ([name]: [string]) => groups().create(name),
+    'groups.rename': ([id, name]: [string, string]) => groups().rename(id, name),
+    'groups.setCollapsed': ([id, collapsed]: [string, boolean]) =>
+      groups().setCollapsed(id, collapsed),
+    'groups.move': ([id, position]: [string, number]) => groups().move(id, position),
+    'groups.delete': async ([id, options]: [string, { terminateTerminals: boolean }]) => {
+      await groups().delete(id, options);
+      return null;
+    },
+
+    'git.project': ([projectId]: [string]) => engine.projectGit(projectId),
+
+    'sessions.list': ([filter]: [unknown]) => engine.sessions.list(filter),
+    'sessions.get': ([id]: [string]) => engine.sessions.getDetails(id),
+    'sessions.create': ([input]: [unknown]) => engine.sessions.create(input),
+    'sessions.update': ([id, input]: [string, unknown]) => engine.sessions.update(id, input),
+    'sessions.perform': ([id, action]: [string, string]) => engine.sessions.perform(id, action),
+    'sessions.tasks': ([id]: [string]) => engine.sessions.tasks(id),
+    'sessions.events': ([id]: [string]) => engine.sessions.events(id),
+    'sessions.addTask': ([id, input]: [string, unknown]) => engine.sessions.addTask(id, input),
+    'sessions.updateTask': ([id, taskId, input]: [string, string, unknown]) =>
+      engine.sessions.updateTask(id, taskId, input),
+    'sessions.removeTask': async ([id, taskId]: [string, string]) => {
+      await engine.sessions.removeTask(id, taskId);
+      return null;
+    },
+    'sessions.cancelTask': ([id, taskId]: [string, string]) =>
+      engine.sessions.cancelTask(id, taskId),
+    'sessions.getSettings': () => engine.sessionSettings.get(),
+    'sessions.setSettings': ([input]: [unknown]) => engine.sessionSettings.update(input),
   };
 
   return {

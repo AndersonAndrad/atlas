@@ -15,7 +15,7 @@ import type { Project } from '@/types';
 
 interface RemoveProjectDialogProps {
   project: Project;
-  /** Terminals of this project with a live process; removal terminates them. */
+  /** Terminals of this project with a live process; they keep running, unassociated. */
   runningTerminals: number;
   onClose: () => void;
   onRemoved: (id: string) => void;
@@ -50,15 +50,16 @@ export function RemoveProjectDialog({
           <AlertDialogDescription>
             Remove <strong className="text-foreground">{project.name}</strong> from the ATLAS
             registry? Only the registry entry is removed. The directory, its files and any Git
-            repository are not modified or deleted.
+            repository are not modified or deleted. Its sessions keep the directory as a standalone
+            workspace.
           </AlertDialogDescription>
         </AlertDialogHeader>
         {runningTerminals > 0 && (
           <Alert className="border-warning/40" data-testid="remove-terminals-warning">
             <AlertDescription>
               {runningTerminals === 1
-                ? '1 running terminal of this project will be terminated.'
-                : `${runningTerminals} running terminals of this project will be terminated.`}
+                ? '1 running terminal of this project keeps running as a standalone terminal.'
+                : `${runningTerminals} running terminals of this project keep running as standalone terminals.`}
             </AlertDescription>
           </Alert>
         )}

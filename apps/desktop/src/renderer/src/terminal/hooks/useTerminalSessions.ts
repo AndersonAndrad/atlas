@@ -45,7 +45,9 @@ export function useTerminalSessions(): TerminalSessionsState {
     );
     const stopLifecycle = onTerminalLifecycle((event) => {
       if (event.type === 'session') upsert(event.session);
-      else setSessions((current) => current?.filter((item) => item.id !== event.sessionId) ?? null);
+      if (event.type === 'removed') {
+        setSessions((current) => current?.filter((item) => item.id !== event.sessionId) ?? null);
+      }
     });
     const stopRestart = api().app.onEngineRestarted(() => {
       setEpoch((value) => value + 1);

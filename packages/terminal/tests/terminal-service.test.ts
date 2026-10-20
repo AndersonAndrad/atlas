@@ -18,6 +18,8 @@ import {
 const PROJECT_A = '11111111-1111-4111-8111-111111111111';
 const PROJECT_B = '22222222-2222-4222-8222-222222222222';
 const UNKNOWN_PROJECT = '33333333-3333-4333-8333-333333333333';
+const GROUP_X = '44444444-4444-4444-8444-444444444444';
+const GROUP_Y = '55555555-5555-4555-8555-555555555555';
 
 class MemorySessions implements TerminalSessionRepository {
   rows = new Map<string, TerminalSession>();
@@ -64,6 +66,9 @@ describe('TerminalService', () => {
   let service: TerminalService;
   let events: { event: TerminalEvent; subscriberId: string | undefined }[];
   let idCounter: number;
+  let cwds: Map<number, string>;
+  let existingGroups: Set<string>;
+  let settled: string[];
 
   const build = (overrides: Partial<ConstructorParameters<typeof TerminalService>[0]> = {}) => {
     const created = new TerminalService({
@@ -72,16 +77,33 @@ describe('TerminalService', () => {
       mirrors,
       shells,
       workspaces: {
-        resolveWorkingDirectory: async (projectId) => {
+        resolveProjectDirectory: async (projectId) => {
           if (projectId === UNKNOWN_PROJECT) throw new AtlasError('PROJECT_NOT_FOUND');
           return `/work/${projectId.slice(0, 1)}`;
         },
+        resolveDirectory: async (directory) => {
+          if (directory.startsWith('/missing')) throw new AtlasError('PROJECT_PATH_UNAVAILABLE');
+          return directory.replace(/\/+$/, '') || '/';
+        },
+        assertProjectExists: async (projectId) => {
+          if (projectId === UNKNOWN_PROJECT) throw new AtlasError('PROJECT_NOT_FOUND');
+        },
+        homeDirectory: () => '/home/me',
       },
       settings,
       environment: { shellEnvironment: () => ({ TERM: 'xterm-256color' }) },
+      cwdResolver: { currentDirectory: async (pid) => cwds.get(pid) ?? null },
+      groupExists: async (groupId) => existingGroups.has(groupId),
+      onCommandSettled: (session) => settled.push(session.id),
       clock: { now: () => new Date('2026-10-19T12:00:00.000Z') },
       generateId: () => `00000000-0000-4000-8000-${String(idCounter++).padStart(12, '0')}`,
-      timing: { flushIntervalMs: 5, killTimeoutMs: 50, pauseThreshold: 100, resumeThreshold: 20 },
+      timing: {
+        flushIntervalMs: 5,
+        killTimeoutMs: 50,
+        pauseThreshold: 100,
+        resumeThreshold: 20,
+        cwdCheckDelayMs: 10,
+      },
       ...overrides,
     });
     created.onEvent((event, subscriberId) => events.push({ event, subscriberId }));
@@ -113,6 +135,9 @@ describe('TerminalService', () => {
     settings = new TerminalSettings(new MemoryStore());
     events = [];
     idCounter = 1;
+    cwds = new Map();
+    existingGroups = new Set([GROUP_X, GROUP_Y]);
+    settled = [];
     service = build();
   });
 
@@ -127,8 +152,14 @@ describe('TerminalService', () => {
       expect(session).toMatchObject({
         projectId: PROJECT_A,
         cwd: '/work/1',
+        currentCwd: '/work/1',
+        cwdSource: 'initial',
         status: 'RUNNING',
-        title: 'zsh',
+        title: '1',
+        autoTitle: '1',
+        customTitle: null,
+        groupId: null,
+        groupPosition: 0,
         shell: { id: 'zsh', path: '/bin/zsh' },
         columns: 100,
         rows: 30,
@@ -155,10 +186,9 @@ describe('TerminalService', () => {
       await settings.updatePreferences({ defaultShellId: 'bash' });
       const preferred = await service.create({ projectId: PROJECT_A });
       expect(preferred.shell.id).toBe('bash');
-      expect(preferred.title).toBe('bash 2');
     });
 
-    it('never takes the working directory from the caller', async () => {
+    it('never takes a directory for a project terminal', async () => {
       await expect(
         service.create({ projectId: PROJECT_A, cwd: '/etc' } as never),
       ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
@@ -201,14 +231,139 @@ describe('TerminalService', () => {
         code: 'TERMINAL_LIMIT_REACHED',
       });
     });
+  });
 
-    it('gives unique default titles per project', async () => {
-      const titles = [];
-      for (let index = 0; index < 3; index += 1) {
-        titles.push((await service.create({ projectId: PROJECT_A })).title);
+  describe('standalone terminals and names', () => {
+    it('starts without a project in a given directory, the default one, or home', async () => {
+      const inFolder = await service.create({ cwd: '/srv/tools/' });
+      expect(inFolder).toMatchObject({ projectId: null, cwd: '/srv/tools', title: 'tools' });
+      expect(spawner.last().options.cwd).toBe('/srv/tools');
+
+      expect(await service.create({})).toMatchObject({ cwd: '/home/me', title: '~' });
+
+      await settings.updatePreferences({ defaultWorkingDirectory: '/opt/work' });
+      expect((await service.create({})).cwd).toBe('/opt/work');
+
+      await settings.updatePreferences({ defaultWorkingDirectory: '/missing/dir' });
+      expect((await service.create({})).cwd).toBe('/home/me');
+    });
+
+    it('rejects unavailable directories and directory plus project', async () => {
+      await expect(service.create({ cwd: '/missing/x' })).rejects.toMatchObject({
+        code: 'PROJECT_PATH_UNAVAILABLE',
+      });
+      await expect(service.create({ projectId: PROJECT_A, cwd: '/tmp' })).rejects.toMatchObject({
+        code: 'VALIDATION_FAILED',
+      });
+      expect(spawner.spawned).toHaveLength(0);
+    });
+
+    it('keeps custom names separate from automatic ones and can restore them', async () => {
+      const session = await service.create({ cwd: '/srv/api', title: 'NOVA Backend' });
+      expect(session).toMatchObject({
+        title: 'NOVA Backend',
+        customTitle: 'NOVA Backend',
+        autoTitle: 'api',
+      });
+      const restored = await service.rename(session.id, null);
+      expect(restored).toMatchObject({ title: 'api', customTitle: null });
+      expect(sessions.rows.get(session.id)).toMatchObject({ customTitle: null, autoTitle: 'api' });
+    });
+
+    it('follows the detected working directory without overwriting a custom name', async () => {
+      const named = await service.create({ cwd: '/srv/api', title: 'Docker Services' });
+      const auto = await service.create({ cwd: '/srv/api' });
+      cwds.set(named.pid!, '/srv/web');
+      cwds.set(auto.pid!, '/srv/web');
+
+      for (const session of [named, auto]) service.write(session.id, 'cd ../web\r');
+      await vi.waitFor(() => expect(service.getById(auto.id).currentCwd).toBe('/srv/web'));
+      await vi.waitFor(() => expect(service.getById(named.id).currentCwd).toBe('/srv/web'));
+
+      expect(service.getById(auto.id)).toMatchObject({
+        title: 'web',
+        autoTitle: 'web',
+        cwdSource: 'detected',
+        cwd: '/srv/api',
+      });
+      expect(service.getById(named.id)).toMatchObject({
+        title: 'Docker Services',
+        autoTitle: 'web',
+      });
+    });
+
+    it('reports each settled command, even when the directory did not change', async () => {
+      const session = await service.create({ cwd: '/srv/api' });
+      service.write(session.id, 'echo x >> file\r');
+      await vi.waitFor(() => expect(settled).toEqual([session.id]));
+      cwds.set(session.pid!, '/srv/api');
+      service.write(session.id, 'touch other\r');
+      await vi.waitFor(() => expect(settled).toEqual([session.id, session.id]));
+      service.write(session.id, 'ls');
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      expect(settled).toHaveLength(2);
+    });
+
+    it('keeps the initial directory when the platform cannot report it', async () => {
+      const session = await service.create({ cwd: '/srv/api' });
+      service.write(session.id, 'cd /\r');
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(service.getById(session.id)).toMatchObject({
+        currentCwd: '/srv/api',
+        cwdSource: 'initial',
+      });
+    });
+
+    it('associates terminals with projects and detaches them when a project goes away', async () => {
+      const session = await service.create({ cwd: '/srv/api' });
+      expect((await service.associate(session.id, PROJECT_A)).projectId).toBe(PROJECT_A);
+      await expect(service.associate(session.id, UNKNOWN_PROJECT)).rejects.toMatchObject({
+        code: 'PROJECT_NOT_FOUND',
+      });
+
+      const other = await service.create({ projectId: PROJECT_A });
+      await service.detachProject(PROJECT_A);
+      for (const id of [session.id, other.id]) {
+        expect(service.getById(id)).toMatchObject({ projectId: null, status: 'RUNNING' });
       }
-      titles.push((await service.create({ projectId: PROJECT_B })).title);
-      expect(titles).toEqual(['zsh', 'zsh 2', 'zsh 3', 'zsh']);
+    });
+  });
+
+  describe('groups', () => {
+    it('places new terminals at the end of their group', async () => {
+      const a = await service.create({ cwd: '/a', groupId: GROUP_X });
+      const b = await service.create({ cwd: '/b', groupId: GROUP_X });
+      const c = await service.create({ cwd: '/c' });
+      expect([a, b, c].map((s) => [s.groupId, s.groupPosition])).toEqual([
+        [GROUP_X, 0],
+        [GROUP_X, 1],
+        [null, 0],
+      ]);
+      await expect(
+        service.create({ cwd: '/d', groupId: '66666666-6666-4666-8666-666666666666' }),
+      ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    });
+
+    it('moves terminals between and within groups without restarting them', async () => {
+      const a = await service.create({ cwd: '/a', groupId: GROUP_X });
+      const b = await service.create({ cwd: '/b', groupId: GROUP_X });
+      const c = await service.create({ projectId: PROJECT_B, groupId: GROUP_Y });
+
+      await service.move(c.id, GROUP_X, 0);
+      await service.move(a.id, GROUP_X, 10_000);
+      const order = service
+        .list()
+        .filter((s) => s.groupId === GROUP_X)
+        .sort((x, y) => x.groupPosition - y.groupPosition)
+        .map((s) => s.id);
+      expect(order).toEqual([c.id, b.id, a.id]);
+      // Same processes: nothing was spawned or killed.
+      expect(spawner.spawned).toHaveLength(3);
+      expect(spawner.spawned.every((pty) => pty.kills.length === 0)).toBe(true);
+      expect(service.getById(c.id).pid).toBe(c.pid);
+
+      await service.ungroupAll(GROUP_X);
+      expect(service.list().filter((s) => s.groupId === null)).toHaveLength(3);
     });
   });
 
@@ -417,14 +572,6 @@ describe('TerminalService', () => {
       await expect(service.create({ projectId: PROJECT_A })).rejects.toMatchObject({
         code: 'TERMINAL_START_FAILED',
       });
-    });
-
-    it('removes all sessions of a removed project', async () => {
-      await service.create({ projectId: PROJECT_A });
-      await service.create({ projectId: PROJECT_A });
-      const other = await service.create({ projectId: PROJECT_B });
-      await service.removeProjectSessions(PROJECT_A);
-      expect(service.list().map((session) => session.id)).toEqual([other.id]);
     });
   });
 

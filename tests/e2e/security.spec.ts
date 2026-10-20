@@ -13,6 +13,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       atlasKeys: Object.keys(w.atlas as object).sort(),
       projectKeys: Object.keys((w.atlas as { projects: object }).projects).sort(),
       terminalKeys: Object.keys((w.atlas as { terminals: object }).terminals).sort(),
+      sessionKeys: Object.keys((w.atlas as { sessions: object }).sessions).sort(),
     };
   });
   expect(exposure).toEqual({
@@ -20,11 +21,29 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
     process: 'undefined',
     module: 'undefined',
     buffer: 'undefined',
-    atlasKeys: ['app', 'dialog', 'projects', 'terminals'],
+    atlasKeys: ['app', 'dialog', 'git', 'groups', 'projects', 'sessions', 'terminals'],
+    // Lifecycle changes go through named actions; there is no way to set a status.
+    sessionKeys: [
+      'addTask',
+      'cancelTask',
+      'create',
+      'events',
+      'get',
+      'getSettings',
+      'list',
+      'onChanged',
+      'perform',
+      'removeTask',
+      'setSettings',
+      'update',
+      'updateTask',
+    ],
     projectKeys: ['create', 'get', 'getSelected', 'list', 'remove', 'select', 'update'],
-    // No shell, path or arbitrary-command parameters are exposed.
+    // No shell path or arbitrary-command parameters are exposed; directories must
+    // come from the native picker.
     terminalKeys: [
       'acknowledge',
+      'associate',
       'attach',
       'clear',
       'closeInfo',
@@ -33,8 +52,12 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'dismiss',
       'getLayout',
       'getPreferences',
+      'git',
       'list',
+      'move',
       'onEvent',
+      'projectContext',
+      'registerProject',
       'rename',
       'resize',
       'restart',
@@ -84,7 +107,34 @@ test('renderer cannot register arbitrary paths without the picker', async ({ atl
   expect(result).toMatchObject({ ok: false, error: { code: 'PROJECT_PATH_INVALID' } });
 });
 
-test('renderer cannot open terminals outside registered projects', async ({ atlas }) => {
+test('renderer cannot bind sessions to directories or statuses it was not given', async ({
+  atlas,
+}) => {
+  const dir = atlas.workspace('forbidden-session');
+  const { page } = await atlas.launch();
+  const results = await page.evaluate(async (workspacePath) => {
+    const sessions = (
+      window as unknown as {
+        atlas: {
+          sessions: {
+            create(i: unknown): Promise<{ ok: boolean; data?: { id: string } }>;
+            perform(id: string, action: string): Promise<unknown>;
+          };
+        };
+      }
+    ).atlas.sessions;
+    const folder = await sessions.create({ name: 'x', objective: 'y', workspacePath });
+    const status = await sessions.create({ name: 'x', objective: 'y', status: 'COMPLETED' });
+    const created = await sessions.create({ name: 'x', objective: 'y' });
+    const complete = await sessions.perform(created.data!.id, 'complete');
+    return { folder, status, complete };
+  }, dir);
+  expect(results.folder).toMatchObject({ ok: false, error: { code: 'PROJECT_PATH_INVALID' } });
+  expect(results.status).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+  expect(results.complete).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+});
+
+test('renderer cannot open terminals in directories it was not given', async ({ atlas }) => {
   const { page } = await atlas.launch();
   const results = await page.evaluate(async () => {
     const terminals = (
@@ -107,7 +157,7 @@ test('renderer cannot open terminals outside registered projects', async ({ atla
     }),
     expect.objectContaining({
       ok: false,
-      error: expect.objectContaining({ code: 'VALIDATION_FAILED' }),
+      error: expect.objectContaining({ code: 'PROJECT_PATH_INVALID' }),
     }),
   ]);
 });

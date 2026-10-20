@@ -28,6 +28,7 @@ describe('TerminalSettings', () => {
       fontFamily: 'system',
       scrollback: 5000,
       defaultShellId: null,
+      defaultWorkingDirectory: null,
     });
     await settings.updatePreferences({ fontSize: 16 });
     await settings.updatePreferences({ defaultShellId: 'bash' });
@@ -54,7 +55,19 @@ describe('TerminalSettings', () => {
     expect((await settings.getPreferences()).fontSize).toBe(13);
   });
 
-  it('stores validated layouts per project', async () => {
+  it('resolves a new default working directory through the given resolver', async () => {
+    const settings = new TerminalSettings(store());
+    const saved = await settings.updatePreferences(
+      { defaultWorkingDirectory: '/link/work' },
+      async () => '/real/work',
+    );
+    expect(saved.defaultWorkingDirectory).toBe('/real/work');
+    expect(
+      (await settings.updatePreferences({ defaultWorkingDirectory: null })).defaultWorkingDirectory,
+    ).toBeNull();
+  });
+
+  it('stores validated layouts per workspace (group id or ungrouped)', async () => {
     const backing = store();
     const settings = new TerminalSettings(backing);
     const layout = {
@@ -71,6 +84,12 @@ describe('TerminalSettings', () => {
 
     await settings.deleteLayout(PROJECT);
     expect(await settings.getLayout(PROJECT)).toBeNull();
+
+    await settings.setLayout('ungrouped', layout);
+    expect(await settings.getLayout('ungrouped')).toEqual(layout);
+    await expect(settings.setLayout('everything', layout)).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+    });
   });
 
   it('rejects layouts with more panes than allowed', async () => {

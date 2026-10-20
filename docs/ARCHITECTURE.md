@@ -1,6 +1,7 @@
 # ATLAS Architecture
 
-Status: reflects SDD-001 (Project Registry) and SDD-002 (Terminal Manager).
+Status: reflects SDD-001 (Project Registry), SDD-002 (Terminal Manager) and SDD-003
+Milestone A (Workspace & Git).
 
 ## Overview
 
@@ -67,7 +68,7 @@ Dependency direction is inward: `projects` and `terminal` define ports; `persist
 - `EngineDispatcher` maps method names (`packages/contracts/src/engine-api.ts`) to
   services. Every request is validated with Zod tuples, regardless of transport.
   Callers have a scope: `desktop` (everything) or `cli` (allow-list: `engine.status`,
-  `terminals.list|get|create|terminate|closeInfo`).
+  `terminals.list|get|create|terminate|closeInfo|rename|detachProject`).
 
 ### Engine host process (desktop)
 
@@ -106,8 +107,11 @@ has exited. Closing a tab = `dismiss` (terminate if needed, then forget the sess
 - Each session has a `HeadlessScreenMirror` (`@xterm/headless` + `@xterm/addon-serialize`,
   1,000 lines of scrollback). It parses all output so that a new view can be rebuilt,
   including the alternate screen of full-screen programs.
-- The working directory always comes from `ProjectService.resolveAvailableWorkspace`
-  (registered project, directory currently available, realpath). Clients never send a cwd.
+- Project terminals always start in `ProjectService.resolveAvailableWorkspace` (registered
+  project, directory currently available, realpath). Standalone terminals (SDD-003) start in
+  a directory validated by `ProjectService.resolveAvailableDirectory`: the one requested,
+  the configured default working directory, or the home directory. Desktop clients may only
+  request directories returned by the native picker.
 - Shell environment: the Engine's environment minus `ELECTRON_*`, `CHROME_*`, `VSCODE_*`,
   `NODE_OPTIONS`; plus `TERM=xterm-256color`, `COLORTERM=truecolor`, `TERM_PROGRAM=ATLAS`;
   `LANG=en_US.UTF-8` on macOS when no locale is set.
@@ -160,20 +164,24 @@ select a shell **id**.
 
 ### Terminal persistence
 
-- `terminal_sessions` (migration v2): metadata only — no output, no input, no command
-  history. Rows cascade with their project.
+- `terminal_sessions` (migrations v2, v3): metadata only — no output, no input, no command
+  history. `project_id` is optional and cleared (`ON DELETE SET NULL`) when the project is
+  removed; `auto_title`/`custom_title`, `group_id`/`group_position`, `current_cwd`.
+- `terminal_groups` (v3): id, name, position, collapsed.
 - `application_settings`: `terminal.preferences` (font size 8–32, font family preset,
-  scrollback 500–50,000, default shell id) and `terminal.layout.<projectId>` (validated
-  split tree, at most 6 panes).
+  scrollback 500–50,000, default shell id, default working directory) and
+  `terminal.layout.<group id | ungrouped>` (validated split tree, at most 6 panes).
 - After a restart, previous sessions appear as ended tabs ("ended when ATLAS stopped")
   with **Restart** (new process, same title/shell) and **Close**.
 
 ### Desktop presentation
 
-- **Terminals** view: project list (running counts), per-project workspace with a tab bar
-  (one tab per session: status dot, title, rename by double-click/F2, close), toolbar
-  (new terminal + shell menu, split right/down, single pane, settings), and a split tree
-  rendered with shadcn `Resizable` (react-resizable-panels).
+- **Terminals** view (SDD-003): a sidebar with collapsible terminal groups, an Ungrouped
+  section and the registered projects; the selected group (or Ungrouped) is a workspace
+  with a tab bar (one tab per session: status dot, name, rename by double-click/F2,
+  close), toolbar (new terminal in the default directory, a chosen folder, a project or
+  with another shell; split right/down; single pane; settings), and a split tree rendered
+  with shadcn `Resizable` (react-resizable-panels).
 - Layout model (`terminal/state/layout.ts`, pure and unit-tested): a pane references one
   session; a session is shown in at most one pane. Selecting a hidden tab shows it in the
   active pane. Hiding a pane never stops its process. Closing a tab terminates it after
@@ -192,6 +200,155 @@ terminals are running, then stops the Engine host, which terminates every proces
 macOS closing the window keeps the app and its terminals alive; reopening reattaches.
 Terminal processes never outlive the Engine.
 
+## Workspace and Git (SDD-003 Milestone A)
+
+### Terminal names and working directory
+
+- `customTitle` (user-defined, never overwritten) is stored apart from `autoTitle` (the
+  current directory's name, `~` for home). `title` is the effective one; renaming to
+  `null` restores the automatic name.
+- After a command is entered (input containing a newline) and output has been quiet for
+  700 ms, the Engine reads the shell's working directory: `/proc/<pid>/cwd` on Linux,
+  `/usr/sbin/lsof -a -p <pid> -d cwd -Fn` on macOS (about 20 ms, no shell). Windows has
+  no reliable source, so `currentCwd` stays the initial directory with
+  `cwdSource: 'initial'`. A program that changes directory without the shell (or a shell
+  cwd changed by a background job) is only seen after the next command.
+
+### Groups
+
+`TerminalGroups` (`packages/terminal`) creates, renames, collapses, reorders and deletes
+groups (at most 50). Membership and order live on the terminal sessions
+(`TerminalService.move`, which only updates metadata). Deleting a group moves its
+terminals to Ungrouped unless the user explicitly asks to terminate them; its layout is
+deleted. Changes are broadcast as `groups` events.
+
+### Git inspection
+
+`GitInspectionService` (`apps/engine/src/git`) runs the system `git` through `execFile`
+(argument arrays, no shell) with `-c core.fsmonitor=false --no-optional-locks`, inherited
+`GIT_*` variables removed, `GIT_TERMINAL_PROMPT=0`, a 5 s timeout, at most 4 concurrent
+processes and a 1.5 s cache per directory. Commands:
+
+| Data                                                              | Command                                                      |
+| ----------------------------------------------------------------- | ------------------------------------------------------------ |
+| Repository root (any subdirectory works)                          | `rev-parse --show-toplevel`                                  |
+| Branch, detached/unborn HEAD, upstream, ahead/behind, file counts | `status --porcelain=v2 --branch -z --untracked-files=normal` |
+| Local branches, recency (latest commit date)                      | `for-each-ref --sort=-committerdate refs/heads`              |
+| Effective identity (git precedence)                               | `config --get user.name` / `user.email`                      |
+
+Counting policy: each changed path is one entry of `total`; `modified` = unstaged
+tracked changes, `staged` = index changes, `deleted` = staged or unstaged deletions,
+`renamed` = staged renames, plus `untracked` and `conflicted`. A path can be in several
+counters but is counted once in `total`. Ahead/behind come from local remote-tracking refs
+(never fetched); no upstream → `null`, a missing tracking ref → `upstreamGone`. Missing
+git, timeouts and "dubious ownership" become an explicit `unavailable` state.
+
+Refresh: on request (project details, terminal header), when a terminal's directory
+changes, when `RepositoryWatcher` sees HEAD/index/refs change in the git directory
+(debounced 500 ms, best effort), and every 30 s for watched repositories (at most 32).
+Changes are broadcast as `git` events; clients re-request the snapshot. Git never runs
+on output chunks and never blocks terminal I/O (separate processes in the Engine host).
+
+### Project context of a terminal
+
+`Engine.terminalProjectContext` reports the associated project and the deepest registered
+project containing the terminal's current directory. `Engine.registerProjectFromTerminal`
+registers that directory (taken from the Engine's record, not from the client) and
+associates the terminal.
+
+### Application version
+
+The desktop version comes from `app.getVersion()` (desktop `package.json`); the Engine
+version is injected at build time from `apps/engine/package.json`
+(`__ATLAS_ENGINE_VERSION__`; from its own package.json when run outside Electron); the
+build id is `git rev-parse --short HEAD` (`-dirty` with local changes) at build time.
+`app:info` combines them with channel (`development` unless packaged), platform,
+Electron/Chromium/Node versions, data directory, log file and schema version. Shown in
+the sidebar footer, the About dialog (app menu) and Settings.
+
+## ATLAS Sessions (SDD-003 Milestone B)
+
+Sessions are persistent orchestration records. `packages/sessions` holds the domain:
+the state machine, task graph validation, `SessionService` and `SessionSettingsStore`.
+It depends only on contracts and ports (`SessionRepository`, `SessionWorkspaces`), like
+`packages/terminal`. The Engine composes it for every client; no execution happens.
+
+### Lifecycle
+
+| From                       | Allowed triggers (target)                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------------ |
+| DRAFT                      | markReady (READY), cancel (CANCELLED)                                                            |
+| READY                      | returnToDraft (DRAFT), start (WAITING_EXECUTOR; RUNNING with an executor), cancel                |
+| WAITING_EXECUTOR           | pause (PAUSED), cancel, run\* (RUNNING)                                                          |
+| RUNNING\*                  | pause, requestApproval\* (WAITING_APPROVAL), complete\*, fail\*, cancel, interrupt (INTERRUPTED) |
+| WAITING_APPROVAL           | approve\* (RUNNING), fail\*, cancel, interrupt                                                   |
+| PAUSED                     | resume (WAITING_EXECUTOR; RUNNING with an executor), cancel                                      |
+| INTERRUPTED                | resume (explicit only), cancel                                                                   |
+| COMPLETED/FAILED/CANCELLED | final; can be archived                                                                           |
+
+\* executor triggers. No execution adapter exists before SDD-004, so nothing calls them
+and the service always runs with `executorAvailable: false`: a started session is
+`WAITING_EXECUTOR` and `startedAt` stays `null`. `completedAt` is only set for COMPLETED;
+`endedAt` marks any final status. Users act through named actions (`markReady`,
+`returnToDraft`, `start`, `pause`, `resume`, `cancel`, `archive`); there is no API that
+sets a status. `markReady`, `start` and `resume` first check that the workspace exists and
+is readable and writable. Drafts are the only editable sessions.
+
+### Restart reconciliation
+
+Only the Engine host (the process that would own executions) reconciles: at startup and
+at shutdown, RUNNING and WAITING_APPROVAL sessions become INTERRUPTED (event reason
+`engine-restart` / `engine-shutdown`) and their IN_PROGRESS tasks become INTERRUPTED.
+WAITING_EXECUTOR and PAUSED are kept (nothing was in flight). Nothing resumes
+automatically and nothing is marked completed. Short-lived clients (CLI) never reconcile.
+
+### Workspace
+
+A session works in a registered project (its current directory), in a standalone
+directory (validated and stored as its realpath) or has none yet. Removing a project
+first converts its sessions into standalone sessions in the same directory
+(`SESSION_PROJECT_DETACHED`); `ON DELETE SET NULL` is the database backstop. A workspace
+association is not a sandbox; execution isolation belongs to later specifications.
+
+### Tasks, events and approvals
+
+- Tasks (at most 200 per session, 20 dependencies each) are planned by the user while the
+  session is not finished. Dependencies must be tasks of the same session; self-references
+  and cycles (iterative DFS) are rejected (`SESSION_TASK_CYCLE`). `blockedBy` is derived
+  from dependencies that have not completed. Users can add, edit, cancel and remove
+  pending tasks; progression (IN_PROGRESS → COMPLETED/FAILED) is reserved for executors.
+  Cancelling a session cancels its unfinished tasks.
+- Every change appends events in the same transaction. Metadata is structured and
+  allow-listed (statuses, task ids, changed field names, reasons, counts); objectives,
+  constraints and task text are never copied into events or logs.
+- `session_approvals` and `ApprovalRequest` are prepared for SDD-004 adapters; nothing
+  creates approvals yet, and details only list pending ones.
+
+### Execution profiles
+
+ECONOMY / BALANCED / MAXIMUM are planning metadata: `maxParallelTasks` (defaults 1/2/4,
+1–8, ECONOMY ≤ BALANCED ≤ MAXIMUM) and a global `maxConcurrentSessions` (default 3, 1–16)
+are stored in `application_settings` (`sessions.settings`) and validated, but nothing
+enforces them until a scheduler exists. Profiles have no security-related fields.
+
+### Persistence and concurrency
+
+Migration v4 adds `atlas_sessions`, `session_tasks`, `session_task_dependencies`
+(composite foreign keys keep dependencies inside one session; a task others depend on
+cannot be deleted), `session_events` and `session_approvals`. Each change is one
+`BEGIN IMMEDIATE` transaction guarded by the session `revision`
+(`UPDATE … WHERE revision = ?`): a writer that read an older revision changes nothing and
+gets `SESSION_CONFLICT`; Engine-initiated changes re-read and retry.
+
+### Clients
+
+- Desktop: IPC channels `atlas:sessions:*`; workspace directories must come from the
+  native picker. Session changes are pushed as `session-changed` events on
+  `atlas:sessions:changed`; the Sessions view also refreshes on window focus.
+- CLI: `atlas session …` commands call the running Engine host over the socket (so the
+  app updates live) and otherwise run the same dispatcher on the database. The CLI
+  allow-list includes list, get, create, perform, tasks and events.
+
 ## CLI transport
 
 - The Engine host listens on `<data dir>/run/engine.sock` (directory 0700, socket 0600).
@@ -203,21 +360,24 @@ Terminal processes never outlive the Engine.
   (2 MiB limit); malformed input drops the connection.
 - A stale socket left by a crash is detected (connect fails) and replaced; a live one
   makes a second Engine refuse to start.
-- `atlas project remove` asks the running Engine whether the project has live terminals
-  and refuses if so; without a running Engine no terminals can exist.
+- After `atlas project remove`, the CLI tells a running Engine (`terminals.detachProject`)
+  so its live terminals drop the association; the database clears it for stored ones.
 
 ## Projects (SDD-001)
 
 Domain rules, path normalization (`path_key`), Git detection and availability handling
 are unchanged; see SDD-001. `ProjectService.resolveAvailableWorkspace(id)` was added for
-terminal authorization. Removing a project through the Engine (`Engine.removeProject`)
-also dismisses its terminals and deletes its terminal layout.
+terminal authorization, plus `resolveAvailableDirectory` and `findContaining` (deepest
+registered project containing a directory) for SDD-003. Removing a project keeps its
+terminals running as standalone terminals (SDD-003 §2).
 
 ## Persistence
 
 - SQLite through `node:sqlite` (`DatabaseSync`), WAL, 5 s busy timeout, `STRICT` tables,
   append-only migrations in `schema_migrations` (`BEGIN IMMEDIATE`), newer schemas refused.
-- Schema v1: `projects`, `application_settings`. Schema v2: `terminal_sessions`.
+- Schema v1: `projects`, `application_settings`. Schema v2: `terminal_sessions`. Schema v3:
+  standalone terminals, names, groups (table rebuild; SDD-002 per-project layouts dropped).
+  Schema v4: ATLAS Sessions (additive).
 - Data dir: macOS `~/Library/Application Support/ATLAS`, Windows `%APPDATA%\ATLAS`, Linux
   `$XDG_DATA_HOME/atlas`; `ATLAS_DATA_DIR` overrides.
 
@@ -228,8 +388,9 @@ also dismisses its terminals and deletes its terminal layout.
   `IpcRendererEvent`.
 - Every IPC message (invoke and send) must come from the main window's main frame at the
   app URL and is validated with Zod in main **and** again in the Engine.
-- Renderer-supplied project paths must come from the native picker; terminal working
-  directories are never accepted from the renderer; shells are selected by id.
+- Renderer-supplied paths (projects, standalone terminal directories, the default working
+  directory) must come from the native picker; registering a terminal's directory uses the
+  Engine's own record of it; shells are selected by id.
 - Production CSP: `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline';
 connect-src 'none'; …` — inline styles are required by xterm.js and Radix (ADR-011).
 - New windows denied, navigation blocked, permission requests denied, single-instance
@@ -243,7 +404,7 @@ connect-src 'none'; …` — inline styles are required by xterm.js and Radix (A
 
 `AtlasError` codes now also include `TERMINAL_NOT_FOUND`, `TERMINAL_NOT_RUNNING`,
 `TERMINAL_LIMIT_REACHED` (32 live / 64 total sessions), `TERMINAL_SHELL_UNAVAILABLE`,
-`TERMINAL_START_FAILED`, `PROJECT_HAS_ACTIVE_TERMINALS` and `ENGINE_UNAVAILABLE`. Clients
+`TERMINAL_START_FAILED` and `ENGINE_UNAVAILABLE`. Clients
 only receive `{ code, message, issues }`. Logs: `<data dir>/logs/atlas.log` (JSON lines,
 0600, rotated at 5 MB) from the main process (`desktop`), Engine host (`engine`) and CLI.
 
@@ -251,8 +412,8 @@ only receive `{ code, message, issues }`. Logs: `<data dir>/logs/atlas.log` (JSO
 
 React 19 with shadcn/ui components (Radix primitives, Tailwind CSS v4, lucide icons),
 dark theme only. Generated components live in `src/renderer/src/components/ui` and are
-owned by the project. Views: Projects (SDD-001 screens migrated to shadcn) and
-Terminals. Responsive: the sidebar collapses to icons below 1024 px; the Terminals view
+owned by the project. Views: Projects (with Git details), Terminals (groups) and
+Settings (terminal preferences, About and diagnostics). Responsive: the sidebar collapses to icons below 1024 px; the Terminals view
 replaces its project list with a select below 768 px.
 
 ## Build and tooling

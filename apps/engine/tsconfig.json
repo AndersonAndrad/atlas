@@ -10,6 +10,7 @@
     { "path": "../../packages/contracts" },
     { "path": "../../packages/projects" },
     { "path": "../../packages/persistence" },
-    { "path": "../../packages/terminal" }
+    { "path": "../../packages/terminal" },
+    { "path": "../../packages/sessions" }
   ]
 }

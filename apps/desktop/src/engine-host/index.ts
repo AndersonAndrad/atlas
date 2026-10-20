@@ -8,6 +8,9 @@ import type { HostToMainMessage, MainToHostMessage } from '../shared/engine-host
  * database and every terminal process, keeping PTY work off the main thread,
  * and serves the CLI through the authenticated local socket.
  */
+// Injected at build time by electron.vite.config.ts.
+declare const __ATLAS_ENGINE_VERSION__: string;
+
 const parentPort = process.parentPort;
 let host: EngineHost | undefined;
 /** Available once main sent the data directory; used for crash diagnostics. */
@@ -33,7 +36,12 @@ async function start(dataDir: string, appVersion: string): Promise<void> {
     component: 'engine',
   });
   try {
-    host = await startEngineHost({ dataDir, component: 'engine', terminals: { appVersion } });
+    host = await startEngineHost({
+      dataDir,
+      component: 'engine',
+      engineVersion: __ATLAS_ENGINE_VERSION__,
+      terminals: { appVersion },
+    });
     host.onTerminalEvent((event, subscriberId) =>
       send(
         subscriberId === undefined
@@ -41,6 +49,7 @@ async function start(dataDir: string, appVersion: string): Promise<void> {
           : { type: 'event', event, subscriberId },
       ),
     );
+    host.onSessionChanged((event) => send({ type: 'event', event }));
     send({ type: 'ready' });
   } catch (error) {
     crashLogger.error('Engine host failed to start', { error: describeError(error) });

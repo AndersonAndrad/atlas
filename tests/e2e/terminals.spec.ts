@@ -9,19 +9,32 @@ const panes = (page: Page) => page.getByTestId('terminal-pane');
 const tabs = (page: Page) => page.getByTestId('terminal-tab');
 const screenText = (pane: Locator) => pane.locator('.xterm-rows').innerText();
 
-async function openTerminals(page: Page, projectName: string) {
+/** Opens the Terminals view and selects a workspace (default: Ungrouped). */
+async function openTerminals(page: Page, workspace = 'Ungrouped') {
   await page
     .getByRole('navigation', { name: 'Main navigation' })
     .getByRole('button', { name: 'Terminals' })
     .click();
-  await page.getByTestId('terminal-project').filter({ hasText: projectName }).click();
+  await page.getByTestId('workspace-button').filter({ hasText: workspace }).click();
   await expect(page.getByTestId('terminal-workspace')).toBeVisible();
 }
 
-async function newTerminal(page: Page) {
+/** Opens a terminal in a registered project, or in the default directory without one. */
+async function newTerminal(page: Page, projectName?: string) {
   const before = await tabs(page).count();
-  await page.getByRole('button', { name: 'New terminal', exact: true }).first().click();
+  if (projectName === undefined) {
+    await page.getByRole('button', { name: 'New terminal', exact: true }).first().click();
+  } else {
+    await page.getByRole('button', { name: `New terminal in ${projectName}` }).click();
+  }
   await expect(tabs(page)).toHaveCount(before + 1);
+}
+
+async function createGroup(page: Page, name: string) {
+  await page.getByRole('button', { name: 'New group' }).click();
+  await page.getByTestId('name-dialog').getByLabel('Name').fill(name);
+  await page.getByRole('button', { name: 'Create group' }).click();
+  await expect(page.getByTestId('terminal-group').filter({ hasText: name })).toBeVisible();
 }
 
 /** Types a command into a pane and waits for the shell prompt to be ready first. */
@@ -62,12 +75,9 @@ test('opens a real interactive shell in the project directory', async ({ atlas }
   const dir = atlas.workspace('nova');
   atlas.cli('project', 'add', dir);
   const { page } = await atlas.launch();
-  await openTerminals(page, 'nova');
+  await openTerminals(page);
   await expect(page.getByTestId('terminal-empty-state')).toBeVisible();
-  await page
-    .getByTestId('terminal-empty-state')
-    .getByRole('button', { name: 'New terminal' })
-    .click();
+  await newTerminal(page, 'nova');
 
   const pane = panes(page).first();
   await expect(pane.getByTestId('terminal-status')).toHaveAttribute('data-status', 'RUNNING');
@@ -110,8 +120,8 @@ test('opens a real interactive shell in the project directory', async ({ atlas }
 test('manages tabs: create, rename, select and close safely', async ({ atlas }) => {
   atlas.cli('project', 'add', atlas.workspace('nova'));
   const { app, page } = await atlas.launch();
-  await openTerminals(page, 'nova');
-  await newTerminal(page);
+  await openTerminals(page);
+  await newTerminal(page, 'nova');
   await atlas.menu(app, 'terminal.new');
   await expect(tabs(page)).toHaveCount(2);
   await expect(tabs(page).nth(1).getByRole('tab')).toHaveAttribute('aria-selected', 'true');
@@ -148,7 +158,8 @@ test('manages tabs: create, rename, select and close safely', async ({ atlas }) 
   await page.getByRole('button', { name: 'Close Dev server' }).click();
   await dialog.getByRole('button', { name: 'Terminate' }).click();
   await expect(tabs(page)).toHaveCount(1);
-  expect(terminalList(atlas.cli).map((s) => s.title)).toEqual(['bash 2']);
+  // The remaining terminal was opened in the default directory (home): automatic name "~".
+  expect(terminalList(atlas.cli).map((s) => s.title)).toEqual(['~']);
 
   // An idle shell closes without confirmation.
   await atlas.menu(app, 'terminal.close');
@@ -161,8 +172,8 @@ test('splits panes, resizes the PTY and hides panes without killing processes', 
 }) => {
   atlas.cli('project', 'add', atlas.workspace('nova'));
   const { app, page } = await atlas.launch();
-  await openTerminals(page, 'nova');
-  await newTerminal(page);
+  await openTerminals(page);
+  await newTerminal(page, 'nova');
 
   await page.getByRole('button', { name: 'Split right' }).click();
   await expect(panes(page)).toHaveCount(2);
@@ -209,27 +220,25 @@ test('splits panes, resizes the PTY and hides panes without killing processes', 
   expect(terminalList(atlas.cli).filter((s) => s.status === 'RUNNING')).toHaveLength(3);
 });
 
-test('keeps processes running across project switches and renderer reloads', async ({ atlas }) => {
+test('keeps processes running across group switches and renderer reloads', async ({ atlas }) => {
   atlas.cli('project', 'add', atlas.workspace('nova'));
   atlas.cli('project', 'add', atlas.workspace('wii'));
   const { page } = await atlas.launch();
 
-  await openTerminals(page, 'nova');
-  await newTerminal(page);
+  await openTerminals(page);
+  await createGroup(page, 'Desenvolvimento');
+  await newTerminal(page, 'nova');
   const counter = panes(page).first();
   await run(page, counter, 'for i in $(seq 1 400); do echo "tick-$i"; sleep 0.1; done');
   await expect.poll(() => screenText(counter)).toContain('tick-3');
 
-  await openTerminals(page, 'wii');
-  await newTerminal(page);
+  await openTerminals(page, 'Ungrouped');
+  await newTerminal(page, 'wii');
   await run(page, panes(page).first(), 'echo "wii-$((7 * 6))"');
   await expect.poll(() => screenText(panes(page).first())).toContain('wii-42');
-  await expect(
-    page.getByTestId('terminal-project').filter({ hasText: 'nova' }).getByTestId('running-count'),
-  ).toHaveText('1');
 
-  await openTerminals(page, 'nova');
-  // The loop kept running while the project was hidden.
+  await openTerminals(page, 'Desenvolvimento');
+  // The loop kept running while its group was hidden.
   await expect
     .poll(() => screenText(panes(page).first()), { timeout: 10_000 })
     .toMatch(/tick-(1\d|[2-9]\d)/);
@@ -239,7 +248,7 @@ test('keeps processes running across project switches and renderer reloads', asy
   expect(sessionsBefore).toHaveLength(2);
 
   await page.reload();
-  await openTerminals(page, 'nova');
+  await openTerminals(page, 'Desenvolvimento');
   await expect(panes(page)).toHaveCount(1);
   await expect.poll(() => screenText(panes(page).first())).toMatch(/tick-\d+/);
   // Reloading reattached the existing PTYs instead of starting new ones.
@@ -254,7 +263,7 @@ test('supports copy and paste through the clipboard', async ({ atlas }) => {
   const { app, page } = await atlas.launch();
   const original = await app.evaluate(({ clipboard }) => clipboard.readText());
   try {
-    await openTerminals(page, 'nova');
+    await openTerminals(page);
     await newTerminal(page);
     const pane = panes(page).first();
     await run(page, pane, 'clear; echo "copyme$((100 + 23))"');
@@ -283,8 +292,8 @@ test('supports copy and paste through the clipboard', async ({ atlas }) => {
 test('searches and clears terminal output', async ({ atlas }) => {
   atlas.cli('project', 'add', atlas.workspace('nova'));
   const { app, page } = await atlas.launch();
-  await openTerminals(page, 'nova');
-  await newTerminal(page);
+  await openTerminals(page);
+  await newTerminal(page, 'nova');
   const pane = panes(page).first();
   await run(page, pane, 'echo "needle-$((9 * 9))"');
   await expect.poll(() => screenText(pane)).toContain('needle-81');
@@ -309,7 +318,7 @@ test('shows terminals opened and closed from the CLI', async ({ atlas }) => {
     project: { id: string };
   };
   const { page } = await atlas.launch();
-  await openTerminals(page, 'nova');
+  await openTerminals(page);
 
   const opened = JSON.parse(
     atlas.cli('terminal', 'open', '--project', project.project.id, '--title', 'From CLI', '--json'),
@@ -328,8 +337,8 @@ test('persists preferences, tab titles and layout across restarts', async ({ atl
   atlas.cli('project', 'add', atlas.workspace('nova'));
   const first = await atlas.launch();
   let page = first.page;
-  await openTerminals(page, 'nova');
-  await newTerminal(page);
+  await openTerminals(page);
+  await newTerminal(page, 'nova');
   await page.getByRole('button', { name: 'Split right' }).click();
   await expect(panes(page)).toHaveCount(2);
   await tabs(page).nth(0).getByRole('tab').dblclick();
@@ -349,7 +358,7 @@ test('persists preferences, tab titles and layout across restarts', async ({ atl
 
   const second = await atlas.launch();
   page = second.page;
-  await openTerminals(page, 'nova');
+  await openTerminals(page);
   await expect(tabs(page)).toHaveCount(2);
   await expect(tabs(page).nth(0)).toContainText('API');
   await expect(panes(page)).toHaveCount(2);
@@ -370,14 +379,15 @@ test('persists preferences, tab titles and layout across restarts', async ({ atl
     'data-status',
     'RUNNING',
   );
-  await expect(tabs(page).nth(1)).toContainText('API');
+  // The restarted terminal takes the place of the one it replaces.
+  await expect(tabs(page).nth(0)).toContainText('API');
 });
 
 test('asks before quitting while terminals run', async ({ atlas }) => {
   atlas.cli('project', 'add', atlas.workspace('nova'));
   const { app, page } = await atlas.launch();
-  await openTerminals(page, 'nova');
-  await newTerminal(page);
+  await openTerminals(page);
+  await newTerminal(page, 'nova');
   await expect(panes(page).first().getByTestId('terminal-status')).toHaveAttribute(
     'data-status',
     'RUNNING',
@@ -422,8 +432,8 @@ test('closing the window on macOS keeps terminals and reattaches on reopen', asy
   test.skip(process.platform !== 'darwin', 'Closing the last window quits on Windows and Linux.');
   atlas.cli('project', 'add', atlas.workspace('nova'));
   const { app, page } = await atlas.launch();
-  await openTerminals(page, 'nova');
-  await newTerminal(page);
+  await openTerminals(page);
+  await newTerminal(page, 'nova');
   await run(page, panes(page).first(), 'echo "before-$((6 + 6))"');
   await expect.poll(() => screenText(panes(page).first())).toContain('before-12');
 
@@ -442,7 +452,7 @@ test('closing the window on macOS keeps terminals and reattaches on reopen', asy
   const reopened = app.waitForEvent('window');
   await app.evaluate(({ app: electronApp }) => electronApp.emit('activate'));
   const next = await reopened;
-  await openTerminals(next, 'nova');
+  await openTerminals(next);
   await expect.poll(() => screenText(panes(next).first())).toContain('before-12');
   expect(
     await app.evaluate(() => (globalThis as { __atlasErrors?: string[] }).__atlasErrors),

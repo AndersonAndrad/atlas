@@ -14,6 +14,7 @@ const FALLBACK: TerminalPreferences = {
   fontFamily: 'system',
   scrollback: 5000,
   defaultShellId: null,
+  defaultWorkingDirectory: null,
 };
 
 /** Terminal preferences persisted by the Engine. */

@@ -136,10 +136,114 @@ superseded decisions are marked, not deleted.
   `process`). Windows cannot report it, so it always confirms there.
 - **Consequences**: Background jobs (`cmd &`) are not detected and end without a prompt.
 
-## ADR-015 — Layout is presentation state stored by the Engine
+## ADR-015 — Layout is presentation state stored by the Engine (keyed by group since ADR-016)
 
 - **Context**: Tabs/splits belong to the desktop (SDD-002 §4) but must persist.
 - **Decision**: A pure split-tree model in the renderer (max 6 panes, one session per pane)
   saved per project in `application_settings`, validated by the Engine on write and
   repaired against existing sessions on load.
 - **Consequences**: The CLI does not see layouts; closing a pane never affects processes.
+
+## ADR-016 — Terminal workspaces are groups, not projects (SDD-003, PLAN-003 D1)
+
+- **Context**: SDD-003 requires standalone terminals and groups mixing projects.
+- **Decision**: The Terminals view is organized by user-defined groups plus Ungrouped;
+  each group is a workspace with its own tabs and split layout. Projects are listed for
+  quick actions. Supersedes the per-project tabs of SDD-002 FR-005.
+- **Consequences**: One terminal lives in exactly one workspace. SDD-002 per-project
+  layouts are dropped once by migration v3; processes and sessions are unaffected.
+
+## ADR-017 — Working directory from the operating system (PLAN-003 D2)
+
+- **Decision**: Read the shell's cwd (`/proc` on Linux, `lsof` on macOS) after a command
+  settles instead of injecting shell-integration scripts (OSC 7).
+- **Consequences**: No changes to the user's shell startup. Windows keeps the initial
+  directory, labeled as such. Changes made without a submitted command are seen late.
+
+## ADR-018 — Read-only Git through the system executable (PLAN-003 D3)
+
+- **Context**: Identity precedence, porcelain status, ahead/behind and branch recency need
+  Git itself; inspecting untrusted repositories must not execute their configuration.
+- **Decision**: `execFile('git', [...])` with `core.fsmonitor=false`,
+  `--no-optional-locks`, no inherited `GIT_*`, timeouts, concurrency limit and caching;
+  never `fetch`. Project registration keeps the git-free `.git` reader.
+- **Consequences**: Without git installed, Git details show "not installed". Residual
+  risk: configuration-driven behavior unknown today could appear in future git versions.
+
+## ADR-019 — Git refresh strategy (PLAN-003 D4)
+
+- **Decision**: On request, on cwd change, on git-directory changes (watch, debounced) and
+  every 30 s for watched repositories. Clients are notified with `git` events.
+- **Consequences**: Working-tree edits by editors may take up to 30 s to show.
+
+## ADR-020 — Removing a project keeps its terminals (PLAN-003 D5)
+
+- **Decision**: The association is cleared (`ON DELETE SET NULL` and
+  `terminals.detachProject`); processes keep running as standalone terminals. Replaces the
+  SDD-002 behavior (terminate on removal, CLI refusal).
+
+## ADR-021 — Accessible moves without a drag-and-drop library (PLAN-003 D6)
+
+- **Decision**: Native HTML5 drag and drop plus equivalent menu actions (move to group,
+  move up/down). No new dependency.
+
+## ADR-022 — Sessions wait for an executor instead of running (PLAN-004 D1)
+
+- **Context**: SDD-003 §15 forbids pretending that AI agents run before execution
+  adapters exist (SDD-004).
+- **Decision**: An explicit `WAITING_EXECUTOR` status. `start` and `resume` lead there
+  while no adapter is available; RUNNING, WAITING_APPROVAL, COMPLETED and FAILED are
+  reachable only through executor triggers, which have no caller yet. `startedAt` is set
+  only when execution really starts.
+- **Consequences**: The executor paths are defined and unit-tested but not exercised end
+  to end until SDD-004.
+
+## ADR-023 — Reconciliation in the Engine host only (PLAN-004 D2)
+
+- **Decision**: At host startup and shutdown, RUNNING and WAITING_APPROVAL become
+  INTERRUPTED (tasks in progress too); WAITING_EXECUTOR and PAUSED are kept. Interrupted
+  sessions resume only on an explicit user action. CLI processes never reconcile.
+
+## ADR-024 — Session workspace: project, directory or none (PLAN-004 D3)
+
+- **Decision**: Project sessions follow the project's current directory. Removing a
+  project converts its sessions into standalone sessions in that directory (same policy as
+  terminals, ADR-020). Workspace existence and read/write access are checked when a
+  session is marked ready, started or resumed; desktop clients must pick directories in
+  the native dialog.
+- **Consequences**: The check happens before execution, not during it (future executors
+  must check again). A directory association is not a sandbox.
+
+## ADR-025 — CLI session commands prefer the running Engine (PLAN-004 D4)
+
+- **Decision**: `atlas session` calls the Engine host over the socket when it runs (live
+  updates in the app) and otherwise runs the same dispatcher on the database.
+  Optimistic concurrency (`revision`) protects against concurrent writers.
+
+## ADR-026 — User-planned task graph (PLAN-004 D5)
+
+- **Decision**: Users add, edit, cancel and remove pending tasks while the session is not
+  finished; dependencies stay inside a session and cycles are rejected in the Engine (and
+  by composite foreign keys in SQLite). Task progression is reserved for executors.
+
+## ADR-027 — Execution profiles are configuration only (PLAN-004 D6)
+
+- **Decision**: Profiles carry planned limits (`maxParallelTasks`, plus a global
+  `maxConcurrentSessions`), validated and stored, not enforced before a scheduler exists.
+  Profiles contain no security setting, so MAXIMUM cannot weaken any policy.
+
+## ADR-028 — Append-only, allow-listed session events (PLAN-004 D7)
+
+- **Decision**: Events are written in the same transaction as the change, with structured
+  metadata only (statuses, ids, changed field names, reasons, counts). Free text is never
+  copied into events or logs.
+
+## ADR-029 — Approval contracts prepared, not used (PLAN-004 D8)
+
+- **Decision**: `ApprovalRequest`, the `session_approvals` table and a read-only pending
+  list exist; nothing creates or resolves approvals before SDD-004.
+
+## ADR-030 — Archive instead of delete (PLAN-004 D9)
+
+- **Decision**: Finished sessions (COMPLETED, FAILED, CANCELLED) can be archived and are
+  hidden by default; sessions are never deleted, keeping their history.

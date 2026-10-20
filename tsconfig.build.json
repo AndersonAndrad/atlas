@@ -5,6 +5,7 @@
     { "path": "packages/contracts" },
     { "path": "packages/projects" },
     { "path": "packages/terminal" },
+    { "path": "packages/sessions" },
     { "path": "packages/persistence" },
     { "path": "apps/engine" },
     { "path": "apps/cli" }

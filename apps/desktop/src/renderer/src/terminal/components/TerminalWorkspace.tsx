@@ -20,61 +20,75 @@ import {
   focusAdjacentPane,
   focusPane,
   listPanes,
-  removeSession,
   replaceSession,
   setSplitRatio,
   showSession,
   splitActivePane,
   type SplitDirection,
 } from '../state/layout';
-import { CloseTerminalDialog } from './CloseTerminalDialog';
 import { TerminalLayoutView } from './TerminalLayoutView';
 import type { TerminalPaneHandle } from './TerminalPane';
 import { TerminalTabs } from './TerminalTabs';
-import { TerminalToolbar } from './TerminalToolbar';
+import { TerminalToolbar, type NewTerminalOptions } from './TerminalToolbar';
+
+export interface TerminalWorkspaceInfo {
+  /** Group id or `ungrouped`. */
+  key: string;
+  name: string;
+  groupId: string | null;
+}
 
 interface TerminalWorkspaceProps {
-  project: ProjectDetails;
-  /** Sessions of this project, ordered by creation. */
+  workspace: TerminalWorkspaceInfo;
+  /** Terminals of this workspace, in group order. */
   sessions: TerminalSession[];
+  projects: ProjectDetails[];
   preferences: TerminalPreferences;
   shells: ShellCatalog | null;
+  /** A terminal to bring into view (e.g. selected in the sidebar). */
+  focusRequest: { sessionId: string; nonce: number } | null;
   onSessionChanged: (session: TerminalSession) => void;
+  /** Closes a terminal, asking first when a program is running. */
+  onRequestClose: (sessionId: string) => void;
+  onProjectInfo: (sessionId: string) => void;
   onFontSize: (delta: number | 'reset') => void;
   onPreferences: (changes: UpdateTerminalPreferencesInput) => void;
   /** Subscribes to menu commands while the workspace is shown. */
   subscribeCommands: (handler: (command: AppCommand) => void) => () => void;
 }
 
-interface PendingClose {
-  session: TerminalSession;
-  processName?: string;
-}
-
-/** Tabs and split panes of one project. Switching projects never stops processes. */
+/**
+ * Tabs and split panes of one workspace. Terminals of any project (or none) can
+ * share a workspace; switching workspaces never stops processes.
+ */
 export function TerminalWorkspace({
-  project,
+  workspace,
   sessions,
+  projects,
   preferences,
   shells,
+  focusRequest,
   onSessionChanged,
+  onRequestClose,
+  onProjectInfo,
   onFontSize,
   onPreferences,
   subscribeCommands,
 }: TerminalWorkspaceProps) {
-  const projectId = project.project.id;
-  const { layout, update } = useWorkspaceLayout(projectId, sessions);
+  const { layout, update } = useWorkspaceLayout(workspace.key, sessions);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [pendingClose, setPendingClose] = useState<PendingClose | null>(null);
   const handles = useRef(new Map<string, TerminalPaneHandle>());
 
   const sessionMap = useMemo(() => new Map(sessions.map((s) => [s.id, s])), [sessions]);
+  const projectNames = useMemo(
+    () => new Map(projects.map((item) => [item.project.id, item.project.name])),
+    [projects],
+  );
   const panes = useMemo(() => listPanes(layout?.root ?? null), [layout]);
   const visibleSessionIds = useMemo(() => new Set(panes.map((pane) => pane.sessionId)), [panes]);
   const current = layout ? activePane(layout) : undefined;
-  const unavailable = project.availability.status !== 'available';
 
   const registerHandle = useCallback((paneId: string, handle: TerminalPaneHandle | null) => {
     if (handle === null) handles.current.delete(paneId);
@@ -91,15 +105,33 @@ export function TerminalWorkspace({
     }
   }, []);
 
+  // Bring a terminal selected elsewhere (sidebar) into the active pane — once per
+  // request, so later session changes never pull it back.
+  const handledFocus = useRef<number | null>(null);
+  useEffect(() => {
+    if (focusRequest === null || handledFocus.current === focusRequest.nonce) return;
+    if (!sessionMap.has(focusRequest.sessionId)) return;
+    handledFocus.current = focusRequest.nonce;
+    update((value) => showSession(value, focusRequest.sessionId, newLayoutId));
+  }, [focusRequest, sessionMap, update]);
+
   const createTerminal = useCallback(
-    async (options: { shellId?: string; split?: SplitDirection } = {}) => {
+    async (options: NewTerminalOptions & { split?: SplitDirection } = {}) => {
       if (busy) return;
+      let cwd: string | undefined;
+      if (options.chooseFolder) {
+        const choice = await run(() => unwrap(api().dialog.chooseDirectory('terminal')));
+        if (!choice || choice.canceled || !choice.inspection) return;
+        cwd = choice.inspection.inputPath;
+      }
       setBusy(true);
       const session = await run(() =>
         unwrap(
           api().terminals.create({
-            projectId,
+            ...(options.projectId !== undefined ? { projectId: options.projectId } : {}),
+            ...(cwd !== undefined ? { cwd } : {}),
             ...(options.shellId !== undefined ? { shellId: options.shellId } : {}),
+            ...(workspace.groupId !== null ? { groupId: workspace.groupId } : {}),
           }),
         ),
       );
@@ -112,40 +144,7 @@ export function TerminalWorkspace({
           : showSession(value, session.id, newLayoutId),
       );
     },
-    [busy, onSessionChanged, projectId, run, update],
-  );
-
-  const dismiss = useCallback(
-    async (sessionId: string) => {
-      // Show another hidden terminal in the freed pane, if any.
-      const hidden = sessions.filter(
-        (session) => session.id !== sessionId && !visibleSessionIds.has(session.id),
-      );
-      const replacement = hidden.at(-1)?.id;
-      const result = await run(() => unwrap(api().terminals.dismiss(sessionId)));
-      if (result === undefined) return;
-      update((value) => removeSession(value, sessionId, replacement));
-    },
-    [run, sessions, update, visibleSessionIds],
-  );
-
-  /** Closing a tab terminates the process; asks first when a program is running. */
-  const requestClose = useCallback(
-    async (sessionId: string) => {
-      const session = sessionMap.get(sessionId);
-      if (session === undefined) return;
-      const info = await run(() => unwrap(api().terminals.closeInfo(sessionId)));
-      if (info === undefined) return;
-      if (info.requiresConfirmation) {
-        setPendingClose({
-          session,
-          ...(info.processName !== undefined ? { processName: info.processName } : {}),
-        });
-      } else {
-        await dismiss(sessionId);
-      }
-    },
-    [dismiss, run, sessionMap],
+    [busy, onSessionChanged, run, update, workspace.groupId],
   );
 
   const restart = useCallback(
@@ -159,7 +158,7 @@ export function TerminalWorkspace({
   );
 
   const rename = useCallback(
-    async (sessionId: string, title: string) => {
+    async (sessionId: string, title: string | null) => {
       setRenamingId(null);
       const renamed = await run(() => unwrap(api().terminals.rename(sessionId, title)));
       if (renamed) onSessionChanged(renamed);
@@ -182,10 +181,10 @@ export function TerminalWorkspace({
   const handleCommand = (command: AppCommand) => {
     switch (command) {
       case 'terminal.new':
-        if (!unavailable) void createTerminal();
+        void createTerminal();
         break;
       case 'terminal.close':
-        if (current) void requestClose(current.sessionId);
+        if (current) onRequestClose(current.sessionId);
         break;
       case 'terminal.next':
         cycleTab(1);
@@ -195,7 +194,7 @@ export function TerminalWorkspace({
         break;
       case 'terminal.splitRight':
       case 'terminal.splitDown':
-        if (!unavailable && layout && canSplit(layout)) {
+        if (layout && canSplit(layout)) {
           void createTerminal({ split: command === 'terminal.splitRight' ? 'row' : 'column' });
         }
         break;
@@ -233,9 +232,9 @@ export function TerminalWorkspace({
   return (
     <section
       className="flex min-h-0 min-w-0 flex-1 flex-col"
-      aria-label={`Terminals of ${project.project.name}`}
+      aria-label={`Terminals: ${workspace.name}`}
       data-testid="terminal-workspace"
-      data-project-id={projectId}
+      data-workspace={workspace.key}
     >
       <header className="flex h-11 shrink-0 items-center gap-2 border-b px-2">
         <TerminalTabs
@@ -244,18 +243,19 @@ export function TerminalWorkspace({
           visibleSessionIds={visibleSessionIds}
           renamingId={renamingId}
           onSelect={(sessionId) => update((value) => showSession(value, sessionId, newLayoutId))}
-          onClose={(sessionId) => void requestClose(sessionId)}
+          onClose={onRequestClose}
           onStartRename={setRenamingId}
           onRename={(sessionId, title) => void rename(sessionId, title)}
           onCancelRename={() => setRenamingId(null)}
         />
         <TerminalToolbar
           shells={shells}
+          projects={projects}
           preferences={preferences}
           canSplit={layout !== null && layout.root !== null && canSplit(layout)}
           hasSplit={panes.length > 1}
-          disabled={busy || unavailable}
-          onNewTerminal={(shellId) => void createTerminal(shellId !== undefined ? { shellId } : {})}
+          disabled={busy}
+          onNewTerminal={(options) => void createTerminal(options)}
           onSplit={(direction) => void createTerminal({ split: direction })}
           onSinglePane={() => update(collapseToActivePane)}
           onFontSize={onFontSize}
@@ -263,18 +263,15 @@ export function TerminalWorkspace({
         />
       </header>
 
-      {(error || unavailable) && (
+      {error && (
         <Alert
-          variant={error ? 'destructive' : 'default'}
+          variant="destructive"
           className="m-2 w-auto"
           role="alert"
           data-testid="terminal-error"
         >
           <TriangleAlert />
-          <AlertDescription>
-            {error ??
-              'The project directory is unavailable. Update it in Projects to open terminals.'}
-          </AlertDescription>
+          <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
 
@@ -287,18 +284,18 @@ export function TerminalWorkspace({
             <SquareTerminal className="text-muted-foreground size-10" aria-hidden="true" />
             {sessions.length === 0 ? (
               <>
-                <h2 className="text-lg font-semibold">No terminals in {project.project.name}</h2>
+                <h2 className="text-lg font-semibold">No terminals in {workspace.name}</h2>
                 <p className="text-muted-foreground max-w-sm">
-                  Terminals start in the project directory and keep running while you switch
-                  projects.
+                  Open a terminal in your default directory, a folder or a project. Terminals keep
+                  running while you switch groups and projects.
                 </p>
               </>
             ) : (
               <p className="text-muted-foreground max-w-sm">
-                Every terminal of this project is hidden. Select a tab to show it.
+                Every terminal here is hidden. Select a tab to show it.
               </p>
             )}
-            <Button disabled={busy || unavailable} onClick={() => void createTerminal()}>
+            <Button disabled={busy} onClick={() => void createTerminal()}>
               New terminal
             </Button>
           </div>
@@ -306,6 +303,7 @@ export function TerminalWorkspace({
           <TerminalLayoutView
             node={layout.root}
             sessions={sessionMap}
+            projectNames={projectNames}
             preferences={preferences}
             activePaneId={current?.id ?? null}
             paneCount={panes.length}
@@ -314,27 +312,13 @@ export function TerminalWorkspace({
             }
             onHidePane={(paneId) => update((value) => closePane(value, paneId))}
             onRestart={(sessionId) => void restart(sessionId)}
-            onCloseTab={(sessionId) => void requestClose(sessionId)}
+            onCloseTab={onRequestClose}
+            onProjectInfo={onProjectInfo}
             onRatio={(splitId, ratio) => update((value) => setSplitRatio(value, splitId, ratio))}
             registerHandle={registerHandle}
           />
         )}
       </div>
-
-      {pendingClose && (
-        <CloseTerminalDialog
-          session={pendingClose.session}
-          {...(pendingClose.processName !== undefined
-            ? { processName: pendingClose.processName }
-            : {})}
-          onCancel={() => setPendingClose(null)}
-          onConfirm={() => {
-            const { session } = pendingClose;
-            setPendingClose(null);
-            void dismiss(session.id);
-          }}
-        />
-      )}
     </section>
   );
 }

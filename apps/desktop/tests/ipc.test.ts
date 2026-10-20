@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   IPC_CHANNELS,
   IPC_SEND_CHANNELS,
+  type AtlasSession,
+  type AtlasSessionDetails,
   type DirectoryChoice,
   type IpcResult,
   type Project,
@@ -85,6 +87,7 @@ describe('desktop IPC handlers', () => {
       engine: caller,
       logger: noopLogger,
       subscriberId: () => 'desktop-1-0',
+      appInfo: async () => ({ desktopVersion: '0.4.0' }) as never,
       isTrustedSender: () => trusted,
       showOpenDialog: async () =>
         pickedPath === undefined
@@ -249,15 +252,138 @@ describe('desktop IPC handlers', () => {
       ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
     });
 
-    it('terminates the terminals of a removed project', async () => {
+    it('keeps the terminals of a removed project running, unassociated', async () => {
       const project = await registerProject();
       await invoke(IPC_CHANNELS.createTerminal, { projectId: project.id });
       expect(await invoke(IPC_CHANNELS.removeProject, project.id)).toEqual({
         ok: true,
         data: null,
       });
-      expect(await invoke(IPC_CHANNELS.listTerminals)).toEqual({ ok: true, data: [] });
-      expect(spawner.last().kills).toEqual(['SIGHUP']);
+      expect(await invoke(IPC_CHANNELS.listTerminals)).toMatchObject({
+        ok: true,
+        data: [{ projectId: null, status: 'RUNNING' }],
+      });
+      expect(spawner.last().kills).toEqual([]);
+    });
+
+    it('accepts standalone directories only when chosen in the picker', async () => {
+      const notPicked = await invoke(IPC_CHANNELS.createTerminal, { cwd: workspace });
+      expect(notPicked).toMatchObject({ ok: false, error: { code: 'PROJECT_PATH_INVALID' } });
+
+      await invoke(IPC_CHANNELS.chooseDirectory, 'terminal');
+      const picked = await invoke<TerminalSession>(IPC_CHANNELS.createTerminal, { cwd: workspace });
+      expect(picked).toMatchObject({ ok: true, data: { projectId: null, cwd: workspace } });
+
+      // The default directory follows the same rule.
+      pickedPath = path.join(temp.dir, 'data');
+      expect(
+        await invoke(IPC_CHANNELS.setTerminalPreferences, { defaultWorkingDirectory: '/etc' }),
+      ).toMatchObject({ ok: false, error: { code: 'PROJECT_PATH_INVALID' } });
+      expect(await invoke(IPC_CHANNELS.createTerminal, {})).toMatchObject({ ok: true });
+    });
+
+    it('manages groups and moves terminals without restarting them', async () => {
+      const group = (await invoke<{ id: string }>(IPC_CHANNELS.createGroup, 'Dev')) as {
+        ok: true;
+        data: { id: string };
+      };
+      const project = await registerProject();
+      const created = (await invoke<TerminalSession>(IPC_CHANNELS.createTerminal, {
+        projectId: project.id,
+      })) as { ok: true; data: TerminalSession };
+      const moved = await invoke<TerminalSession>(
+        IPC_CHANNELS.moveTerminal,
+        created.data.id,
+        group.data.id,
+        0,
+      );
+      expect(moved).toMatchObject({
+        ok: true,
+        data: { groupId: group.data.id, pid: created.data.pid },
+      });
+      expect(spawner.spawned).toHaveLength(1);
+
+      expect(await invoke(IPC_CHANNELS.renameTerminal, created.data.id, null)).toMatchObject({
+        ok: true,
+        data: { customTitle: null },
+      });
+      expect(
+        await invoke(IPC_CHANNELS.deleteGroup, group.data.id, { terminateTerminals: false }),
+      ).toEqual({ ok: true, data: null });
+      expect(await invoke(IPC_CHANNELS.listGroups)).toEqual({ ok: true, data: [] });
+      expect(await invoke(IPC_CHANNELS.createGroup, '')).toMatchObject({
+        ok: false,
+        error: { code: 'VALIDATION_FAILED' },
+      });
+    });
+
+    it('exposes application information from the main process', async () => {
+      expect(await invoke(IPC_CHANNELS.appInfo)).toEqual({
+        ok: true,
+        data: { desktopVersion: '0.4.0' },
+      });
+    });
+  });
+
+  describe('sessions', () => {
+    it('accepts session workspaces only when chosen in the picker', async () => {
+      const sneaky = await invoke(IPC_CHANNELS.createSession, {
+        name: 'S',
+        objective: 'x',
+        workspacePath: workspace,
+      });
+      expect(sneaky).toMatchObject({ ok: false, error: { code: 'PROJECT_PATH_INVALID' } });
+
+      await invoke(IPC_CHANNELS.chooseDirectory, 'session');
+      const created = await invoke<AtlasSession>(IPC_CHANNELS.createSession, {
+        name: 'S',
+        objective: 'x',
+        workspacePath: workspace,
+      });
+      expect(created).toMatchObject({ ok: true, data: { workspacePath: workspace } });
+      const id = (created as { data: AtlasSession }).data.id;
+
+      const edited = await invoke(IPC_CHANNELS.updateSession, id, {
+        workspacePath: path.join(temp.dir, 'other'),
+      });
+      expect(edited).toMatchObject({ ok: false, error: { code: 'PROJECT_PATH_INVALID' } });
+    });
+
+    it('runs lifecycle actions and validates them', async () => {
+      const project = await registerProject();
+      const created = (await invoke<AtlasSession>(IPC_CHANNELS.createSession, {
+        name: 'S',
+        objective: 'x',
+        projectId: project.id,
+      })) as { data: AtlasSession };
+      const id = created.data.id;
+      expect(await invoke(IPC_CHANNELS.performSessionAction, id, 'complete')).toMatchObject({
+        ok: false,
+        error: { code: 'VALIDATION_FAILED' },
+      });
+      expect(await invoke(IPC_CHANNELS.performSessionAction, id, 'start')).toMatchObject({
+        ok: false,
+        error: { code: 'SESSION_TRANSITION_INVALID' },
+      });
+      await invoke(IPC_CHANNELS.performSessionAction, id, 'markReady');
+      expect(await invoke(IPC_CHANNELS.performSessionAction, id, 'start')).toMatchObject({
+        ok: true,
+        data: { status: 'WAITING_EXECUTOR' },
+      });
+      const task = await invoke(IPC_CHANNELS.addSessionTask, id, { title: 'Plan' });
+      expect(task).toMatchObject({ ok: true, data: { status: 'PENDING' } });
+      const details = (await invoke<AtlasSessionDetails>(IPC_CHANNELS.getSession, id)) as {
+        data: AtlasSessionDetails;
+      };
+      expect(details.data).toMatchObject({
+        executing: false,
+        workspace: { kind: 'project', projectId: project.id },
+        availableActions: ['pause', 'cancel'],
+      });
+      expect(await invoke(IPC_CHANNELS.getSession, 'x', 'extra')).toMatchObject({
+        ok: false,
+        error: { code: 'VALIDATION_FAILED' },
+      });
     });
   });
 });

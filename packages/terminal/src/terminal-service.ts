@@ -18,6 +18,7 @@ import type {
   EnvironmentProvider,
   PtyExit,
   PtyProcess,
+  ProcessCwdResolver,
   PtySpawner,
   ScreenMirror,
   ScreenMirrorFactory,
@@ -48,6 +49,8 @@ export interface TerminalTiming {
   resumeThreshold: number;
   /** Time a process gets to exit after SIGHUP before it is killed. */
   killTimeoutMs: number;
+  /** After a command is entered, the cwd is read once output has been quiet this long. */
+  cwdCheckDelayMs: number;
 }
 
 export const DEFAULT_TERMINAL_TIMING: TerminalTiming = {
@@ -56,6 +59,7 @@ export const DEFAULT_TERMINAL_TIMING: TerminalTiming = {
   pauseThreshold: 1024 * 1024,
   resumeThreshold: 256 * 1024,
   killTimeoutMs: 3000,
+  cwdCheckDelayMs: 700,
 };
 
 /**
@@ -72,6 +76,14 @@ export interface TerminalServiceDependencies {
   workspaces: WorkspaceResolver;
   settings: TerminalSettings;
   environment: EnvironmentProvider;
+  cwdResolver: ProcessCwdResolver;
+  /**
+   * Called after a submitted command settled (output quiet), with the shell's
+   * current directory. Used to refresh Git state that commands may have changed.
+   */
+  onCommandSettled?: (session: TerminalSession) => void;
+  /** Whether a terminal group exists (groups are managed by TerminalGroups). */
+  groupExists: (groupId: string) => Promise<boolean>;
   clock: { now(): Date };
   generateId: () => string;
   logger?: Logger;
@@ -94,6 +106,9 @@ interface RuntimeSession {
   subscribers: Map<string, Subscriber>;
   paused: boolean;
   terminationReason: TerminalEndReason | undefined;
+  /** A command was entered; the cwd is read once output settles. */
+  cwdCheckPending: boolean;
+  cwdTimer: ReturnType<typeof setTimeout> | undefined;
   exited: Promise<void>;
   markExited: () => void;
 }
@@ -163,15 +178,24 @@ export class TerminalService {
       });
     }
 
-    // The working directory always comes from the registry, never from the caller.
-    const cwd = await this.deps.workspaces.resolveWorkingDirectory(parsed.projectId);
+    const cwd = await this.resolveStartDirectory(parsed.projectId, parsed.cwd);
+    if (parsed.groupId !== undefined) await this.assertGroup(parsed.groupId);
     const shell = await this.chooseShell(parsed.shellId);
+    const groupId = parsed.groupId ?? null;
+    const autoTitle = this.autoTitle(cwd);
+    const customTitle = parsed.title ?? null;
     const session: TerminalSession = {
       id: this.deps.generateId(),
-      projectId: parsed.projectId,
-      title: parsed.title ?? this.defaultTitle(parsed.projectId, shell.name),
+      projectId: parsed.projectId ?? null,
+      title: customTitle ?? autoTitle,
+      customTitle,
+      autoTitle,
+      groupId,
+      groupPosition: this.nextPosition(groupId),
       shell: { id: shell.id, name: shell.name, path: shell.path },
       cwd,
+      currentCwd: cwd,
+      cwdSource: 'initial',
       status: 'CREATED',
       columns: parsed.columns ?? TERMINAL_LIMITS.defaultColumns,
       rows: parsed.rows ?? TERMINAL_LIMITS.defaultRows,
@@ -196,6 +220,11 @@ export class TerminalService {
     }
     // Raw PTY input: never interpolated into a command line.
     runtime.pty.write(data);
+    // A submitted command may change the directory; check once output settles.
+    if (data.includes('\r') || data.includes('\n')) {
+      runtime.cwdCheckPending = true;
+      this.scheduleCwdCheck(runtime);
+    }
   }
 
   resize(id: string, columns: number, rows: number): void {
@@ -203,12 +232,58 @@ export class TerminalService {
     this.applyResize(runtime, columns, rows);
   }
 
-  async rename(id: string, title: string): Promise<TerminalSession> {
+  /** Sets a custom name; `null` restores the automatic name. */
+  async rename(id: string, title: string | null): Promise<TerminalSession> {
     const runtime = this.getRuntime(id);
-    runtime.session.title = title;
-    await this.persist(runtime);
-    this.emit({ type: 'session', session: copySession(runtime.session) });
+    runtime.session.customTitle = title;
+    runtime.session.title = title ?? runtime.session.autoTitle;
+    return this.update(runtime);
+  }
+
+  /** Associates the terminal with a registered project, or makes it standalone. */
+  async associate(id: string, projectId: string | null): Promise<TerminalSession> {
+    const runtime = this.getRuntime(id);
+    if (projectId !== null) await this.deps.workspaces.assertProjectExists(projectId);
+    runtime.session.projectId = projectId;
+    return this.update(runtime);
+  }
+
+  /** Clears the association of every terminal of a removed project. Processes keep running. */
+  async detachProject(projectId: string): Promise<void> {
+    for (const runtime of this.runtimes.values()) {
+      if (runtime.session.projectId !== projectId) continue;
+      runtime.session.projectId = null;
+      await this.update(runtime);
+    }
+  }
+
+  /**
+   * Moves a terminal into a group (or out of all groups with `null`) at the given
+   * position. Only metadata changes: the process is never restarted.
+   */
+  async move(id: string, groupId: string | null, position: number): Promise<TerminalSession> {
+    const runtime = this.getRuntime(id);
+    if (groupId !== null) await this.assertGroup(groupId);
+    const previousGroup = runtime.session.groupId;
+    runtime.session.groupId = groupId;
+    const members = this.groupMembers(groupId).filter((member) => member !== runtime);
+    members.splice(Math.min(position, members.length), 0, runtime);
+    await this.renumber(members, new Set([runtime]));
+    if (previousGroup !== groupId) await this.renumber(this.groupMembers(previousGroup));
     return copySession(runtime.session);
+  }
+
+  /** Moves every terminal of a group out of it (used when the group is deleted). */
+  async ungroupAll(groupId: string): Promise<void> {
+    const members = this.groupMembers(groupId);
+    const ungrouped = this.groupMembers(null);
+    for (const runtime of members) runtime.session.groupId = null;
+    await this.renumber([...ungrouped, ...members], new Set(members));
+  }
+
+  /** Publishes an event to listeners (used by collaborating Engine services). */
+  publish(event: TerminalEvent): void {
+    this.emit(event);
   }
 
   /**
@@ -254,15 +329,26 @@ export class TerminalService {
     }
     const catalog = await this.deps.shells.catalog(null);
     const shellAvailable = catalog.shells.some((shell) => shell.id === previous.shell.id);
+    const groupAvailable =
+      previous.groupId !== null && (await this.deps.groupExists(previous.groupId));
     const next = await this.create({
-      projectId: previous.projectId,
-      title: previous.title,
+      ...(previous.projectId !== null ? { projectId: previous.projectId } : { cwd: previous.cwd }),
+      ...(previous.customTitle !== null ? { title: previous.customTitle } : {}),
+      ...(groupAvailable && previous.groupId !== null ? { groupId: previous.groupId } : {}),
       columns: previous.columns,
       rows: previous.rows,
       ...(shellAvailable ? { shellId: previous.shell.id } : {}),
     });
     await this.dismiss(id);
-    return next;
+    // Take the place of the session it replaces.
+    const runtime = this.getRuntime(next.id);
+    if (runtime.session.groupId === previous.groupId) {
+      const members = this.groupMembers(runtime.session.groupId).filter((m) => m !== runtime);
+      const index = members.filter((m) => m.session.groupPosition < previous.groupPosition).length;
+      members.splice(index, 0, runtime);
+      await this.renumber(members);
+    }
+    return copySession(runtime.session);
   }
 
   /** Available shells, with the user's preferred default marked. */
@@ -361,12 +447,6 @@ export class TerminalService {
     this.updateFlowControl(this.runtimes.get(id)!);
   }
 
-  /** Dismisses every session of a project (used when the project is removed). */
-  async removeProjectSessions(projectId: string): Promise<void> {
-    const ids = this.list(projectId).map((session) => session.id);
-    await Promise.all(ids.map((id) => this.dismiss(id)));
-  }
-
   /** Terminates every live process. Called when the Engine stops. */
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
@@ -430,6 +510,7 @@ export class TerminalService {
   }
 
   private handleOutput(runtime: RuntimeSession, data: string): void {
+    if (runtime.cwdCheckPending) this.scheduleCwdCheck(runtime);
     runtime.pending += data;
     if (runtime.pending.length >= this.timing.flushThreshold) {
       this.flush(runtime);
@@ -547,12 +628,121 @@ export class TerminalService {
     return shell;
   }
 
-  private defaultTitle(projectId: string, shellName: string): string {
-    const taken = new Set(this.list(projectId).map((session) => session.title));
-    if (!taken.has(shellName)) return shellName;
-    let index = 2;
-    while (taken.has(`${shellName} ${index}`)) index += 1;
-    return `${shellName} ${index}`;
+  /** Reads the shell's working directory after output settled; never blocks I/O. */
+  private scheduleCwdCheck(runtime: RuntimeSession): void {
+    if (runtime.cwdTimer !== undefined) clearTimeout(runtime.cwdTimer);
+    runtime.cwdTimer = setTimeout(() => {
+      runtime.cwdTimer = undefined;
+      runtime.cwdCheckPending = false;
+      void this.refreshCwd(runtime);
+    }, this.timing.cwdCheckDelayMs);
+  }
+
+  private async refreshCwd(runtime: RuntimeSession): Promise<void> {
+    const pid = runtime.session.pid;
+    if (runtime.session.status !== 'RUNNING' || pid === undefined) return;
+    let directory: string | null;
+    try {
+      directory = await this.deps.cwdResolver.currentDirectory(pid);
+    } catch (error) {
+      this.logger.debug('Could not read terminal working directory', {
+        sessionId: runtime.session.id,
+        error: describeError(error),
+      });
+      return;
+    }
+    if (runtime.session.status !== 'RUNNING') return;
+    if (directory === null) {
+      this.deps.onCommandSettled?.(copySession(runtime.session));
+      return;
+    }
+    const { session } = runtime;
+    if (directory === session.currentCwd && session.cwdSource === 'detected') {
+      this.deps.onCommandSettled?.(copySession(session));
+      return;
+    }
+    session.currentCwd = directory;
+    session.cwdSource = 'detected';
+    session.autoTitle = this.autoTitle(directory);
+    session.title = session.customTitle ?? session.autoTitle;
+    await this.update(runtime);
+    this.deps.onCommandSettled?.(copySession(session));
+  }
+
+  /** Automatic name: the current directory's name (`~` for the home directory). */
+  private autoTitle(directory: string): string {
+    if (directory === this.deps.workspaces.homeDirectory()) return '~';
+    const name =
+      directory
+        .split(/[\\/]/)
+        .filter((part) => part !== '')
+        .pop() ?? directory;
+    return name.slice(0, 60) || '/';
+  }
+
+  private async resolveStartDirectory(
+    projectId: string | undefined,
+    cwd: string | undefined,
+  ): Promise<string> {
+    // Project terminals always start in the registered directory.
+    if (projectId !== undefined) return this.deps.workspaces.resolveProjectDirectory(projectId);
+    if (cwd !== undefined) return this.deps.workspaces.resolveDirectory(cwd);
+    const { defaultWorkingDirectory } = await this.deps.settings.getPreferences();
+    if (defaultWorkingDirectory !== null) {
+      try {
+        return await this.deps.workspaces.resolveDirectory(defaultWorkingDirectory);
+      } catch (error) {
+        this.logger.warn('Default working directory unavailable; using the home directory', {
+          error: describeError(error),
+        });
+      }
+    }
+    return this.deps.workspaces.resolveDirectory(this.deps.workspaces.homeDirectory());
+  }
+
+  private async assertGroup(groupId: string): Promise<void> {
+    if (!(await this.deps.groupExists(groupId))) {
+      throw new AtlasError('VALIDATION_FAILED', 'The terminal group does not exist.', {
+        details: { groupId },
+        issues: [{ field: 'groupId', message: 'The terminal group does not exist.' }],
+      });
+    }
+  }
+
+  private groupMembers(groupId: string | null): RuntimeSession[] {
+    return [...this.runtimes.values()]
+      .filter((runtime) => runtime.session.groupId === groupId)
+      .sort(
+        (a, b) =>
+          a.session.groupPosition - b.session.groupPosition ||
+          a.session.createdAt.localeCompare(b.session.createdAt),
+      );
+  }
+
+  private nextPosition(groupId: string | null): number {
+    const members = this.groupMembers(groupId);
+    return members.length === 0 ? 0 : members.at(-1)!.session.groupPosition + 1;
+  }
+
+  /**
+   * Stores consecutive positions for the given ordered members, persisting the
+   * ones whose position changed and those listed in `changed`.
+   */
+  private async renumber(
+    members: RuntimeSession[],
+    changed: ReadonlySet<RuntimeSession> = new Set(),
+  ): Promise<void> {
+    for (const [index, runtime] of members.entries()) {
+      if (runtime.session.groupPosition === index && !changed.has(runtime)) continue;
+      runtime.session.groupPosition = index;
+      await this.update(runtime);
+    }
+  }
+
+  private async update(runtime: RuntimeSession): Promise<TerminalSession> {
+    await this.persist(runtime);
+    this.emit({ type: 'session', session: copySession(runtime.session) });
+    return copySession(runtime.session);
   }
 
   private getRuntime(id: string): RuntimeSession {
@@ -580,6 +770,8 @@ export class TerminalService {
       subscribers: new Map(),
       paused: false,
       terminationReason: undefined,
+      cwdCheckPending: false,
+      cwdTimer: undefined,
       exited,
       markExited,
     };
@@ -590,6 +782,7 @@ export class TerminalService {
   private disposeRuntime(runtime: RuntimeSession): void {
     if (runtime.flushTimer !== undefined) clearTimeout(runtime.flushTimer);
     if (runtime.killTimer !== undefined) clearTimeout(runtime.killTimer);
+    if (runtime.cwdTimer !== undefined) clearTimeout(runtime.cwdTimer);
     runtime.subscribers.clear();
     runtime.mirror?.dispose();
     runtime.mirror = undefined;

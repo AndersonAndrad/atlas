@@ -1,11 +1,124 @@
 # ATLAS Status
 
-Last updated: 2026-10-19 — SDD-002 implementation (PLAN-002 revision 2).
+Last updated: 2026-10-20 — SDD-003 Milestone B (PLAN-004 revision 1).
 
-**Overall status:** SDD-001 approved. SDD-002 implemented and validated on macOS (arm64);
-awaiting the developer's explicit approval before SDD-003 (SDD-002 §15).
+**Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B
+(ATLAS Sessions) implemented and validated on macOS (arm64); awaiting the developer's
+approval. Version 0.4.1 (PLAN-005: sidebar logo, full window title, ahead/behind per project in the Terminals sidebar).
 
-## SDD-002 — Terminal Manager
+## SDD-003 Milestone B — ATLAS Sessions
+
+| Requirement | Summary                                                                                                                      |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| FR-315      | `AtlasSession` with an explicit transition table; invalid transitions rejected (`SESSION_TRANSITION_INVALID`)                |
+| FR-316      | Creation from a project, a picked folder (`--cwd`) or the Sessions view; no provider required                                |
+| FR-317      | Create, list, details, edit draft, ready, back to draft, start (→ WAITING_EXECUTOR), pause, resume, cancel, archive          |
+| FR-318      | Independent sessions per project and across projects; planned concurrency limit; no worker processes                         |
+| FR-319      | Tasks with dependencies, derived blocking, cycle and cross-session rejection                                                 |
+| FR-320      | Persistent, append-only events with allow-listed metadata                                                                    |
+| FR-321      | ECONOMY / BALANCED / MAXIMUM planning limits, configurable in Settings, no security fields                                   |
+| FR-322/323  | Sessions view: list, creation dialog, details (overview, tasks, events, approvals, agents placeholder), "no executor" banner |
+| §21         | Migration v4; Engine host reconciles in-flight sessions into INTERRUPTED on start and stop                                   |
+| §22         | `atlas session create\|list\|show\|tasks\|cancel\|ready\|start\|pause\|resume\|archive` (live through the running Engine)    |
+
+### Acceptance criteria (§25)
+
+| Criterion                                                  | Evidence                                                                          |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Sessions can be created                                    | service, IPC, CLI and E2E tests                                                   |
+| Project or standalone workspace                            | service tests; E2E "from a project" and "standalone folder"                       |
+| Several sessions per project / independent across projects | service test "independent sessions"                                               |
+| Transitions validated                                      | exhaustive state-machine test; invalid actions over IPC and CLI                   |
+| Events persist                                             | SQLite and Engine restart tests; E2E event timeline                               |
+| Task dependencies / cycles rejected                        | task-graph, service, SQLite (composite keys) and E2E tests                        |
+| Profiles configurable                                      | settings store tests; Settings section                                            |
+| Details visible in Electron                                | E2E                                                                               |
+| CLI commands work                                          | CLI tests with and without a running Engine; E2E live update                      |
+| Restart keeps records / interrupted represented accurately | Engine host restart and shutdown tests; E2E restart                               |
+| No fake AI execution                                       | WAITING_EXECUTOR, `startedAt` null, "Not executing" label and banner (unit + E2E) |
+| Existing features functional                               | full unit and E2E suites                                                          |
+| Tests, type checks and builds pass                         | see below                                                                         |
+
+### Validation results (2026-10-20, macOS arm64, Node 24.18.0)
+
+| Check                                                        | Result                                                   |
+| ------------------------------------------------------------ | -------------------------------------------------------- |
+| `pnpm install --frozen-lockfile`, `pnpm clean`, `pnpm build` | ok (renderer 1,028 kB, was 985 kB)                       |
+| `pnpm typecheck`, `pnpm lint`, `pnpm format:check`           | ok                                                       |
+| `pnpm audit`                                                 | no known vulnerabilities                                 |
+| `pnpm test`                                                  | 297/297 (24 files)                                       |
+| `pnpm test:e2e`                                              | 33/33, two consecutive runs                              |
+| Performance (10 terminals, sustained output)                 | 3.6 s, IPC p95 3 ms, max frame gap 33 ms (no regression) |
+
+### Staff review
+
+No Critical or High findings. Fixed during review: a "New session" / "Open terminal"
+request from the Projects view was replayed when its view mounted again (Medium; E2E
+regression test added); task counting used one SQL parameter per session (Low). Earlier
+self-review: project lookups for the session list no longer inspect the filesystem.
+
+### Known limitations
+
+See `docs/sdd/SDD-003-workspace-and-sessions.md` → Part I-B "Known limitations".
+
+## SDD-003 Milestone A — Workspace & Git (approved)
+
+| Requirement | Summary                                                                                                                                                         |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-301      | Standalone terminals (default directory, picked folder, `--cwd`), optional project association                                                                  |
+| FR-302      | Custom names stored apart from automatic names (current directory); restore automatic                                                                           |
+| FR-303/304  | Terminal groups: create, rename, delete (ungroup or terminate), move, reorder, collapse; persisted with per-group layouts                                       |
+| FR-305      | Desktop/Engine versions, channel, build id, platform in sidebar, About and Settings                                                                             |
+| FR-306–310  | Project Git details: root, branch, identity, branch count, recent branches by latest commit, change counts, ahead/behind vs upstream (last fetch), refresh time |
+| FR-311/312  | Terminal header Git chips following the detected cwd; refresh on open, cwd change, commands, git-dir watcher, 30 s periodic, manual                             |
+| FR-313/314  | Project details sheet from terminals (associated, matching or register directory); plain folders and edge cases handled                                         |
+
+### Validation results (2026-10-20, macOS 26 arm64, Node 24.18.0, Electron 44.5.1)
+
+| Check                                                        | Result                                                        |
+| ------------------------------------------------------------ | ------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile`, `pnpm clean && pnpm build` | Pass                                                          |
+| `pnpm typecheck`, `pnpm lint`, `pnpm format:check`           | Pass                                                          |
+| `pnpm test`                                                  | Pass — 20 files, 251 tests (real Git repositories, real PTYs) |
+| `pnpm test:e2e`                                              | Pass — 28 tests, two consecutive full runs                    |
+| `pnpm audit`                                                 | No known vulnerabilities                                      |
+| Performance (10 terminals × 500,000 lines)                   | 3.7–4.6 s; IPC p95 2–3 ms; longest frame gap 23–32 ms         |
+
+### Acceptance criteria (SDD-003 §11)
+
+| Criterion                                     | Status   | Evidence                                                                   |
+| --------------------------------------------- | -------- | -------------------------------------------------------------------------- |
+| Standalone terminals without projects         | Verified | Service/IPC/CLI tests, E2E `opens standalone terminals…`                   |
+| Terminals can be renamed                      | Verified | Service tests, CLI `rename`, E2E rename/restore                            |
+| Groups created and managed                    | Verified | `terminal-groups.test.ts`, IPC test, E2E groups                            |
+| Groups with multiple projects                 | Verified | Unit and E2E (two projects in one group)                                   |
+| Group operations do not restart processes     | Verified | Unit (no spawn/kill), IPC (same pid), E2E (same ids/pids)                  |
+| Version displayed correctly                   | Verified | E2E compares with package.json versions                                    |
+| Projects without Git fully usable             | Verified | Integration, CLI `project show`, E2E "No Git repository"                   |
+| Git user name and email                       | Verified | Integration (global vs local precedence), E2E                              |
+| Local branch count accurate                   | Verified | Integration (4 branches), E2E (2)                                          |
+| Three recent branches                         | Verified | Integration ordering by commit date                                        |
+| Modified, staged, untracked counted correctly | Verified | Parser unit tests, integration with real changes                           |
+| Ahead/behind with upstream                    | Verified | Integration (before/after fetch), E2E                                      |
+| Missing upstream handled                      | Verified | Integration (`null`), header "—", details "Unavailable"                    |
+| Terminal headers show Git information         | Verified | E2E chips (branch, M, S, ↑, ↓) and absence outside repos                   |
+| Git does not block terminal interaction       | Verified | Separate processes, timeouts, concurrency limit; performance E2E unchanged |
+| Project details from the terminal             | Verified | E2E sheet + register directory                                             |
+| SDD-001 and SDD-002 operational               | Verified | All previous unit, integration and E2E tests (adapted to groups)           |
+| Automated tests pass                          | Verified | 251/251, 28/28                                                             |
+
+### Known limitations (Milestone A)
+
+- Verified on macOS only; Windows cannot detect a shell's current directory (initial
+  directory shown, labeled).
+- Directory changes are read after a submitted command; file edits outside the terminal
+  appear within 30 s or on refresh.
+- Git details require the `git` executable; repositories git does not trust ("dubious
+  ownership") show an explicit unavailable state.
+- SDD-002 per-project layouts were discarded once by migration v3; schema v3 databases
+  cannot be opened by 0.2 builds.
+
+## SDD-002 — Terminal Manager (approved)
 
 | Requirement | Summary                                                                                                               |
 | ----------- | --------------------------------------------------------------------------------------------------------------------- |
@@ -105,4 +218,4 @@ Back-pressure pauses a PTY when a view is more than 1 MiB behind. Each session k
 
 - Manual verification of shortcuts with the physical keyboard and of the real directory
   picker.
-- Developer approval of SDD-002 before starting SDD-003.
+- Developer approval of SDD-003 Milestone B. Real execution (Claude/Codex adapters) is SDD-004.

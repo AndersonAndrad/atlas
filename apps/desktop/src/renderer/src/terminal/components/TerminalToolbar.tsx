@@ -23,20 +23,33 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import type { ProjectDetails } from '@/types';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { FONT_FAMILIES } from '../state/terminal-view';
 
 const SYSTEM_DEFAULT = '__system__';
 
+/** How a new terminal starts: default directory unless a project or folder is chosen. */
+export interface NewTerminalOptions {
+  shellId?: string;
+  projectId?: string;
+  /** Ask for a folder in the native picker first. */
+  chooseFolder?: boolean;
+}
+
 interface TerminalToolbarProps {
   shells: ShellCatalog | null;
+  projects: ProjectDetails[];
   preferences: TerminalPreferences;
   canSplit: boolean;
   hasSplit: boolean;
   disabled: boolean;
-  onNewTerminal: (shellId?: string) => void;
+  onNewTerminal: (options?: NewTerminalOptions) => void;
   onSplit: (direction: 'row' | 'column') => void;
   onSinglePane: () => void;
   onFontSize: (delta: number | 'reset') => void;
@@ -81,6 +94,7 @@ const keys = (mac: string, other: string) => (isMac ? mac : other);
 
 export function TerminalToolbar({
   shells,
+  projects,
   preferences,
   canSplit,
   hasSplit,
@@ -111,16 +125,39 @@ export function TerminalToolbar({
             <Button
               size="sm"
               className="border-primary-foreground/20 rounded-l-none border-l px-1.5"
-              disabled={disabled || availableShells.length === 0}
-              aria-label="Choose shell"
+              disabled={disabled}
+              aria-label="More ways to open a terminal"
             >
               <ChevronDown />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" data-testid="shell-menu">
+          <DropdownMenuContent align="end" className="w-64" data-testid="shell-menu">
+            <DropdownMenuItem onSelect={() => onNewTerminal({ chooseFolder: true })}>
+              Open in folder…
+            </DropdownMenuItem>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger disabled={projects.length === 0}>
+                Open in project
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="max-h-80 overflow-y-auto">
+                {projects.map((item) => (
+                  <DropdownMenuItem
+                    key={item.project.id}
+                    disabled={item.availability.status !== 'available'}
+                    onSelect={() => onNewTerminal({ projectId: item.project.id })}
+                  >
+                    {item.project.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSeparator />
             <DropdownMenuLabel>New terminal with</DropdownMenuLabel>
             {availableShells.map((shell) => (
-              <DropdownMenuItem key={shell.id} onSelect={() => onNewTerminal(shell.id)}>
+              <DropdownMenuItem
+                key={shell.id}
+                onSelect={() => onNewTerminal({ shellId: shell.id })}
+              >
                 <span className="truncate">{shell.name}</span>
                 <span className="text-muted-foreground ml-auto truncate pl-3 font-mono text-[10px]">
                   {shell.source === 'custom' ? 'custom' : shell.path}

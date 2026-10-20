@@ -113,7 +113,9 @@ test('restores the last selected project after restart', async ({ atlas }) => {
   const first = await atlas.launch();
   let page = first.page;
   await page.getByTestId('project-card').filter({ hasText: 'second' }).click();
-  await expect(page.getByTestId('project-details').getByRole('heading')).toHaveText('second');
+  await expect(page.getByTestId('project-details').getByRole('heading', { level: 2 })).toHaveText(
+    'second',
+  );
   await expect(page.getByTestId('project-card').filter({ hasText: 'second' })).not.toContainText(
     'Opened: Never',
   );
@@ -121,7 +123,9 @@ test('restores the last selected project after restart', async ({ atlas }) => {
 
   page = (await atlas.launch()).page;
   await expect(page.getByTestId('project-card')).toHaveCount(2);
-  await expect(page.getByTestId('project-details').getByRole('heading')).toHaveText('second');
+  await expect(page.getByTestId('project-details').getByRole('heading', { level: 2 })).toHaveText(
+    'second',
+  );
   await expect(page.getByTestId('project-card').filter({ hasText: 'second' })).toHaveAttribute(
     'aria-pressed',
     'true',
@@ -154,8 +158,10 @@ test('displays unavailable directories and allows relocating them', async ({ atl
 test('future sections are visibly unavailable', async ({ atlas }) => {
   const { page } = await atlas.launch();
   const nav = page.getByRole('navigation', { name: 'Main navigation' });
-  await expect(nav.getByRole('button', { name: 'Projects' })).toBeEnabled();
-  for (const section of ['Sessions', 'Agents', 'Skills', 'Accounts', 'Usage', 'Settings']) {
+  for (const available of ['Projects', 'Terminals', 'Sessions', 'Settings']) {
+    await expect(nav.getByRole('button', { name: available })).toBeEnabled();
+  }
+  for (const section of ['Agents', 'Skills', 'Accounts', 'Usage']) {
     await expect(
       nav.getByRole('button', { name: `${section} (not available yet)` }),
     ).toBeDisabled();

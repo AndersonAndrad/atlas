@@ -1,6 +1,6 @@
 import {
-  ProjectIdSchema,
   TerminalPreferencesSchema,
+  TerminalWorkspaceKeySchema,
   TerminalWorkspaceLayoutSchema,
   UpdateTerminalPreferencesSchema,
   parseInput,
@@ -31,34 +31,47 @@ export class TerminalSettings {
     return parsed.data;
   }
 
-  async updatePreferences(input: unknown): Promise<TerminalPreferences> {
+  /**
+   * `resolveDirectory` validates a new default working directory and returns its
+   * realpath (the caller provides it so this class stays filesystem-free).
+   */
+  async updatePreferences(
+    input: unknown,
+    resolveDirectory?: (path: string) => Promise<string>,
+  ): Promise<TerminalPreferences> {
     const changes = parseInput(UpdateTerminalPreferencesSchema, input);
+    if (changes.defaultWorkingDirectory != null && resolveDirectory !== undefined) {
+      changes.defaultWorkingDirectory = await resolveDirectory(changes.defaultWorkingDirectory);
+    }
     const current = await this.getPreferences();
     const next = TerminalPreferencesSchema.parse({ ...current, ...stripUndefined(changes) });
     await this.store.set(TERMINAL_PREFERENCES_SETTING, JSON.stringify(next));
     return next;
   }
 
-  async getLayout(projectId: string): Promise<TerminalWorkspaceLayout | null> {
-    const id = parseInput(ProjectIdSchema, projectId);
+  /** Layout of a workspace: a terminal group id or `ungrouped`. */
+  async getLayout(workspace: string): Promise<TerminalWorkspaceLayout | null> {
+    const id = parseInput(TerminalWorkspaceKeySchema, workspace);
     const raw = await this.store.get(LAYOUT_SETTING_PREFIX + id);
     if (raw === null) return null;
     const parsed = TerminalWorkspaceLayoutSchema.safeParse(safeJson(raw));
     if (!parsed.success) {
-      this.logger.warn('Stored terminal layout is invalid; discarding it', { projectId: id });
+      this.logger.warn('Stored terminal layout is invalid; discarding it', { workspace: id });
       return null;
     }
     return parsed.data;
   }
 
-  async setLayout(projectId: string, layout: unknown): Promise<void> {
-    const id = parseInput(ProjectIdSchema, projectId);
+  async setLayout(workspace: string, layout: unknown): Promise<void> {
+    const id = parseInput(TerminalWorkspaceKeySchema, workspace);
     const parsed = parseInput(TerminalWorkspaceLayoutSchema, layout);
     await this.store.set(LAYOUT_SETTING_PREFIX + id, JSON.stringify(parsed));
   }
 
-  async deleteLayout(projectId: string): Promise<void> {
-    await this.store.delete(LAYOUT_SETTING_PREFIX + parseInput(ProjectIdSchema, projectId));
+  async deleteLayout(workspace: string): Promise<void> {
+    await this.store.delete(
+      LAYOUT_SETTING_PREFIX + parseInput(TerminalWorkspaceKeySchema, workspace),
+    );
   }
 }
 

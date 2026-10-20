@@ -1,7 +1,14 @@
 import { z } from 'zod';
 import { TerminalIdSchema } from './terminal.js';
 
-/** Maximum number of visible panes in one project workspace. */
+/** Workspace whose layout is stored: a terminal group id or `ungrouped`. */
+export const UNGROUPED_WORKSPACE = 'ungrouped';
+export const TerminalWorkspaceKeySchema = z.union([
+  z.literal(UNGROUPED_WORKSPACE),
+  z.uuid({ message: 'Invalid workspace.' }),
+]);
+
+/** Maximum number of visible panes in one workspace. */
 export const TERMINAL_MAX_PANES = 6;
 
 const LayoutNodeIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'Invalid layout identifier.');

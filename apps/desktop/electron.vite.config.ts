@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
@@ -14,6 +16,7 @@ const workspaceSources: Record<string, string> = {
   '@atlas/contracts/ipc': 'packages/contracts/src/ipc.ts',
   '@atlas/projects': 'packages/projects/src/index.ts',
   '@atlas/terminal': 'packages/terminal/src/index.ts',
+  '@atlas/sessions': 'packages/sessions/src/index.ts',
   '@atlas/persistence': 'packages/persistence/src/index.ts',
   '@atlas/engine': 'apps/engine/src/index.ts',
 };
@@ -22,6 +25,23 @@ const workspaceAliases = Object.entries(workspaceSources).map(([name, source]) =
   replacement: resolve(root, source),
 }));
 const workspacePackages = Object.keys(workspaceSources);
+
+/** The Engine's own version, so About can tell it apart from the desktop version. */
+const engineVersion = (
+  JSON.parse(readFileSync(resolve(root, 'apps/engine/package.json'), 'utf8')) as { version: string }
+).version;
+
+/** Source revision of the build ("<short hash>[-dirty]"), or empty when unknown. */
+function buildId(): string {
+  try {
+    const git = (args: string[]) =>
+      execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+    const hash = git(['rev-parse', '--short', 'HEAD']);
+    return git(['status', '--porcelain']) === '' ? hash : `${hash}-dirty`;
+  } catch {
+    return '';
+  }
+}
 
 /**
  * Injects the Content-Security-Policy. The dev server needs inline scripts for
@@ -54,6 +74,10 @@ function contentSecurityPolicy(): Plugin {
 export default defineConfig({
   main: {
     resolve: { alias: workspaceAliases },
+    define: {
+      __ATLAS_ENGINE_VERSION__: JSON.stringify(engineVersion),
+      __ATLAS_BUILD_ID__: JSON.stringify(buildId()),
+    },
     build: {
       externalizeDeps: { exclude: [...workspacePackages, 'zod'] },
       rollupOptions: {

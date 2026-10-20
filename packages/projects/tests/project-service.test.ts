@@ -344,3 +344,36 @@ describe('inspectPath', () => {
     expect(inspection.availability.status).toBe('missing');
   });
 });
+
+describe('directories for terminals', () => {
+  it('resolves any available directory and rejects unavailable ones', async () => {
+    const { service, inspector } = setup();
+    inspector.set('/links/tools', { status: 'available', resolvedPath: '/opt/tools' });
+    inspector.set('/opt/file', { status: 'not-a-directory' });
+    expect(await service.resolveAvailableDirectory('/links/tools')).toBe('/opt/tools');
+    await expectAtlasError(service.resolveAvailableDirectory('/opt/file'), 'PROJECT_PATH_INVALID');
+    await expectAtlasError(service.resolveAvailableDirectory('/gone'), 'PROJECT_PATH_UNAVAILABLE');
+    await expectAtlasError(
+      service.resolveAvailableDirectory('relative/dir'),
+      'PROJECT_PATH_INVALID',
+    );
+  });
+
+  it('finds the deepest registered project containing a directory', async () => {
+    const { service, inspector } = setup('darwin');
+    inspector.set('/work/mono', { status: 'available' });
+    inspector.set('/work/mono/packages/api', { status: 'available' });
+    inspector.set('/work/monolith', { status: 'available' });
+    const mono = await service.create({ name: 'Mono', workspacePath: '/work/mono' });
+    const api = await service.create({ name: 'API', workspacePath: '/work/mono/packages/api' });
+    await service.create({ name: 'Monolith', workspacePath: '/work/monolith' });
+
+    expect((await service.findContaining('/work/mono'))?.id).toBe(mono.id);
+    expect((await service.findContaining('/WORK/Mono/docs'))?.id).toBe(mono.id);
+    expect((await service.findContaining('/work/mono/packages/api/src'))?.id).toBe(api.id);
+    // A shared prefix is not containment.
+    expect(await service.findContaining('/work/monorepo')).toBeNull();
+    expect(await service.findContaining('/elsewhere')).toBeNull();
+    expect(await service.findContaining('relative')).toBeNull();
+  });
+});

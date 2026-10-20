@@ -6,9 +6,20 @@
   },
   "include": ["src"],
   "references": [
-    { "path": "../shared" },
-    { "path": "../contracts" },
-    { "path": "../projects" },
-    { "path": "../terminal" }
+    {
+      "path": "../shared"
+    },
+    {
+      "path": "../contracts"
+    },
+    {
+      "path": "../projects"
+    },
+    {
+      "path": "../terminal"
+    },
+    {
+      "path": "../sessions"
+    }
   ]
 }

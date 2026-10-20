@@ -7,6 +7,7 @@ export interface LayoutCallbacks {
   onHidePane: (paneId: string) => void;
   onRestart: (sessionId: string) => void;
   onCloseTab: (sessionId: string) => void;
+  onProjectInfo: (sessionId: string) => void;
   onRatio: (splitId: string, ratio: number) => void;
   registerHandle: (paneId: string, handle: TerminalPaneHandle | null) => void;
 }
@@ -14,6 +15,7 @@ export interface LayoutCallbacks {
 interface TerminalLayoutViewProps extends LayoutCallbacks {
   node: TerminalLayoutNode;
   sessions: Map<string, TerminalSession>;
+  projectNames: Map<string, string>;
   preferences: TerminalPreferences;
   activePaneId: string | null;
   paneCount: number;
@@ -29,6 +31,7 @@ export function TerminalLayoutView(props: TerminalLayoutViewProps) {
       <TerminalPane
         paneId={node.id}
         session={session}
+        projectName={session.projectId ? props.projectNames.get(session.projectId) : undefined}
         preferences={preferences}
         active={node.id === activePaneId}
         onlyPane={paneCount === 1}
@@ -36,6 +39,7 @@ export function TerminalLayoutView(props: TerminalLayoutViewProps) {
         onHide={() => props.onHidePane(node.id)}
         onRestart={() => props.onRestart(session.id)}
         onCloseTab={() => props.onCloseTab(session.id)}
+        onProjectInfo={() => props.onProjectInfo(session.id)}
         registerHandle={props.registerHandle}
       />
     );

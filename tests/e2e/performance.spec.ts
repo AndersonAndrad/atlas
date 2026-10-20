@@ -12,7 +12,6 @@ test('stays responsive with ten terminals under sustained output', async ({ atla
     .getByRole('navigation', { name: 'Main navigation' })
     .getByRole('button', { name: 'Terminals' })
     .click();
-  await page.getByTestId('terminal-project').filter({ hasText: 'perf' }).click();
 
   const newButton = page.getByRole('button', { name: 'New terminal', exact: true }).first();
   for (let index = 0; index < 5; index += 1) {

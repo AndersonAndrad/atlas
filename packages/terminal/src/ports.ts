@@ -1,4 +1,4 @@
-import type { ShellCatalog, TerminalSession } from '@atlas/contracts';
+import type { ShellCatalog, TerminalGroup, TerminalSession } from '@atlas/contracts';
 
 export interface PtySpawnOptions {
   file: string;
@@ -74,7 +74,30 @@ export interface WorkspaceResolver {
    * Returns the realpath of the registered project's workspace directory.
    * Throws PROJECT_NOT_FOUND or a path availability error otherwise.
    */
-  resolveWorkingDirectory(projectId: string): Promise<string>;
+  resolveProjectDirectory(projectId: string): Promise<string>;
+  /**
+   * Validates an absolute directory for a standalone terminal and returns its
+   * realpath. Throws a path validation or availability error otherwise.
+   */
+  resolveDirectory(path: string): Promise<string>;
+  /** Throws PROJECT_NOT_FOUND unless the project is registered. */
+  assertProjectExists(projectId: string): Promise<void>;
+  homeDirectory(): string;
+}
+
+/** Reads the current working directory of a running process. */
+export interface ProcessCwdResolver {
+  /** Returns null when the platform cannot report it reliably. */
+  currentDirectory(pid: number): Promise<string | null>;
+}
+
+export interface TerminalGroupRepository {
+  findAll(): Promise<TerminalGroup[]>;
+  /** Inserts or updates one group. */
+  save(group: TerminalGroup): Promise<void>;
+  /** Stores the positions of several groups atomically. */
+  saveAll(groups: TerminalGroup[]): Promise<void>;
+  delete(id: string): Promise<void>;
 }
 
 /** String key-value storage, implemented by the application settings repository. */

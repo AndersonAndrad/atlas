@@ -1,5 +1,11 @@
 import {
+  AtlasSessionIdSchema,
   CreateProjectInputSchema,
+  CreateSessionInputSchema,
+  ListSessionsInputSchema,
+  SessionActionSchema,
+  SessionTaskIdSchema,
+  UpdateSessionInputSchema,
   CreateTerminalInputSchema,
   IPC_CHANNELS,
   IPC_SEND_CHANNELS,
@@ -9,9 +15,14 @@ import {
   TerminalIdSchema,
   TerminalInputDataSchema,
   TerminalRowsSchema,
-  TerminalTitleSchema,
+  TerminalCustomTitleSchema,
+  TerminalGroupIdSchema,
+  TerminalGroupNameSchema,
+  TerminalWorkspaceKeySchema,
+  UpdateTerminalPreferencesSchema,
   UpdateProjectInputSchema,
   parseInput,
+  type AppInfo,
   type DirectoryChoice,
   type IpcResult,
 } from '@atlas/contracts';
@@ -39,11 +50,25 @@ export interface IpcDependencies {
    * of a previous document never receive output.
    */
   subscriberId: () => string;
+  /** Version and environment details assembled by the main process. */
+  appInfo: () => Promise<AppInfo>;
 }
 
 const NoArgs = z.tuple([]);
 const IdArgs = z.tuple([ProjectIdSchema]);
+const PositionSchema = z.number().int().min(0).max(10_000);
+const DIRECTORY_PURPOSES = ['project', 'terminal', 'default-directory', 'session'] as const;
+type DirectoryPurpose = (typeof DIRECTORY_PURPOSES)[number];
+const ChoosePurposeArgs = z.union([z.tuple([]), z.tuple([z.enum(DIRECTORY_PURPOSES)])]);
+const DIALOG_TITLES: Record<DirectoryPurpose, string> = {
+  project: 'Select project directory',
+  terminal: 'Open terminal in folder',
+  'default-directory': 'Select default terminal directory',
+  session: 'Select session workspace',
+};
 const TerminalArgs = z.tuple([TerminalIdSchema]);
+const SessionArgs = z.tuple([AtlasSessionIdSchema]);
+const SessionTaskArgs = z.tuple([AtlasSessionIdSchema, SessionTaskIdSchema]);
 const ViewIdSchema = z.string().regex(TERMINAL_VIEW_ID_PATTERN, 'Invalid view identifier.');
 
 /**
@@ -138,23 +163,27 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     engine.call('projects.select', id as string),
   );
   handle(IPC_CHANNELS.getSelectedProject, NoArgs, () => engine.call('projects.getSelected'));
-  handle(IPC_CHANNELS.chooseDirectory, NoArgs, async (): Promise<DirectoryChoice> => {
-    const result = await deps.showOpenDialog({
-      title: 'Select project directory',
-      buttonLabel: 'Select',
-      properties: ['openDirectory', 'createDirectory'],
-    });
-    const selected = result.filePaths[0];
-    if (result.canceled || selected === undefined) {
-      return { canceled: true };
-    }
-    const inspection = await engine.call('projects.inspectPath', selected);
-    pickedPaths.add(inspection.inputPath);
-    if (inspection.resolvedPath !== undefined) pickedPaths.add(inspection.resolvedPath);
-    return { canceled: false, inspection };
-  });
+  handle(
+    IPC_CHANNELS.chooseDirectory,
+    ChoosePurposeArgs,
+    async ([purpose]): Promise<DirectoryChoice> => {
+      const result = await deps.showOpenDialog({
+        title: DIALOG_TITLES[(purpose as DirectoryPurpose | undefined) ?? 'project'],
+        buttonLabel: 'Select',
+        properties: ['openDirectory', 'createDirectory'],
+      });
+      const selected = result.filePaths[0];
+      if (result.canceled || selected === undefined) {
+        return { canceled: true };
+      }
+      const inspection = await engine.call('projects.inspectPath', selected);
+      pickedPaths.add(inspection.inputPath);
+      if (inspection.resolvedPath !== undefined) pickedPaths.add(inspection.resolvedPath);
+      return { canceled: false, inspection };
+    },
+  );
 
-  // Terminals (SDD-002). Working directories are never accepted from the renderer.
+  // Terminals. Directories from the renderer must have been chosen in the native picker.
   handle(
     IPC_CHANNELS.listTerminals,
     z.union([z.tuple([]), z.tuple([ProjectIdSchema.optional()])]),
@@ -164,13 +193,38 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
         projectId === undefined ? {} : { projectId: projectId as string },
       ),
   );
-  handle(IPC_CHANNELS.createTerminal, z.tuple([z.unknown()]), ([raw]) =>
-    engine.call('terminals.create', parseInput(CreateTerminalInputSchema, raw)),
-  );
+  handle(IPC_CHANNELS.createTerminal, z.tuple([z.unknown()]), async ([raw]) => {
+    const input = parseInput(CreateTerminalInputSchema, raw);
+    assertPicked(input.cwd);
+    return engine.call('terminals.create', input);
+  });
   handle(
     IPC_CHANNELS.renameTerminal,
-    z.tuple([TerminalIdSchema, TerminalTitleSchema]),
-    ([id, title]) => engine.call('terminals.rename', id as string, title as string),
+    z.tuple([TerminalIdSchema, TerminalCustomTitleSchema]),
+    ([id, title]) => engine.call('terminals.rename', id as string, title as string | null),
+  );
+  handle(
+    IPC_CHANNELS.associateTerminal,
+    z.tuple([TerminalIdSchema, ProjectIdSchema.nullable()]),
+    ([id, projectId]) =>
+      engine.call('terminals.associate', id as string, projectId as string | null),
+  );
+  handle(
+    IPC_CHANNELS.moveTerminal,
+    z.tuple([TerminalIdSchema, TerminalGroupIdSchema.nullable(), PositionSchema]),
+    ([id, groupId, position]) =>
+      engine.call('terminals.move', id as string, groupId as string | null, position as number),
+  );
+  handle(IPC_CHANNELS.terminalProjectContext, TerminalArgs, ([id]) =>
+    engine.call('terminals.projectContext', id as string),
+  );
+  handle(IPC_CHANNELS.terminalGit, TerminalArgs, ([id]) =>
+    engine.call('terminals.git', id as string),
+  );
+  handle(
+    IPC_CHANNELS.registerTerminalProject,
+    z.tuple([TerminalIdSchema, z.unknown()]),
+    ([id, input]) => engine.call('terminals.registerProject', id as string, input),
   );
   handle(IPC_CHANNELS.terminateTerminal, TerminalArgs, ([id]) =>
     engine.call('terminals.terminate', id as string),
@@ -206,16 +260,101 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
   handle(IPC_CHANNELS.getTerminalPreferences, NoArgs, () =>
     engine.call('terminals.getPreferences'),
   );
-  handle(IPC_CHANNELS.setTerminalPreferences, z.tuple([z.unknown()]), ([input]) =>
-    engine.call('terminals.setPreferences', input),
-  );
-  handle(IPC_CHANNELS.getTerminalLayout, IdArgs, ([projectId]) =>
-    engine.call('terminals.getLayout', projectId as string),
+  handle(IPC_CHANNELS.setTerminalPreferences, z.tuple([z.unknown()]), async ([raw]) => {
+    const input = parseInput(UpdateTerminalPreferencesSchema, raw);
+    assertPicked(input.defaultWorkingDirectory ?? undefined);
+    return engine.call('terminals.setPreferences', input);
+  });
+  handle(IPC_CHANNELS.getTerminalLayout, z.tuple([TerminalWorkspaceKeySchema]), ([workspace]) =>
+    engine.call('terminals.getLayout', workspace as string),
   );
   handle(
     IPC_CHANNELS.setTerminalLayout,
-    z.tuple([ProjectIdSchema, z.unknown()]),
-    ([projectId, layout]) => engine.call('terminals.setLayout', projectId as string, layout),
+    z.tuple([TerminalWorkspaceKeySchema, z.unknown()]),
+    ([workspace, layout]) => engine.call('terminals.setLayout', workspace as string, layout),
+  );
+
+  // Terminal groups
+  handle(IPC_CHANNELS.listGroups, NoArgs, () => engine.call('groups.list'));
+  handle(IPC_CHANNELS.createGroup, z.tuple([TerminalGroupNameSchema]), ([name]) =>
+    engine.call('groups.create', name as string),
+  );
+  handle(
+    IPC_CHANNELS.renameGroup,
+    z.tuple([TerminalGroupIdSchema, TerminalGroupNameSchema]),
+    ([id, name]) => engine.call('groups.rename', id as string, name as string),
+  );
+  handle(
+    IPC_CHANNELS.setGroupCollapsed,
+    z.tuple([TerminalGroupIdSchema, z.boolean()]),
+    ([id, collapsed]) => engine.call('groups.setCollapsed', id as string, collapsed as boolean),
+  );
+  handle(
+    IPC_CHANNELS.moveGroup,
+    z.tuple([TerminalGroupIdSchema, PositionSchema]),
+    ([id, position]) => engine.call('groups.move', id as string, position as number),
+  );
+  handle(
+    IPC_CHANNELS.deleteGroup,
+    z.tuple([TerminalGroupIdSchema, z.strictObject({ terminateTerminals: z.boolean() })]),
+    ([id, options]) =>
+      engine.call('groups.delete', id as string, options as { terminateTerminals: boolean }),
+  );
+
+  // Git and application information
+  handle(IPC_CHANNELS.projectGit, IdArgs, ([projectId]) =>
+    engine.call('git.project', projectId as string),
+  );
+  handle(IPC_CHANNELS.appInfo, NoArgs, () => deps.appInfo());
+
+  // ATLAS Sessions (SDD-003 Milestone B). Workspace directories must come from the picker.
+  handle(
+    IPC_CHANNELS.listSessions,
+    z.union([z.tuple([]), z.tuple([ListSessionsInputSchema])]),
+    ([filter]) => engine.call('sessions.list', (filter ?? {}) as { includeArchived?: boolean }),
+  );
+  handle(IPC_CHANNELS.getSession, SessionArgs, ([id]) => engine.call('sessions.get', id as string));
+  handle(IPC_CHANNELS.createSession, z.tuple([z.unknown()]), async ([raw]) => {
+    const input = parseInput(CreateSessionInputSchema, raw);
+    assertPicked(input.workspacePath);
+    return engine.call('sessions.create', input);
+  });
+  handle(
+    IPC_CHANNELS.updateSession,
+    z.tuple([AtlasSessionIdSchema, z.unknown()]),
+    async ([id, raw]) => {
+      const input = parseInput(UpdateSessionInputSchema, raw);
+      assertPicked(input.workspacePath ?? undefined);
+      return engine.call('sessions.update', id as string, input);
+    },
+  );
+  handle(
+    IPC_CHANNELS.performSessionAction,
+    z.tuple([AtlasSessionIdSchema, SessionActionSchema]),
+    ([id, action]) =>
+      engine.call('sessions.perform', id as string, action as z.infer<typeof SessionActionSchema>),
+  );
+  handle(IPC_CHANNELS.sessionEvents, SessionArgs, ([id]) =>
+    engine.call('sessions.events', id as string),
+  );
+  handle(IPC_CHANNELS.addSessionTask, z.tuple([AtlasSessionIdSchema, z.unknown()]), ([id, input]) =>
+    engine.call('sessions.addTask', id as string, input),
+  );
+  handle(
+    IPC_CHANNELS.updateSessionTask,
+    z.tuple([AtlasSessionIdSchema, SessionTaskIdSchema, z.unknown()]),
+    ([id, taskId, input]) =>
+      engine.call('sessions.updateTask', id as string, taskId as string, input),
+  );
+  handle(IPC_CHANNELS.removeSessionTask, SessionTaskArgs, ([id, taskId]) =>
+    engine.call('sessions.removeTask', id as string, taskId as string),
+  );
+  handle(IPC_CHANNELS.cancelSessionTask, SessionTaskArgs, ([id, taskId]) =>
+    engine.call('sessions.cancelTask', id as string, taskId as string),
+  );
+  handle(IPC_CHANNELS.getSessionSettings, NoArgs, () => engine.call('sessions.getSettings'));
+  handle(IPC_CHANNELS.setSessionSettings, z.tuple([z.unknown()]), ([input]) =>
+    engine.call('sessions.setSettings', input),
   );
 
   on(

@@ -1,13 +1,16 @@
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { Project, TerminalSession } from '@atlas/contracts';
+import type { AtlasSession, Project, TerminalSession } from '@atlas/contracts';
+import type { StoredSessionTask } from '@atlas/sessions';
 import { AtlasError } from '@atlas/shared';
 import { createTempDir } from '../../../tests/support/temp.js';
 import {
   MIGRATIONS,
   SqliteProjectRepository,
+  SqliteSessionRepository,
   SqliteSettingsRepository,
+  SqliteTerminalGroupRepository,
   SqliteTerminalSessionRepository,
   getSchemaVersion,
   openDatabase,
@@ -31,15 +34,58 @@ function terminalSession(overrides: Partial<TerminalSession> = {}): TerminalSess
   return {
     id: '00000000-0000-4000-8000-0000000000a1',
     projectId: project().id,
-    title: 'zsh',
+    title: 'atlas',
+    customTitle: null,
+    autoTitle: 'atlas',
+    groupId: null,
+    groupPosition: 0,
     shell: { id: 'zsh', name: 'zsh', path: '/bin/zsh' },
     cwd: '/work/atlas',
+    currentCwd: '/work/atlas',
+    cwdSource: 'initial',
     status: 'RUNNING',
     pid: 4242,
     columns: 80,
     rows: 24,
     createdAt: '2026-01-01T00:00:00.000Z',
     startedAt: '2026-01-01T00:00:01.000Z',
+    ...overrides,
+  };
+}
+
+function atlasSession(overrides: Partial<AtlasSession> = {}): AtlasSession {
+  return {
+    id: '00000000-0000-4000-8000-0000000000e1',
+    name: 'NOVA auth',
+    objective: 'Implement authentication',
+    projectId: null,
+    workspacePath: null,
+    status: 'DRAFT',
+    executionProfile: 'BALANCED',
+    constraints: ['No network'],
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    startedAt: null,
+    completedAt: null,
+    endedAt: null,
+    archivedAt: null,
+    ...overrides,
+  };
+}
+
+function sessionTask(overrides: Partial<StoredSessionTask> = {}): StoredSessionTask {
+  return {
+    id: '00000000-0000-4000-8000-0000000000f1',
+    sessionId: atlasSession().id,
+    title: 'Design',
+    description: '',
+    status: 'PENDING',
+    dependencies: [],
+    assignedAgentId: null,
+    validationCriteria: ['Reviewed'],
+    position: 0,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
   };
 }
@@ -236,6 +282,7 @@ describe('SQLite persistence', () => {
       await sessions.save(
         terminalSession({
           title: 'Renamed',
+          customTitle: 'Renamed',
           status: 'EXITED',
           exitCode: 130,
           signal: 2,
@@ -246,6 +293,7 @@ describe('SQLite persistence', () => {
       expect(await sessions.findAll()).toEqual([
         terminalSession({
           title: 'Renamed',
+          customTitle: 'Renamed',
           status: 'EXITED',
           exitCode: 130,
           signal: 2,
@@ -296,8 +344,267 @@ describe('SQLite persistence', () => {
         ),
       ).rejects.toMatchObject({ code: 'PROJECT_PERSISTENCE_ERROR' });
 
+      // Removing a project keeps its terminals; they become standalone.
       await new SqliteProjectRepository(db).delete(project().id);
-      expect(await sessions.findAll()).toEqual([]);
+      expect(await sessions.findAll()).toEqual([terminalSession({ projectId: null })]);
+    });
+
+    it('stores standalone terminals, custom names, detected directories and groups', async () => {
+      const groups = new SqliteTerminalGroupRepository(db);
+      await groups.save({
+        id: '00000000-0000-4000-8000-0000000000b1',
+        name: 'Dev',
+        position: 0,
+        collapsed: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+      });
+      const standalone = terminalSession({
+        projectId: null,
+        title: 'Docker Services',
+        customTitle: 'Docker Services',
+        autoTitle: 'srv',
+        cwd: '/srv',
+        currentCwd: '/srv/compose',
+        cwdSource: 'detected',
+        groupId: '00000000-0000-4000-8000-0000000000b1',
+        groupPosition: 3,
+      });
+      await sessions.save(standalone);
+      expect(await sessions.findAll()).toEqual([standalone]);
+
+      await groups.delete('00000000-0000-4000-8000-0000000000b1');
+      expect((await sessions.findAll())[0]).toMatchObject({ groupId: null, groupPosition: 3 });
+    });
+  });
+
+  describe('SqliteTerminalGroupRepository', () => {
+    it('orders groups and saves positions atomically', async () => {
+      const groups = new SqliteTerminalGroupRepository(db);
+      const make = (n: number, position: number) => ({
+        id: `00000000-0000-4000-8000-0000000000c${n}`,
+        name: `G${n}`,
+        position,
+        collapsed: false,
+        createdAt: '2026-01-01T00:00:00.000Z',
+      });
+      await groups.save(make(1, 0));
+      await groups.save(make(2, 1));
+      await groups.saveAll([make(1, 1), make(2, 0)]);
+      expect((await groups.findAll()).map((group) => group.name)).toEqual(['G2', 'G1']);
+      await expect(groups.save({ ...make(3, 2), name: '' })).rejects.toMatchObject({
+        code: 'PROJECT_PERSISTENCE_ERROR',
+      });
+    });
+  });
+
+  describe('migration v3 from a v2 database', () => {
+    it('keeps sessions, separates names and drops per-project layouts', () => {
+      db.close();
+      const v2Path = path.join(temp.dir, 'v2.db');
+      db = openDatabase({ filePath: v2Path, migrations: MIGRATIONS.slice(0, 2) });
+      db.prepare(
+        `INSERT INTO projects (id, name, workspace_path, path_key, tags, is_git_repository,
+           created_at, updated_at) VALUES (?, 'A', '/a', '/a', '[]', 0, 'x', 'x')`,
+      ).run(project().id);
+      const insert = db.prepare(
+        `INSERT INTO terminal_sessions (id, project_id, title, shell_id, shell_name, shell_path, cwd,
+           status, columns, rows, created_at)
+         VALUES (?, ?, ?, 'zsh', 'zsh', '/bin/zsh', '/a', 'TERMINATED', 80, 24, ?)`,
+      );
+      insert.run('00000000-0000-4000-8000-0000000000d1', project().id, 'zsh', '2026-01-01');
+      insert.run('00000000-0000-4000-8000-0000000000d2', project().id, 'zsh 2', '2026-01-02');
+      insert.run('00000000-0000-4000-8000-0000000000d3', project().id, 'Dev server', '2026-01-03');
+      db.prepare("INSERT INTO application_settings VALUES ('terminal.layout.x', '{}')").run();
+      db.prepare("INSERT INTO application_settings VALUES ('terminal.preferences', '{}')").run();
+      db.close();
+
+      db = openDatabase({ filePath: v2Path });
+      expect(getSchemaVersion(db)).toBe(4);
+      const rows = db
+        .prepare(
+          'SELECT auto_title, custom_title, group_position, current_cwd FROM terminal_sessions ORDER BY created_at',
+        )
+        .all();
+      expect(rows).toEqual([
+        { auto_title: 'zsh', custom_title: null, group_position: 0, current_cwd: '/a' },
+        { auto_title: 'zsh', custom_title: null, group_position: 1, current_cwd: '/a' },
+        { auto_title: 'zsh', custom_title: 'Dev server', group_position: 2, current_cwd: '/a' },
+      ]);
+      const keys = db
+        .prepare('SELECT key FROM application_settings ORDER BY key')
+        .all()
+        .map((row) => (row as { key: string }).key);
+      expect(keys).toEqual(['terminal.preferences']);
+    });
+  });
+
+  describe('SqliteSessionRepository', () => {
+    const event = (type: 'SESSION_CREATED' | 'TASK_CREATED' = 'SESSION_CREATED') => ({
+      type,
+      occurredAt: '2026-01-01T00:00:00.000Z',
+      metadata: {},
+    });
+
+    it('stores sessions and commits changes guarded by the revision', async () => {
+      const repo = new SqliteSessionRepository(db);
+      await repo.insert(atlasSession(), [event()]);
+      const stored = await repo.findById(atlasSession().id);
+      expect(stored).toEqual({ session: atlasSession(), revision: 0 });
+
+      const ready = atlasSession({ status: 'READY', updatedAt: '2026-01-02T00:00:00.000Z' });
+      expect(
+        await repo.commit({ sessionId: ready.id, expectedRevision: 0, session: ready, events: [] }),
+      ).toBe(true);
+      // A writer that read revision 0 loses: nothing it sent is applied.
+      expect(
+        await repo.commit({
+          sessionId: ready.id,
+          expectedRevision: 0,
+          session: atlasSession({ name: 'Stale' }),
+          upsertTasks: [sessionTask()],
+          events: [event('TASK_CREATED')],
+        }),
+      ).toBe(false);
+      expect(await repo.findById(ready.id)).toEqual({ session: ready, revision: 1 });
+      expect(await repo.findTasks(ready.id)).toEqual([]);
+      expect((await repo.findEvents(ready.id, 10)).map((item) => item.type)).toEqual([
+        'SESSION_CREATED',
+      ]);
+    });
+
+    it('persists tasks, dependencies and events in order', async () => {
+      const repo = new SqliteSessionRepository(db);
+      await repo.insert(atlasSession(), [event()]);
+      const design = sessionTask();
+      const build = sessionTask({
+        id: '00000000-0000-4000-8000-0000000000f2',
+        title: 'Build',
+        position: 1,
+        dependencies: [design.id],
+        status: 'COMPLETED',
+      });
+      // Both tasks in one change: dependencies are written after the tasks exist.
+      await repo.commit({
+        sessionId: design.sessionId,
+        expectedRevision: 0,
+        upsertTasks: [build, design],
+        events: [event('TASK_CREATED'), event('TASK_CREATED')],
+      });
+      expect(await repo.findTasks(design.sessionId)).toEqual([design, build]);
+      expect(await repo.countTasks([design.sessionId])).toEqual(
+        new Map([[design.sessionId, { total: 2, completed: 1 }]]),
+      );
+      const events = await repo.findEvents(design.sessionId, 2);
+      expect(events.map((item) => item.type)).toEqual(['TASK_CREATED', 'TASK_CREATED']);
+      expect(events[0]!.id).toBeLessThan(events[1]!.id);
+
+      // A task others depend on cannot be deleted at the database level either.
+      await expect(
+        repo.commit({
+          sessionId: design.sessionId,
+          expectedRevision: 1,
+          removeTaskIds: [design.id],
+          events: [],
+        }),
+      ).rejects.toMatchObject({ code: 'PROJECT_PERSISTENCE_ERROR' });
+      expect(await repo.findTasks(design.sessionId)).toHaveLength(2);
+    });
+
+    it('rejects dependencies and task ids across sessions', async () => {
+      const repo = new SqliteSessionRepository(db);
+      const other = atlasSession({ id: '00000000-0000-4000-8000-0000000000e2' });
+      await repo.insert(atlasSession(), []);
+      await repo.insert(other, []);
+      const foreign = sessionTask({
+        id: '00000000-0000-4000-8000-0000000000f9',
+        sessionId: other.id,
+      });
+      await repo.commit({
+        sessionId: other.id,
+        expectedRevision: 0,
+        upsertTasks: [foreign],
+        events: [],
+      });
+      await expect(
+        repo.commit({
+          sessionId: atlasSession().id,
+          expectedRevision: 0,
+          upsertTasks: [sessionTask({ dependencies: [foreign.id] })],
+          events: [],
+        }),
+      ).rejects.toMatchObject({ code: 'PROJECT_PERSISTENCE_ERROR' });
+      await expect(
+        repo.commit({
+          sessionId: atlasSession().id,
+          expectedRevision: 0,
+          upsertTasks: [{ ...foreign, sessionId: atlasSession().id, title: 'Hijack' }],
+          events: [],
+        }),
+      ).rejects.toMatchObject({ code: 'PROJECT_PERSISTENCE_ERROR' });
+      expect((await repo.findTasks(other.id))[0]!.title).toBe('Design');
+    });
+
+    it('filters archived sessions and clears removed projects', async () => {
+      await new SqliteProjectRepository(db).insert({ project: project(), pathKey: '/work/atlas' });
+      const repo = new SqliteSessionRepository(db);
+      await repo.insert(atlasSession({ projectId: project().id }), []);
+      await repo.insert(
+        atlasSession({
+          id: '00000000-0000-4000-8000-0000000000e3',
+          status: 'CANCELLED',
+          archivedAt: '2026-01-03T00:00:00.000Z',
+          createdAt: '2026-01-02T00:00:00.000Z',
+        }),
+        [],
+      );
+      expect((await repo.findAll({ includeArchived: false })).map((s) => s.name)).toHaveLength(1);
+      expect(await repo.findAll({ includeArchived: true })).toHaveLength(2);
+      expect(await repo.findAll({ includeArchived: true, projectId: project().id })).toHaveLength(
+        1,
+      );
+      expect((await repo.findByProject(project().id)).map((item) => item.session.id)).toEqual([
+        atlasSession().id,
+      ]);
+      expect(await repo.findByStatuses(['CANCELLED'])).toHaveLength(1);
+
+      await new SqliteProjectRepository(db).delete(project().id);
+      expect((await repo.findById(atlasSession().id))?.session.projectId).toBeNull();
+    });
+
+    it('enforces session invariants in the schema', async () => {
+      const repo = new SqliteSessionRepository(db);
+      await expect(
+        repo.insert(atlasSession({ projectId: project().id, workspacePath: '/x' }), []),
+      ).rejects.toMatchObject({ code: 'PROJECT_PERSISTENCE_ERROR' });
+      await expect(
+        repo.insert(atlasSession({ archivedAt: '2026-01-02T00:00:00.000Z' }), []),
+      ).rejects.toMatchObject({ code: 'PROJECT_PERSISTENCE_ERROR' });
+      await expect(
+        repo.insert(
+          atlasSession({ completedAt: '2026-01-02T00:00:00.000Z', status: 'CANCELLED' }),
+          [],
+        ),
+      ).rejects.toMatchObject({ code: 'PROJECT_PERSISTENCE_ERROR' });
+      expect(await repo.findAll({ includeArchived: true })).toEqual([]);
+    });
+
+    it('lists pending approvals only', async () => {
+      const repo = new SqliteSessionRepository(db);
+      await repo.insert(atlasSession(), []);
+      const insert = db.prepare(
+        `INSERT INTO session_approvals (id, session_id, summary, status, requested_at)
+         VALUES (?, ?, ?, ?, '2026-01-01T00:00:00.000Z')`,
+      );
+      insert.run(
+        '00000000-0000-4000-8000-0000000000b1',
+        atlasSession().id,
+        'Run npm install',
+        'PENDING',
+      );
+      insert.run('00000000-0000-4000-8000-0000000000b2', atlasSession().id, 'Old', 'APPROVED');
+      expect((await repo.findPendingApprovals(atlasSession().id)).map((a) => a.summary)).toEqual([
+        'Run npm install',
+      ]);
     });
   });
 });

@@ -20,6 +20,7 @@ interface ProjectsViewProps {
   projects: ReturnType<typeof useProjects>;
   runningTerminals: (projectId: string) => number;
   onOpenTerminal: (projectId: string) => void;
+  onNewSession: (projectId: string) => void;
   /** Called after a project was removed (its terminals are gone too). */
   onProjectRemoved: () => void;
 }
@@ -28,6 +29,7 @@ export function ProjectsView({
   projects,
   runningTerminals,
   onOpenTerminal,
+  onNewSession,
   onProjectRemoved,
 }: ProjectsViewProps) {
   const { items, selected, selectedId, setSelectedId, loadError, reload, select } = projects;
@@ -112,6 +114,7 @@ export function ProjectsView({
                   onEdit={() => setDialog({ kind: 'edit', project: selected.project })}
                   onRemove={() => setDialog({ kind: 'remove', project: selected.project })}
                   onOpenTerminal={() => onOpenTerminal(selected.project.id)}
+                  onNewSession={() => onNewSession(selected.project.id)}
                 />
               ) : (
                 <p className="text-muted-foreground py-8 text-center">

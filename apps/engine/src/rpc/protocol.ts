@@ -1,4 +1,4 @@
-import type { TerminalEvent } from '@atlas/contracts';
+import type { SessionChangedEvent, TerminalEvent } from '@atlas/contracts';
 import type { SerializedError } from '@atlas/shared';
 
 export const ENGINE_PROTOCOL_VERSION = 1;
@@ -19,7 +19,7 @@ export type EngineResponseMessage =
 
 export interface EngineEventMessage {
   type: 'event';
-  event: TerminalEvent;
+  event: TerminalEvent | SessionChangedEvent;
   /** Set for output events, which are addressed to one attached view. */
   subscriberId?: string;
 }

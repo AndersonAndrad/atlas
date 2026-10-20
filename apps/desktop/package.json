@@ -1,6 +1,6 @@
 {
   "name": "@atlas/desktop",
-  "version": "0.2.0",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
   "description": "ATLAS Control desktop application",
@@ -16,6 +16,7 @@
     "@atlas/contracts": "workspace:*",
     "@atlas/engine": "workspace:*",
     "@atlas/projects": "workspace:*",
+    "@atlas/sessions": "workspace:*",
     "@atlas/shared": "workspace:*",
     "@atlas/terminal": "workspace:*",
     "@xterm/addon-fit": "0.11.0",

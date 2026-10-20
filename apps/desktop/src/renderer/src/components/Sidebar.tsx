@@ -9,9 +9,10 @@ import {
   SquareTerminal,
   type LucideIcon,
 } from 'lucide-react';
+import atlasLogo from '@/assets/atlas-logo.svg';
 import { cn } from '@/lib/utils';
 
-export type AppView = 'projects' | 'terminals';
+export type AppView = 'projects' | 'terminals' | 'sessions' | 'settings';
 
 interface NavItem {
   id: string;
@@ -23,32 +24,37 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: 'projects', label: 'Projects', icon: FolderGit2, view: 'projects' },
   { id: 'terminals', label: 'Terminals', icon: SquareTerminal, view: 'terminals' },
-  { id: 'sessions', label: 'Sessions', icon: ListChecks },
+  { id: 'sessions', label: 'Sessions', icon: ListChecks, view: 'sessions' },
   { id: 'agents', label: 'Agents', icon: Bot },
   { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'accounts', label: 'Accounts', icon: KeyRound },
   { id: 'usage', label: 'Usage', icon: ChartColumn },
-  { id: 'settings', label: 'Settings', icon: Settings },
+  { id: 'settings', label: 'Settings', icon: Settings, view: 'settings' },
 ];
 
 interface SidebarProps {
   view: AppView;
   onNavigate: (view: AppView) => void;
+  /** e.g. "v0.4.0-dev"; comes from the build, never hardcoded. */
+  version: string | null;
+  onAbout: () => void;
 }
 
-export function Sidebar({ view, onNavigate }: SidebarProps) {
+export function Sidebar({ view, onNavigate, version, onAbout }: SidebarProps) {
   return (
     <nav
       className="bg-sidebar text-sidebar-foreground border-sidebar-border flex w-14 shrink-0 flex-col border-r lg:w-48"
       aria-label="Main navigation"
     >
       <div className="flex h-12 items-center gap-2 px-3" aria-label="ATLAS">
-        <span
-          className="bg-sidebar-primary text-sidebar-primary-foreground flex size-8 shrink-0 items-center justify-center rounded-md font-bold"
-          aria-hidden="true"
-        >
-          A
-        </span>
+        {/* The artwork is 2:1 with empty margins; cover keeps its centered mark. */}
+        <img
+          src={atlasLogo}
+          alt=""
+          className="size-8 shrink-0 object-cover"
+          data-testid="atlas-logo"
+          draggable={false}
+        />
         <span className="hidden font-semibold tracking-wide lg:inline">ATLAS</span>
       </div>
       <ul className="flex flex-col gap-0.5 p-2">
@@ -91,6 +97,18 @@ export function Sidebar({ view, onNavigate }: SidebarProps) {
           );
         })}
       </ul>
+      {version && (
+        <button
+          type="button"
+          className="text-muted-foreground hover:text-foreground mt-auto px-3 py-2 text-left text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+          onClick={onAbout}
+          title="About ATLAS"
+          data-testid="sidebar-version"
+        >
+          <span className="hidden lg:inline">ATLAS </span>
+          {version}
+        </button>
+      )}
     </nav>
   );
 }

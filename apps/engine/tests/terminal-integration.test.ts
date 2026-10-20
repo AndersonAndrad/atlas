@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import net from 'node:net';
@@ -261,6 +262,74 @@ describe.skipIf(process.platform === 'win32')('terminal runtime with real PTYs',
     await expect(host!.engine.terminals!.create({ projectId: project.id })).rejects.toMatchObject({
       code: 'PROJECT_PATH_UNAVAILABLE',
     });
+  });
+
+  it('runs standalone terminals and follows the shell to other directories', async () => {
+    await startHost();
+    const folder = path.join(temp.dir, 'scratch', 'tools');
+    mkdirSync(path.join(folder, 'nested'), { recursive: true });
+    const session = await host!.engine.terminals!.create({ cwd: folder });
+    await host!.engine.terminals!.attach(session.id, `v-${session.id}`, 80, 24);
+    expect(session).toMatchObject({ projectId: null, cwd: folder, title: 'tools' });
+
+    run(session, 'cd nested && echo "moved-$((1 + 1))"');
+    await waitForOutput(session, /moved-2/);
+    const deadline = Date.now() + 5000;
+    while (host!.engine.terminals!.getById(session.id).cwdSource !== 'detected') {
+      if (Date.now() > deadline) throw new Error('cwd was not detected');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(host!.engine.terminals!.getById(session.id)).toMatchObject({
+      currentCwd: path.join(folder, 'nested'),
+      title: 'nested',
+      cwd: folder,
+    });
+  });
+
+  it('reports Git and project context for the directory a terminal is in', async () => {
+    await startHost();
+    const project = await workspace('nova');
+    execFileSync('git', ['init', '-q', '-b', 'main', project.workspacePath]);
+    const plain = path.join(temp.dir, 'plain');
+    mkdirSync(plain);
+    const inRepo = await open(project.id);
+    const outside = await host!.engine.terminals!.create({ cwd: plain });
+
+    const gitContext = await host!.engine.terminalGit(inRepo.id);
+    expect(gitContext).toMatchObject({
+      directory: project.workspacePath,
+      git: { state: 'repository' },
+    });
+    expect((await host!.engine.terminalGit(outside.id)).git.state).toBe('not-repository');
+
+    expect(await host!.engine.terminalProjectContext(inRepo.id)).toMatchObject({
+      associatedProjectId: project.id,
+      matchedProjectId: project.id,
+    });
+    const nestedStandalone = await host!.engine.terminals!.create({ cwd: project.workspacePath });
+    expect(await host!.engine.terminalProjectContext(nestedStandalone.id)).toMatchObject({
+      associatedProjectId: null,
+      matchedProjectId: project.id,
+    });
+
+    const registered = await host!.engine.registerProjectFromTerminal(outside.id, {
+      name: 'Plain',
+    });
+    expect(registered.project).toMatchObject({ name: 'Plain', workspacePath: plain });
+    expect(registered.session.projectId).toBe(registered.project.id);
+  });
+
+  it('keeps terminals running when their project is removed', async () => {
+    await startHost();
+    const project = await workspace('temporary');
+    const session = await open(project.id);
+    await host!.engine.removeProject(project.id);
+    expect(host!.engine.terminals!.getById(session.id)).toMatchObject({
+      projectId: null,
+      status: 'RUNNING',
+    });
+    run(session, 'echo "alive-$((3 + 4))"');
+    await waitForOutput(session, /alive-7/);
   });
 
   describe('local socket for the CLI', () => {

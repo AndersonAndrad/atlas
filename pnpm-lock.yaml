@@ -65,6 +65,9 @@ importers:
       '@atlas/projects':
         specifier: workspace:*
         version: link:../../packages/projects
+      '@atlas/sessions':
+        specifier: workspace:*
+        version: link:../../packages/sessions
       '@atlas/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -156,6 +159,9 @@ importers:
       '@atlas/projects':
         specifier: workspace:*
         version: link:../../packages/projects
+      '@atlas/sessions':
+        specifier: workspace:*
+        version: link:../../packages/sessions
       '@atlas/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -189,6 +195,9 @@ importers:
       '@atlas/projects':
         specifier: workspace:*
         version: link:../projects
+      '@atlas/sessions':
+        specifier: workspace:*
+        version: link:../sessions
       '@atlas/shared':
         specifier: workspace:*
         version: link:../shared
@@ -197,6 +206,15 @@ importers:
         version: link:../terminal
 
   packages/projects:
+    dependencies:
+      '@atlas/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@atlas/shared':
+        specifier: workspace:*
+        version: link:../shared
+
+  packages/sessions:
     dependencies:
       '@atlas/contracts':
         specifier: workspace:*
