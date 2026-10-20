@@ -7,6 +7,7 @@ import {
   ListChecks,
   GitBranch,
   GitCommitHorizontal,
+  GitMerge,
   RefreshCw,
   TriangleAlert,
   UserRound,
@@ -15,6 +16,16 @@ import { useEffect, useState } from 'react';
 import { api, errorMessage, unwrap } from '@/api';
 import { relativeTime } from '@/components/git/git-format';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -45,6 +56,7 @@ import { CommitDialog } from './CommitDialog';
 import { CommitSettingsDialog } from './CommitSettingsDialog';
 import { DiffViewer } from './DiffViewer';
 import { OperationsButton, OperationsSheet, useOperationsSheet } from './OperationsSheet';
+import { MergeDialog } from './MergeDialog';
 import { PullDialog, PushDialog } from './RemoteDialogs';
 
 /** Opens the Git view on the repository of a project or a terminal. */
@@ -54,7 +66,34 @@ export interface GitOpenRequest {
   nonce: number;
 }
 
-type GitDialog = 'commit' | 'push' | 'pull' | 'branches' | 'checks' | null;
+type GitDialog =
+  'commit' | 'push' | 'pull' | 'branches' | 'checks' | 'merge' | 'abort-merge' | null;
+
+/** Commits to push or pull, as of the last fetch; nothing without an upstream. */
+function SyncCount({
+  value,
+  label,
+  testId,
+}: {
+  value: number | null;
+  label: string;
+  testId: string;
+}) {
+  if (value === null) return null;
+  return (
+    <span
+      className={
+        value > 0
+          ? 'bg-sidebar-primary/20 text-foreground rounded px-1.5 text-xs tabular-nums'
+          : 'bg-muted text-muted-foreground rounded px-1.5 text-xs tabular-nums'
+      }
+      title={`${value} commit${value === 1 ? '' : 's'} ${label} (as of the last fetch)`}
+      data-testid={testId}
+    >
+      {value}
+    </span>
+  );
+}
 
 interface GitViewProps {
   request: GitOpenRequest | null;
@@ -367,6 +406,7 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
                   >
                     <ArrowDown />
                     Pull…
+                    <SyncCount value={tree.behind} label="to pull" testId="git-pull-count" />
                   </Button>
                   <Button
                     variant="outline"
@@ -376,6 +416,16 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
                   >
                     <ArrowUp />
                     Push…
+                    <SyncCount value={tree.ahead} label="to push" testId="git-push-count" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy || tree.inProgress !== null}
+                    onClick={() => setDialog('merge')}
+                  >
+                    <GitMerge />
+                    Merge…
                   </Button>
                   <Button
                     variant="outline"
@@ -451,7 +501,35 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
               </dl>
             </section>
 
-            {tree.inProgress && (
+            {tree.inProgress === 'merge' && (
+              <Alert role="status" className="border-warning/40" data-testid="git-merge-banner">
+                <GitMerge className="text-warning" />
+                <AlertDescription className="flex flex-col gap-2">
+                  <span>
+                    <strong className="text-foreground">Merge in progress</strong>
+                    {tree.mergeMessage ? ` — ${tree.mergeMessage.split('\n', 1)[0]}` : ''}.{' '}
+                    {tree.files.some((file) => file.staged === 'conflicted')
+                      ? 'Resolve the conflicts in your editor, mark them resolved, then commit.'
+                      : 'Review the changes, then commit to finish the merge.'}
+                  </span>
+                  <span className="flex flex-wrap gap-2">
+                    <Button size="sm" disabled={busy} onClick={() => setDialog('commit')}>
+                      <GitCommitHorizontal />
+                      Commit merge
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => setDialog('abort-merge')}
+                    >
+                      Abort merge…
+                    </Button>
+                  </span>
+                </AlertDescription>
+              </Alert>
+            )}
+            {tree.inProgress && tree.inProgress !== 'merge' && (
               <Alert role="status" className="border-warning/40">
                 <TriangleAlert className="text-warning" />
                 <AlertDescription>
@@ -536,6 +614,41 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
           open={operationsSheet.open}
           onOpenChange={operationsSheet.setOpen}
         />
+      )}
+      {tree && dialog === 'merge' && (
+        <MergeDialog
+          tree={tree}
+          onClose={() => setDialog(null)}
+          onCommit={() =>
+            // The merge ran in the dialog: refresh first so the commit dialog sees it.
+            void refresh().then(() => setDialog('commit'))
+          }
+        />
+      )}
+      {tree && dialog === 'abort-merge' && (
+        <AlertDialog open onOpenChange={(open) => !open && setDialog(null)}>
+          <AlertDialogContent data-testid="abort-merge-dialog">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Abort the merge?</AlertDialogTitle>
+              <AlertDialogDescription>
+                The branch goes back to its state before the merge. Conflict resolutions and other
+                changes made during the merge are lost.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep merging</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-white hover:bg-destructive/90"
+                onClick={() => {
+                  setDialog(null);
+                  void mutate(() => unwrap(api().git.abortMerge(tree.repositoryRoot)));
+                }}
+              >
+                Abort merge
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       )}
       {tree && dialog === 'checks' && (
         <CommitSettingsDialog

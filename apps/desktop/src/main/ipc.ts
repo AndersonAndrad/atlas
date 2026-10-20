@@ -11,6 +11,7 @@ import {
   GitCreateBranchInputSchema,
   GitDiffInputSchema,
   GitFetchInputSchema,
+  GitMergeInputSchema,
   GitOperationIdSchema,
   GitPathsInputSchema,
   GitPullInputSchema,
@@ -65,6 +66,8 @@ export interface IpcDependencies {
   subscriberId: () => string;
   /** Version and environment details assembled by the main process. */
   appInfo: () => Promise<AppInfo>;
+  /** Writes plain text to the system clipboard. */
+  writeClipboard: (text: string) => void;
 }
 
 const NoArgs = z.tuple([]);
@@ -319,6 +322,10 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     engine.call('git.project', projectId as string),
   );
   handle(IPC_CHANNELS.appInfo, NoArgs, () => deps.appInfo());
+  handle(IPC_CHANNELS.copyText, z.tuple([z.string().max(1_000_000)]), async ([text]) => {
+    deps.writeClipboard(text as string);
+    return null;
+  });
 
   // Git workflow (SDD-004). The Engine only accepts repository roots it resolved
   // from registered projects or open terminals.
@@ -349,6 +356,9 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
   gitCall(IPC_CHANNELS.gitSuggestMessage, z.tuple([GitPathsInputSchema]), 'git.suggestMessage');
   gitCall(IPC_CHANNELS.gitOperations, NoArgs, 'git.operations');
   gitCall(IPC_CHANNELS.gitCommitContext, RootArgs, 'git.commitContext');
+  gitCall(IPC_CHANNELS.gitMergePreview, z.tuple([GitMergeInputSchema]), 'git.mergePreview');
+  gitCall(IPC_CHANNELS.gitMerge, z.tuple([GitMergeInputSchema]), 'git.merge');
+  gitCall(IPC_CHANNELS.gitAbortMerge, RootArgs, 'git.abortMerge');
   gitCall(IPC_CHANNELS.gitGetProjectSettings, IdArgs, 'git.getProjectSettings');
   gitCall(
     IPC_CHANNELS.gitSetProjectSettings,

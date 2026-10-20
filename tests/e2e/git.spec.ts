@@ -688,3 +688,86 @@ test('opens the operations panel from a terminal and on remote failures', async 
     sheet.locator('[data-testid="git-operation"][data-kind="fetch"]').first(),
   ).toHaveAttribute('data-status', 'failed');
 });
+
+test('shows commits to push and pull on the buttons and merges with a manual commit', async ({
+  atlas,
+}) => {
+  const dir = atlas.workspace('merging');
+  const { git } = repositoryWithRemote(dir, path.join(atlas.root, 'home'));
+  git('checkout', '-q', '--', 'README.md');
+  git('switch', '-q', '-c', 'feature');
+  writeFileSync(path.join(dir, 'feature.txt'), 'feature\n');
+  git('add', 'feature.txt');
+  git('commit', '-qm', 'feat: feature');
+  git('switch', '-q', 'main');
+  atlas.cli('project', 'add', dir);
+  const { page } = await atlas.launch();
+  await openGit(page);
+
+  // One local commit to push, nothing to pull (as of the last fetch).
+  await expect(page.getByTestId('git-push-count')).toHaveText('1');
+  await expect(page.getByTestId('git-pull-count')).toHaveText('0');
+
+  await page.getByRole('button', { name: 'Merge…' }).click();
+  const dialog = page.getByTestId('merge-dialog');
+  await dialog.getByRole('combobox', { name: 'Branch to merge' }).click();
+  await page.getByRole('option', { name: 'feature', exact: true }).click();
+  await expect(dialog.getByTestId('merge-preview')).toContainText('1 commit of feature');
+  await dialog.getByRole('button', { name: 'Merge', exact: true }).click();
+  await expect(dialog.getByTestId('merge-success')).toContainText('Merge ready — no conflicts');
+  expect(git('log', '-1', '--format=%s').trim()).toBe('feat: auth');
+
+  // Committing is manual, with Git's merge message, although Conventional Commits are enforced.
+  await dialog.getByRole('button', { name: 'Commit merge' }).click();
+  const commit = page.getByTestId('commit-dialog');
+  await expect(commit.getByTestId('commit-merge-notice')).toBeVisible();
+  await expect(commit.getByLabel('Commit message')).toHaveValue("Merge branch 'feature'");
+  await expect(commit.getByTestId('commit-validation-badge')).toHaveText('Merge commit');
+  await commit.getByRole('button', { name: 'Commit', exact: true }).click();
+  await expect(commit).toBeHidden({ timeout: 15_000 });
+  expect(git('log', '-1', '--format=%P').trim().split(' ')).toHaveLength(2);
+  expect(git('log', '-1', '--format=%s').trim()).toBe("Merge branch 'feature'");
+  await expect(page.getByTestId('git-merge-banner')).toHaveCount(0);
+  await expect(page.getByTestId('git-push-count')).toHaveText('3');
+});
+
+test('shows merge conflicts with a copyable message and aborts on confirmation', async ({
+  atlas,
+}) => {
+  const dir = atlas.workspace('conflicts');
+  const { git } = repositoryWithRemote(dir, path.join(atlas.root, 'home'));
+  git('checkout', '-q', '--', 'README.md');
+  git('switch', '-q', '-c', 'feature');
+  writeFileSync(path.join(dir, 'README.md'), 'from feature\n');
+  git('commit', '-qam', 'docs: feature readme');
+  git('switch', '-q', 'main');
+  writeFileSync(path.join(dir, 'README.md'), 'from main\n');
+  git('commit', '-qam', 'docs: main readme');
+  atlas.cli('project', 'add', dir);
+  const { app, page } = await atlas.launch();
+  await openGit(page);
+
+  await page.getByRole('button', { name: 'Merge…' }).click();
+  const dialog = page.getByTestId('merge-dialog');
+  await dialog.getByRole('combobox', { name: 'Branch to merge' }).click();
+  await page.getByRole('option', { name: 'feature', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Merge', exact: true }).click();
+  const conflict = dialog.getByTestId('merge-conflict');
+  await expect(conflict).toContainText('README.md');
+  await expect(conflict.getByTestId('merge-conflict-output')).toContainText('CONFLICT');
+  await conflict.getByRole('button', { name: 'Copy message' }).click();
+  await expect(conflict.getByRole('button', { name: 'Copied' })).toBeVisible();
+  const clipboard = await app.evaluate(({ clipboard }) => clipboard.readText());
+  expect(clipboard).toContain('README.md');
+  expect(clipboard).toContain('CONFLICT');
+
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  const banner = page.getByTestId('git-merge-banner');
+  await expect(banner).toContainText('Resolve the conflicts');
+  await expect(page.getByRole('button', { name: 'Merge…', exact: true })).toBeDisabled();
+  await banner.getByRole('button', { name: 'Abort merge…' }).click();
+  await page.getByTestId('abort-merge-dialog').getByRole('button', { name: 'Abort merge' }).click();
+  await expect(banner).toHaveCount(0, { timeout: 15_000 });
+  expect(git('status', '--porcelain').trim()).toBe('');
+});

@@ -50,6 +50,8 @@ export const OPERATION_LABELS: Record<GitOperationKind, string> = {
   'create-branch': 'Create branch',
   'switch-branch': 'Switch branch',
   'rename-branch': 'Rename branch',
+  merge: 'Merge',
+  'abort-merge': 'Abort merge',
 };
 
 export function fileName(path: string): string {

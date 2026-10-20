@@ -28,6 +28,7 @@ import {
   GitCreateBranchInputSchema,
   GitDiffInputSchema,
   GitFetchInputSchema,
+  GitMergeInputSchema,
   GitOperationIdSchema,
   GitPathsInputSchema,
   GitPullInputSchema,
@@ -40,6 +41,7 @@ import {
   type GitCommitResult,
   type GitCommitSuggestion,
   type GitFileDiff,
+  type GitMergePreview,
   type GitOperation,
   type GitPreferences,
   type GitPullInfo,
@@ -157,6 +159,9 @@ export const ENGINE_METHOD_PARAMS = {
   'git.getPreferences': z.tuple([]),
   'git.setPreferences': z.tuple([Unknown]),
   'git.commitContext': z.tuple([GitRepositoryRootSchema]),
+  'git.mergePreview': z.tuple([GitMergeInputSchema]),
+  'git.merge': z.tuple([GitMergeInputSchema]),
+  'git.abortMerge': z.tuple([GitRepositoryRootSchema]),
   'git.getProjectSettings': z.tuple([Id]),
   'git.setProjectSettings': z.tuple([Id, Unknown]),
   'terminals.closeAllInfo': z.tuple([]),
@@ -252,6 +257,9 @@ export interface EngineMethodResults {
   'git.getPreferences': StoredGitPreferences;
   'git.setPreferences': GitPreferences;
   'git.commitContext': GitCommitContext;
+  'git.mergePreview': GitMergePreview;
+  'git.merge': GitOperation;
+  'git.abortMerge': GitOperation;
   'git.getProjectSettings': StoredProjectGitSettings;
   'git.setProjectSettings': ProjectGitSettings;
   'terminals.closeAllInfo': { runningSessions: number; busySessions: number };

@@ -1127,6 +1127,131 @@ describe.skipIf(!gitAvailable)('GitWorkspaceService with real repositories', () 
     });
   });
 
+  describe('merge', () => {
+    /** `main` and a `feature` branch with one commit each; `conflict` decides the file. */
+    const diverged = (name: string, conflict: boolean) => {
+      const dir = committed(name);
+      git(dir, 'switch', '-q', '-c', 'feature');
+      write(dir, conflict ? 'README.md' : 'feature.txt', 'from feature\n');
+      git(dir, 'add', '.');
+      git(dir, 'commit', '-q', '-m', 'feat: feature work');
+      git(dir, 'switch', '-q', 'main');
+      write(dir, conflict ? 'README.md' : 'main.txt', 'from main\n');
+      git(dir, 'add', '.');
+      git(dir, 'commit', '-q', '-m', 'feat: main work');
+      return dir;
+    };
+    const commitMerge = async (
+      dir: string,
+      message: string,
+      checks?: Parameters<typeof service.commit>[2],
+    ) =>
+      service.commit(
+        {
+          repositoryRoot: dir,
+          message,
+          stage: [],
+          unstage: [],
+          expectedFingerprint: (await tree(dir)).indexFingerprint,
+          push: false,
+        },
+        {},
+        checks,
+      );
+
+    it("prepares a merge without committing and commits it with Git's message", async () => {
+      const dir = diverged('merge-clean', false);
+      expect(await service.mergePreview(dir, 'feature')).toEqual({ branch: 'feature', commits: 1 });
+      const merged = await service.merge(dir, 'feature');
+      expect(merged).toMatchObject({ kind: 'merge', status: 'succeeded' });
+      expect(merged.summary).toContain('without conflicts');
+      const state = await tree(dir);
+      expect(state.inProgress).toBe('merge');
+      expect(state.mergeMessage).toBe("Merge branch 'feature'");
+      expect(file(state, 'feature.txt')?.staged).toBe('added');
+      expect(git(dir, 'log', '-1', '--format=%s').trim()).toBe('feat: main work');
+
+      // Git's default message is accepted although Conventional Commits are enforced.
+      const result = await commitMerge(dir, state.mergeMessage!, {
+        enforceConventionalCommits: true,
+        steps: [
+          {
+            name: 'check',
+            command: 'test -f feature.txt',
+            mode: 'complete',
+            timeoutSeconds: 30,
+            readyAfterSeconds: 2,
+            readyText: null,
+          },
+        ],
+        cwd: dir,
+      });
+      expect(result.commit.status).toBe('succeeded');
+      expect(result.commit.steps?.[0]?.status).toBe('passed');
+      expect(git(dir, 'log', '-1', '--format=%P').trim().split(' ')).toHaveLength(2);
+      expect(commitMessage(dir)).toBe("Merge branch 'feature'");
+      expect((await tree(dir)).inProgress).toBeNull();
+    });
+
+    it('reports conflicts with the files and lets the merge be aborted', async () => {
+      const dir = diverged('merge-conflict', true);
+      const merged = await service.merge(dir, 'feature');
+      expect(merged).toMatchObject({ status: 'failed', error: { code: 'conflict' } });
+      expect(merged.error?.message).toContain('README.md');
+      expect(merged.error?.output).toContain('CONFLICT');
+      const state = await tree(dir);
+      expect(state.inProgress).toBe('merge');
+      expect(file(state, 'README.md')?.staged).toBe('conflicted');
+      // Committing stays blocked while conflicts remain; switching branches too.
+      expect((await commitMerge(dir, "Merge branch 'feature'")).commit.error?.code).toBe(
+        'conflict',
+      );
+      await expect(service.switchBranch(dir, { name: 'feature', kind: 'local' })).rejects.toThrow(
+        AtlasError,
+      );
+      await expect(service.merge(dir, 'feature')).rejects.toThrow(AtlasError);
+
+      const aborted = await service.abortMerge(dir);
+      expect(aborted).toMatchObject({ kind: 'abort-merge', status: 'succeeded' });
+      expect((await tree(dir)).inProgress).toBeNull();
+      expect(read(dir, 'README.md')).toBe('from main\n');
+      await expect(service.abortMerge(dir)).rejects.toThrow(AtlasError);
+    });
+
+    it('refuses dirty working trees, unknown branches and messages outside a merge', async () => {
+      const dir = diverged('merge-refuse', false);
+      await expect(service.merge(dir, 'main')).rejects.toThrow(AtlasError);
+      await expect(service.merge(dir, 'nope')).rejects.toThrow(AtlasError);
+      write(dir, 'main.txt', 'dirty\n');
+      await expect(service.merge(dir, 'feature')).rejects.toMatchObject({
+        code: 'VALIDATION_FAILED',
+      });
+      git(dir, 'checkout', '--', 'main.txt');
+      write(dir, 'untracked.txt', 'ok\n');
+      expect((await service.merge(dir, 'feature')).status).toBe('succeeded');
+      await service.abortMerge(dir);
+
+      // "Merge ..." is not a free pass when no merge is in progress.
+      git(dir, 'add', 'untracked.txt');
+      await expect(commitMerge(dir, 'Merge whatever')).rejects.toMatchObject({
+        code: 'VALIDATION_FAILED',
+      });
+    });
+
+    it('reports when there is nothing to merge', async () => {
+      const dir = committed('merge-nothing');
+      git(dir, 'branch', 'behind');
+      write(dir, 'x.txt', 'x\n');
+      git(dir, 'add', 'x.txt');
+      git(dir, 'commit', '-q', '-m', 'feat: x');
+      expect((await service.mergePreview(dir, 'behind')).commits).toBe(0);
+      const merged = await service.merge(dir, 'behind');
+      expect(merged.status).toBe('succeeded');
+      expect(merged.summary).toContain('nothing to merge');
+      expect((await tree(dir)).inProgress).toBeNull();
+    });
+  });
+
   describe('remote operations', () => {
     it('commits and pushes, reporting each operation separately', async () => {
       const { clone, origin } = withRemote('push');

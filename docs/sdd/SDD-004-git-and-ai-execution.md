@@ -176,6 +176,36 @@ Settings use `application_settings` key `git.project.<projectId>` and are delete
 the project is removed. No database migration is needed. Older builds ignore these keys;
 rolling back to a build without project checks therefore stops enforcing them.
 
+## Merge (PLAN-011)
+
+The Git view's **Merge…** merges a local or remote-tracking branch (as of the last fetch)
+into the current branch with `git merge --no-commit --no-ff`: Git prepares the merge but
+does not commit it, so the user reviews it and commits manually, like running `git commit`
+after a merge. `--no-ff` always prepares a merge commit, even when a fast-forward would be
+possible.
+
+- **Before**: refused while a merge or rebase is in progress, on a detached HEAD, for the
+  current branch, and with uncommitted changes to tracked files (untracked files are
+  allowed). A clean working tree keeps aborting safe. The dialog shows how many commits the
+  branch brings (`rev-list --count HEAD..<branch>`).
+- **Clean merge**: a positive message ("Merge ready — no conflicts", with the number of
+  files) and **Commit merge**, which opens the commit dialog with Git's prepared message
+  (`MERGE_MSG` without comment lines, exposed as `GitWorkingTree.mergeMessage`). The
+  project's pre-commit steps run as for any commit. A message starting with `Merge ` is
+  accepted while a merge is in progress even when Conventional Commits are enforced
+  (badge "Merge commit"); outside a merge it is validated as usual.
+- **Conflicts**: the operation fails with code `conflict`, listing the conflicted files and
+  Git's (redacted) output, which **Copy message** copies through the main process
+  (`app.copyText`, so it works without document focus). The view shows a "Merge in
+  progress" banner with **Commit merge** and **Abort merge…**; commits stay blocked until
+  every conflict is marked resolved.
+- **Abort**: `git merge --abort` after a confirmation that conflict resolutions are lost.
+- While a merge is in progress, pull, switching branches, creating a branch and switching to
+  it, and starting another merge are refused.
+
+Push and Pull buttons show the commits to push and to pull (as of the last fetch); no
+number is shown without an upstream.
+
 ## Commit suggestions (FR-407)
 
 The deterministic strategy uses only paths and change types. It names a type only when

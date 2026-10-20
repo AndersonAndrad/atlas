@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { copyText } from '@/lib/clipboard';
 import { OperationResult } from './OperationsPanel';
 
 interface BranchesDialogProps {
@@ -119,7 +120,7 @@ export function BranchesDialog({ tree, onClose }: BranchesDialogProps) {
   };
 
   const copy = (name: string) =>
-    void navigator.clipboard.writeText(name).then(
+    void copyText(name).then(
       () => setCopied(name),
       () => undefined,
     );

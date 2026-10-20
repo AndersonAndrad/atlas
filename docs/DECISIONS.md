@@ -325,3 +325,18 @@ superseded decisions are marked, not deleted.
   they can see and modify uncommitted files.
 - **Rollback**: The feature is opt-in; removing a project's steps in its settings disables
   it. Older builds ignore the stored settings.
+
+## ADR-038 — Merge without committing; Git's merge message is accepted (PLAN-011)
+
+- **Decision**: Merges run `git merge --no-commit --no-ff` and require a clean working tree
+  (tracked files). The user commits the merge manually from the commit dialog, prefilled
+  with Git's `MERGE_MSG`, and the project's pre-commit steps run. While a merge is in
+  progress, a message starting with `Merge ` is accepted even when Conventional Commits are
+  enforced (as commitlint ignores merge commits by default). `git merge --abort` is offered
+  only after an explicit confirmation.
+- **Alternatives**: Committing the merge automatically (rejected: the user wants to review
+  and run the checks); requiring Conventional messages for merges (rejected by the user's
+  workflow, which keeps Git's default message); allowing dirty working trees (rejected:
+  aborting could lose local changes).
+- **Consequences**: `--no-ff` always creates a merge commit. Clipboard writes go through the
+  main process (`app.copyText`), since `navigator.clipboard` needs document focus.

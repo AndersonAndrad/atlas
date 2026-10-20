@@ -47,6 +47,7 @@ describe('desktop IPC handlers', () => {
   let trusted: boolean;
   let pickedPath: string | undefined;
   let workspace: string;
+  let copied: string[] = [];
 
   const trustedEvent = {} as IpcMainInvokeEvent;
   const invoke = <T>(channel: string, ...args: unknown[]) =>
@@ -97,6 +98,7 @@ describe('desktop IPC handlers', () => {
       logger: noopLogger,
       subscriberId: () => 'desktop-1-0',
       appInfo: async () => ({ desktopVersion: '0.4.0' }) as never,
+      writeClipboard: (text: string) => copied.push(text),
       isTrustedSender: () => trusted,
       showOpenDialog: async () =>
         pickedPath === undefined
@@ -321,6 +323,19 @@ describe('desktop IPC handlers', () => {
       ).toEqual({ ok: true, data: null });
       expect(await invoke(IPC_CHANNELS.listGroups)).toEqual({ ok: true, data: [] });
       expect(await invoke(IPC_CHANNELS.createGroup, '')).toMatchObject({
+        ok: false,
+        error: { code: 'VALIDATION_FAILED' },
+      });
+    });
+
+    it('copies text to the clipboard through the main process', async () => {
+      copied = [];
+      expect(await invoke(IPC_CHANNELS.copyText, 'CONFLICT (content)')).toEqual({
+        ok: true,
+        data: null,
+      });
+      expect(copied).toEqual(['CONFLICT (content)']);
+      expect(await invoke(IPC_CHANNELS.copyText, 42)).toMatchObject({
         ok: false,
         error: { code: 'VALIDATION_FAILED' },
       });

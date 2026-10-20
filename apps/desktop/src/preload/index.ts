@@ -104,6 +104,9 @@ const api: AtlasApi = {
     getPreferences: () => ipcRenderer.invoke(IPC_CHANNELS.gitGetPreferences),
     setPreferences: (input) => ipcRenderer.invoke(IPC_CHANNELS.gitSetPreferences, input),
     commitContext: (root) => ipcRenderer.invoke(IPC_CHANNELS.gitCommitContext, root),
+    mergePreview: (input) => ipcRenderer.invoke(IPC_CHANNELS.gitMergePreview, input),
+    merge: (input) => ipcRenderer.invoke(IPC_CHANNELS.gitMerge, input),
+    abortMerge: (root) => ipcRenderer.invoke(IPC_CHANNELS.gitAbortMerge, root),
     getProjectSettings: (projectId) =>
       ipcRenderer.invoke(IPC_CHANNELS.gitGetProjectSettings, projectId),
     setProjectSettings: (projectId, settings) =>
@@ -131,6 +134,7 @@ const api: AtlasApi = {
   },
   app: {
     info: () => ipcRenderer.invoke(IPC_CHANNELS.appInfo),
+    copyText: (text) => ipcRenderer.invoke(IPC_CHANNELS.copyText, text),
     onCommand: (listener) => subscribe<AppCommand>(IPC_EVENT_CHANNELS.appCommand, listener),
     onEngineRestarted: (listener) =>
       subscribe<undefined>(IPC_EVENT_CHANNELS.engineRestarted, () => listener()),

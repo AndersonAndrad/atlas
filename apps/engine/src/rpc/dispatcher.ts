@@ -11,6 +11,7 @@ import {
   type GitCreateBranchInput,
   type GitDiffInput,
   type GitFetchInput,
+  type GitMergeInput,
   type GitPathsInput,
   type GitPullInput,
   type GitPushInput,
@@ -198,6 +199,11 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     },
     'git.operations': () => engine.gitOperations.list(),
     'git.cancelOperation': ([id]: [string]) => engine.gitOperations.cancel(id),
+    'git.mergePreview': async ([input]: [GitMergeInput]) =>
+      gitService.mergePreview(await repo(input.repositoryRoot), input.branch),
+    'git.merge': async ([input]: [GitMergeInput]) =>
+      gitService.merge(await repo(input.repositoryRoot), input.branch),
+    'git.abortMerge': async ([root]: [string]) => gitService.abortMerge(await repo(root)),
     'git.commitContext': async ([root]: [string]) => engine.gitCommitContext(await repo(root)),
     'git.getProjectSettings': async ([projectId]: [string]) => {
       await projects.getDetails(projectId);

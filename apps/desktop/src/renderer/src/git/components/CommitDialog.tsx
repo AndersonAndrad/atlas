@@ -43,6 +43,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { copyText } from '@/lib/clipboard';
 import { cn } from '@/lib/utils';
 import {
   INVALID_PREFERENCES_MESSAGE,
@@ -104,7 +105,10 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
   const [showUnstaged, setShowUnstaged] = useState(
     () => !tree.files.some((file) => file.staged !== null),
   );
-  const [message, setMessage] = useState('');
+  // Concluding a merge starts from Git's prepared merge message, as `git commit` does.
+  const [message, setMessage] = useState(() =>
+    tree.inProgress === 'merge' ? (tree.mergeMessage ?? '') : '',
+  );
   const [suggestion, setSuggestion] = useState<GitCommitSuggestion | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; indexChanged: boolean } | null>(null);
@@ -219,9 +223,13 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
   );
 
   const hasMessage = message.trim() !== '';
-  const validation = enforce
-    ? validateCommitMessage(message, rulesOf(preferences))
-    : { valid: hasMessage, errors: [] as string[], breaking: false };
+  // Git's default merge message concludes a merge even when Conventional Commits are enforced.
+  const mergeCommit = snapshot.inProgress === 'merge' && /^Merge /.test(message.trimStart());
+  const conventional = enforce ? validateCommitMessage(message, rulesOf(preferences)) : null;
+  const validation =
+    conventional === null || (!conventional.valid && mergeCommit)
+      ? { valid: hasMessage, errors: [] as string[], breaking: false }
+      : conventional;
   // Changes left out of this commit that the steps will still see.
   const leftOut = snapshot.files.filter(
     (file) =>
@@ -350,6 +358,14 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
           </DialogDescription>
         </DialogHeader>
 
+        {snapshot.inProgress === 'merge' && !committed && (
+          <Alert role="status" data-testid="commit-merge-notice">
+            <AlertDescription>
+              This commit concludes the merge. Git’s merge message is filled in; edit it if you
+              want.
+            </AlertDescription>
+          </Alert>
+        )}
         {stale && !committed && (
           <Alert role="status" className="border-warning/40">
             <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
@@ -546,7 +562,11 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
                   )}
                   data-testid="commit-validation-badge"
                 >
-                  {validation.valid ? 'Conventional' : 'Not conventional'}
+                  {mergeCommit && !conventional?.valid
+                    ? 'Merge commit'
+                    : validation.valid
+                      ? 'Conventional'
+                      : 'Not conventional'}
                 </span>
               )
             )}
@@ -621,7 +641,7 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
               variant="outline"
               size="sm"
               disabled={!hasMessage}
-              onClick={() => void navigator.clipboard.writeText(message).catch(() => undefined)}
+              onClick={() => void copyText(message).catch(() => undefined)}
             >
               <Copy />
               Copy message

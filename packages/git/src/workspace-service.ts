@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, open, readlink, realpath, stat } from 'node:fs/promises';
+import { lstat, open, readFile, readlink, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type {
   GitBranchList,
@@ -12,6 +12,7 @@ import type {
   GitFileDiff,
   GitInProgressOperation,
   GitLineStats,
+  GitMergePreview,
   GitOperation,
   GitPullInfo,
   GitPullInput,
@@ -198,6 +199,7 @@ export class GitWorkspaceService {
       this.modifiedAt(path.join(directory, 'FETCH_HEAD')),
       this.inProgress(directory),
     ]);
+    const mergeMessage = inProgress === 'merge' ? await this.mergeMessage(directory) : null;
     const tree: GitWorkingTree = {
       repositoryRoot,
       repositoryName: path.basename(repositoryRoot),
@@ -211,6 +213,7 @@ export class GitWorkspaceService {
       identity: { name, email },
       lastFetchAt,
       inProgress,
+      mergeMessage,
       files,
       truncated: entries.length > listed.length,
       stagedTruncated: hiddenStaged > 0,
@@ -389,7 +392,7 @@ export class GitWorkspaceService {
     const { repositoryRoot } = input;
     if (checks.enforceConventionalCommits) {
       const validation = validateCommitMessage(input.message, rules);
-      if (!validation.valid) {
+      if (!validation.valid && !(await this.isMergeCommitMessage(repositoryRoot, input.message))) {
         throw new AtlasError('VALIDATION_FAILED', 'Invalid commit message.', {
           issues: validation.errors.map((message) => ({ field: 'message', message })),
         });
@@ -657,6 +660,7 @@ export class GitWorkspaceService {
     input: Omit<GitCreateBranchInput, 'repositoryRoot'>,
   ): Promise<GitOperation> {
     await this.requireBranchName(repositoryRoot, input.name);
+    if (input.switchTo) await this.requireNothingInProgress(repositoryRoot);
     if (input.startPoint !== undefined) {
       const list = await this.branches(repositoryRoot);
       const known = [...list.local, ...list.remote].some(
@@ -690,6 +694,7 @@ export class GitWorkspaceService {
     repositoryRoot: string,
     input: Omit<GitSwitchBranchInput, 'repositoryRoot'>,
   ): Promise<GitOperation> {
+    await this.requireNothingInProgress(repositoryRoot);
     const list = await this.branches(repositoryRoot);
     const candidates = input.kind === 'local' ? list.local : list.remote;
     if (!candidates.some((branch) => branch.name === input.name)) {
@@ -733,9 +738,122 @@ export class GitWorkspaceService {
     return outcome.operation;
   }
 
+  /** Commits `branch` would bring into the current branch, from local refs. */
+  async mergePreview(repositoryRoot: string, branch: string): Promise<GitMergePreview> {
+    await this.requireMergeSource(repositoryRoot, branch);
+    const count = await this.read(repositoryRoot, ['rev-list', '--count', `HEAD..${branch}`]);
+    return { branch, commits: Number(count.trim()) || 0 };
+  }
+
+  /**
+   * Merges `branch` into the current branch without committing (`--no-commit
+   * --no-ff`), so the user reviews the result and commits it with Git's prepared
+   * message (and the project's pre-commit steps). Requires a clean working tree,
+   * which keeps aborting safe.
+   */
+  async merge(repositoryRoot: string, branch: string): Promise<GitOperation> {
+    const tree = await this.workingTree(repositoryRoot);
+    if (tree.inProgress !== null) {
+      throw invalid('branch', `A ${tree.inProgress} is in progress. Finish or abort it first.`);
+    }
+    if (tree.branch === null) throw invalid('branch', 'Switch to a branch before merging.');
+    if (
+      tree.files.some(
+        (file) => file.staged !== null || (file.unstaged !== null && file.unstaged !== 'untracked'),
+      )
+    ) {
+      throw invalid('branch', 'Commit or stash your changes before merging.');
+    }
+    await this.requireMergeSource(repositoryRoot, branch);
+    const current = tree.branch;
+    const outcome = await this.mutate(repositoryRoot, 'merge', ['index'], false, async () => {
+      try {
+        await this.write(repositoryRoot, ['merge', '--no-commit', '--no-ff', branch]);
+      } catch (error) {
+        const after = await this.workingTree(repositoryRoot).catch(() => null);
+        const conflicted = after?.files.filter((file) => file.staged === 'conflicted') ?? [];
+        if (conflicted.length > 0) {
+          const failure = toFailure(error);
+          const names = conflicted.slice(0, 20).map((file) => file.path);
+          const more =
+            conflicted.length > names.length ? ` and ${conflicted.length - names.length} more` : '';
+          throw new GitOperationFailure(
+            'conflict',
+            `Merging ${branch} into ${current} stopped with conflicts in ` +
+              `${plural(conflicted.length, 'file')}: ${names.join(', ')}${more}. ` +
+              'Resolve them, mark them resolved and commit, or abort the merge.',
+            failure.output,
+          );
+        }
+        throw error;
+      }
+      const after = await this.workingTree(repositoryRoot);
+      if (after.inProgress !== 'merge') {
+        return { summary: `${current} already contains ${branch}; nothing to merge.`, value: null };
+      }
+      const changed = after.files.filter((file) => file.staged !== null).length;
+      return {
+        summary:
+          `Merged ${branch} into ${current} without conflicts ` +
+          `(${plural(changed, 'file')}). Review the changes and commit to finish.`,
+        value: null,
+      };
+    });
+    return outcome.operation;
+  }
+
+  /** Restores the state before the merge (`git merge --abort`). */
+  async abortMerge(repositoryRoot: string): Promise<GitOperation> {
+    const tree = await this.workingTree(repositoryRoot);
+    if (tree.inProgress !== 'merge') throw invalid('branch', 'No merge is in progress.');
+    const outcome = await this.mutate(repositoryRoot, 'abort-merge', ['index'], false, async () => {
+      await this.write(repositoryRoot, ['merge', '--abort']);
+      return {
+        summary: 'Merge aborted; the branch is back to its state before the merge.',
+        value: null,
+      };
+    });
+    return outcome.operation;
+  }
+
   // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
+
+  /** Git's default merge message is accepted for the commit that concludes a merge. */
+  private async isMergeCommitMessage(repositoryRoot: string, message: string): Promise<boolean> {
+    if (!/^Merge /.test(message.trimStart())) return false;
+    return (await this.workingTree(repositoryRoot)).inProgress === 'merge';
+  }
+
+  private async mergeMessage(gitDir: string): Promise<string | null> {
+    try {
+      const text = (await readFile(path.join(gitDir, 'MERGE_MSG'), 'utf8'))
+        .split(/\r?\n/)
+        .filter((line) => !line.startsWith('#'))
+        .join('\n')
+        .trim();
+      return text === '' ? null : text;
+    } catch {
+      return null;
+    }
+  }
+
+  private async requireNothingInProgress(repositoryRoot: string): Promise<void> {
+    const { inProgress } = await this.workingTree(repositoryRoot);
+    if (inProgress !== null) {
+      throw invalid('name', `A ${inProgress} is in progress. Finish or abort it first.`);
+    }
+  }
+
+  /** A local or remote-tracking branch other than the current one. */
+  private async requireMergeSource(repositoryRoot: string, branch: string): Promise<void> {
+    const list = await this.branches(repositoryRoot);
+    const known = [...list.local, ...list.remote].some((candidate) => candidate.name === branch);
+    if (!known || branch === list.current) {
+      throw invalid('branch', 'Choose another existing branch to merge.');
+    }
+  }
 
   private async mutate<T>(
     repositoryRoot: string,

@@ -9,6 +9,7 @@ import {
   BrowserWindow,
   Menu,
   app,
+  clipboard,
   dialog,
   ipcMain,
   session,
@@ -205,6 +206,7 @@ async function bootstrap(): Promise<void> {
       mainWindow ? dialog.showOpenDialog(mainWindow, options) : dialog.showOpenDialog(options),
     subscriberId,
     appInfo,
+    writeClipboard: (text) => clipboard.writeText(text),
   });
 
   Menu.setApplicationMenu(

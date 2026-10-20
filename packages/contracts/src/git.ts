@@ -125,6 +125,11 @@ export interface GitWorkingTree {
   /** Modification time of FETCH_HEAD; null when the repository was never fetched. */
   lastFetchAt: string | null;
   inProgress: GitInProgressOperation | null;
+  /**
+   * While a merge is in progress: Git's prepared merge message (`MERGE_MSG` without
+   * comment lines), used as the default commit message.
+   */
+  mergeMessage: string | null;
   files: GitFileChange[];
   /** True when more changed paths exist than were listed. */
   truncated: boolean;
@@ -211,6 +216,8 @@ export const GIT_OPERATION_KINDS = [
   'create-branch',
   'switch-branch',
   'rename-branch',
+  'merge',
+  'abort-merge',
 ] as const;
 export type GitOperationKind = (typeof GIT_OPERATION_KINDS)[number];
 
@@ -383,6 +390,20 @@ export const GitSwitchBranchInputSchema = z.strictObject({
   kind: z.enum(['local', 'remote']),
 });
 export type GitSwitchBranchInput = z.infer<typeof GitSwitchBranchInputSchema>;
+
+export const GitMergeInputSchema = z.strictObject({
+  repositoryRoot: GitRepositoryRootSchema,
+  /** Local or remote-tracking branch merged into the current branch. */
+  branch: GitRefNameSchema,
+});
+export type GitMergeInput = z.infer<typeof GitMergeInputSchema>;
+
+/** What merging `branch` would bring, from local refs (as of the last fetch). */
+export interface GitMergePreview {
+  branch: string;
+  /** Commits of `branch` that the current branch does not have yet. */
+  commits: number;
+}
 
 export const GitRenameBranchInputSchema = z.strictObject({
   repositoryRoot: GitRepositoryRootSchema,

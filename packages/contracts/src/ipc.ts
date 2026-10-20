@@ -17,6 +17,8 @@ import type {
   GitDiffInput,
   GitFetchInput,
   GitFileDiff,
+  GitMergeInput,
+  GitMergePreview,
   GitOperation,
   GitPathsInput,
   GitPreferences,
@@ -125,9 +127,13 @@ export const IPC_CHANNELS = {
   gitGetPreferences: 'atlas:git:get-preferences',
   gitSetPreferences: 'atlas:git:set-preferences',
   gitCommitContext: 'atlas:git:commit-context',
+  gitMergePreview: 'atlas:git:merge-preview',
+  gitMerge: 'atlas:git:merge',
+  gitAbortMerge: 'atlas:git:abort-merge',
   gitGetProjectSettings: 'atlas:git:get-project-settings',
   gitSetProjectSettings: 'atlas:git:set-project-settings',
   appInfo: 'atlas:app:info',
+  copyText: 'atlas:app:copy-text',
 
   listSessions: 'atlas:sessions:list',
   getSession: 'atlas:sessions:get',
@@ -301,6 +307,11 @@ export interface AtlasApi {
     cancelOperation(id: string): Promise<IpcResult<GitOperation>>;
     getPreferences(): Promise<IpcResult<StoredGitPreferences>>;
     setPreferences(input: UpdateGitPreferences): Promise<IpcResult<GitPreferences>>;
+    mergePreview(input: GitMergeInput): Promise<IpcResult<GitMergePreview>>;
+    /** Merges a branch without committing (`--no-commit --no-ff`); the user commits after. */
+    merge(input: GitMergeInput): Promise<IpcResult<GitOperation>>;
+    /** Restores the state before the merge; conflict resolutions in progress are lost. */
+    abortMerge(repositoryRoot: string): Promise<IpcResult<GitOperation>>;
     /** Projects of a repository and the commit settings each applies. */
     commitContext(repositoryRoot: string): Promise<IpcResult<GitCommitContext>>;
     getProjectSettings(projectId: string): Promise<IpcResult<StoredProjectGitSettings>>;
@@ -333,6 +344,8 @@ export interface AtlasApi {
   };
   app: {
     info(): Promise<IpcResult<AppInfo>>;
+    /** Writes plain text to the system clipboard (works without document focus). */
+    copyText(text: string): Promise<IpcResult<null>>;
     onCommand(listener: (command: AppCommand) => void): Unsubscribe;
     /** The Engine process restarted; terminal state must be reloaded. */
     onEngineRestarted(listener: () => void): Unsubscribe;
