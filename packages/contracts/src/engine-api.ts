@@ -36,6 +36,7 @@ import {
   GitRepositoryRootSchema,
   GitSwitchBranchInputSchema,
   type GitBranchList,
+  type GitCommitContext,
   type GitCommitResult,
   type GitCommitSuggestion,
   type GitFileDiff,
@@ -46,6 +47,9 @@ import {
   type GitRepositoryEntry,
   type GitStatus,
   type GitWorkingTree,
+  type ProjectGitSettings,
+  type StoredGitPreferences,
+  type StoredProjectGitSettings,
   type TerminalGitContext,
   type TerminalProjectContext,
 } from './git.js';
@@ -152,6 +156,9 @@ export const ENGINE_METHOD_PARAMS = {
   'git.cancelOperation': z.tuple([GitOperationIdSchema]),
   'git.getPreferences': z.tuple([]),
   'git.setPreferences': z.tuple([Unknown]),
+  'git.commitContext': z.tuple([GitRepositoryRootSchema]),
+  'git.getProjectSettings': z.tuple([Id]),
+  'git.setProjectSettings': z.tuple([Id, Unknown]),
   'terminals.closeAllInfo': z.tuple([]),
 
   'sessions.list': z.tuple([ListSessionsInputSchema]),
@@ -242,8 +249,11 @@ export interface EngineMethodResults {
   'git.suggestMessage': GitCommitSuggestion | null;
   'git.operations': GitOperation[];
   'git.cancelOperation': GitOperation;
-  'git.getPreferences': GitPreferences;
+  'git.getPreferences': StoredGitPreferences;
   'git.setPreferences': GitPreferences;
+  'git.commitContext': GitCommitContext;
+  'git.getProjectSettings': StoredProjectGitSettings;
+  'git.setProjectSettings': ProjectGitSettings;
   'terminals.closeAllInfo': { runningSessions: number; busySessions: number };
   'sessions.list': AtlasSessionListItem[];
   'sessions.get': AtlasSessionDetails;

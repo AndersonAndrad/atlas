@@ -1,5 +1,5 @@
 import type { GitDiffArea, GitFileChange, GitFileChangeKind, GitLineStats } from '@atlas/contracts';
-import { Minus, Plus } from 'lucide-react';
+import { Check, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
@@ -9,6 +9,7 @@ import {
   directoryName,
   fileName,
   isPartiallyStaged,
+  reviewProgress,
 } from '../format';
 import type { DiffSelection } from '../hooks/useGit';
 
@@ -57,7 +58,7 @@ interface Section {
   actionLabel: string;
 }
 
-/** Changed files grouped as Git sees them: conflicts, staged, unstaged and untracked. */
+/** Changed files grouped for review: conflicts, approved (staged) and to review. */
 export function ChangesList({
   files,
   selection,
@@ -79,17 +80,17 @@ export function ChangesList({
     },
     {
       id: 'staged',
-      title: 'Staged changes',
+      title: 'Approved · staged',
       area: 'staged',
       files: files.filter((file) => file.staged !== null && file.staged !== 'conflicted'),
       kind: (file) => file.staged!,
       stats: (file) => file.stagedStats,
       action: 'unstage',
-      actionLabel: 'Unstage',
+      actionLabel: 'Revoke approval',
     },
     {
       id: 'unstaged',
-      title: 'Changes',
+      title: 'To review',
       area: 'unstaged',
       files: files.filter(
         (file) =>
@@ -98,27 +99,49 @@ export function ChangesList({
       kind: (file) => file.unstaged!,
       stats: (file) => file.unstagedStats,
       action: 'stage',
-      actionLabel: 'Stage',
+      actionLabel: 'Approve',
     },
     {
       id: 'untracked',
-      title: 'Untracked files',
+      title: 'To review · new files',
       area: 'unstaged',
       files: files.filter((file) => file.unstaged === 'untracked'),
       kind: () => 'untracked',
       stats: (file) => file.unstagedStats,
       action: 'stage',
-      actionLabel: 'Stage',
+      actionLabel: 'Approve',
     },
   ];
 
+  const { reviewed, total } = reviewProgress(files);
   return (
     <div className="flex flex-col gap-3" data-testid="git-changes">
+      {total > 0 && (
+        <div className="flex flex-col gap-1 px-1" data-testid="git-review-progress">
+          <span className="text-muted-foreground text-xs">
+            Reviewed <strong className="text-foreground tabular-nums">{reviewed}</strong> of{' '}
+            <span className="tabular-nums">{total}</span> files · approving a file stages it
+          </span>
+          <span
+            className="bg-muted h-1 overflow-hidden rounded-full"
+            role="progressbar"
+            aria-label="Review progress"
+            aria-valuenow={reviewed}
+            aria-valuemin={0}
+            aria-valuemax={total}
+          >
+            <span
+              className="bg-success block h-full transition-[width]"
+              style={{ width: `${(reviewed / total) * 100}%` }}
+            />
+          </span>
+        </div>
+      )}
       {sections
         .filter((section) => section.files.length > 0)
         .map((section) => {
           const run = section.action === 'stage' ? onStage : onUnstage;
-          const allLabel = section.action === 'stage' ? 'Stage all' : 'Unstage all';
+          const allLabel = section.action === 'stage' ? 'Approve all' : 'Revoke all';
           return (
             <section
               key={section.id}
@@ -189,7 +212,7 @@ export function ChangesList({
                         title={section.actionLabel}
                         onClick={() => run([file.path])}
                       >
-                        {section.action === 'stage' ? <Plus /> : <Minus />}
+                        {section.action === 'stage' ? <Check /> : <Undo2 />}
                       </Button>
                     </li>
                   );

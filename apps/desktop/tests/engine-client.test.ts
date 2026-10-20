@@ -2,7 +2,12 @@ import { EventEmitter } from 'node:events';
 import type { UtilityProcess } from 'electron';
 import { noopLogger } from '@atlas/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { EngineHostClient } from '../src/main/engine-client.js';
+import {
+  ENGINE_SHUTDOWN_TIMEOUT_MS,
+  GIT_SHUTDOWN_TIMEOUT_MS,
+  TERMINAL_SHUTDOWN_TIMEOUT_MS,
+} from '@atlas/engine';
+import { EngineHostClient, STOP_TIMEOUT_MS } from '../src/main/engine-client.js';
 import type { MainToHostMessage } from '../src/shared/engine-host-protocol.js';
 
 type Behavior = 'ready' | 'fail' | 'exit-on-start';
@@ -148,12 +153,19 @@ describe('EngineHostClient', () => {
       const stuck = setup(['ready'], false);
       await stuck.client.start();
       const stopping = stuck.client.stop();
-      await vi.advanceTimersByTimeAsync(8000);
+      await vi.advanceTimersByTimeAsync(ENGINE_SHUTDOWN_TIMEOUT_MS);
+      expect(stuck.hosts[0]!.killed).toBe(false);
+      await vi.advanceTimersByTimeAsync(STOP_TIMEOUT_MS - ENGINE_SHUTDOWN_TIMEOUT_MS);
       await stopping;
       expect(stuck.hosts[0]!.killed).toBe(true);
       expect(stuck.hosts).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('waits clearly longer than the Engine needs to shut down gracefully', () => {
+    expect(ENGINE_SHUTDOWN_TIMEOUT_MS).toBe(GIT_SHUTDOWN_TIMEOUT_MS + TERMINAL_SHUTDOWN_TIMEOUT_MS);
+    expect(STOP_TIMEOUT_MS - ENGINE_SHUTDOWN_TIMEOUT_MS).toBeGreaterThanOrEqual(5_000);
   });
 });

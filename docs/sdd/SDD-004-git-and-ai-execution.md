@@ -79,8 +79,9 @@ Never used: `reset --hard`, `clean`, `push --force`, branch deletion, `init`, `a
 ## Index semantics (FR-402, FR-405)
 
 `GitFileChange.staged` compares the index with HEAD and `unstaged` the working tree with
-the index; a partially staged file has both. The Git view shows Merge conflicts, Staged
-changes, Changes and Untracked files; staging and unstaging are per file, and "Stage all"
+the index; a partially staged file has both. The Git view shows Merge conflicts,
+Approved · staged, To review and To review · new files; approval stages a file and
+revoking approval unstages it. "Approve all"
 sends the explicit list of files of that section.
 
 A commit commits exactly the index after applying the user's explicit selection:
@@ -95,9 +96,22 @@ A commit commits exactly the index after applying the user's explicit selection:
   with its own **+ unstaged** choice.
 
 **Concurrent changes (FR-408/415).** The working tree carries an `indexFingerprint`
-(SHA-256 of HEAD and `diff --cached --raw`). The dialog works on the snapshot taken when it
-opened and shows "Review again" when the live fingerprint changes; the Engine re-checks the
-fingerprint inside the repository lock and refuses with `GIT_INDEX_CHANGED`.
+(SHA-256 of HEAD, the current branch and the staged entries). The dialog works on the
+snapshot taken when it opened and shows "Review again" when the live fingerprint changes;
+the Engine re-checks the fingerprint inside the repository lock and refuses with
+`GIT_INDEX_CHANGED`. Files selected for staging are protected by a separate content and
+mode identity check, taken before and after the pre-commit steps and compared with what
+`git add` staged; when a refusal happens after staging, the selection's paths are
+restored to their state before the commit attempt (`git reset <snapshot> -- <paths>`,
+including intent-to-add entries, which are marked again); if that restore fails, the user
+is told that the selection remains staged.
+Staged entries are listed first. When the file list is truncated, `stagedTruncated`
+reports whether a staged path was left out: only then are commits refused (and the dialog
+blocks them), so files the dialog did not display cannot silently enter a commit. When
+only unstaged or untracked files are left out, the dialog shows an informational note and
+commits stay possible; selected paths must be among the listed ones.
+Git output that exceeds the output cap is an error unless the caller explicitly requests
+truncation (as diffs do).
 
 ## Conventional Commits (FR-406)
 
@@ -108,6 +122,59 @@ types and any valid type. Errors are structured messages. Project rules (Setting
 allowed types, required scope, header length) can only add restrictions. The renderer
 validates while typing; the Engine validates again before committing. Commit buttons stay
 disabled while the message is invalid.
+
+## Project commit checks
+
+Project details and Git → **Commit checks…** configure Conventional Commits enforcement
+(on by default) and up to five ordered shell commands. Turning enforcement off accepts
+any non-empty message; this extends the original FR-406 requirement preserved in Part II.
+Standalone repositories without a registered project retain enforcement and have no steps.
+When multiple projects share a repository, the commit dialog selects which project's
+checks apply; the Engine rejects an omitted or unrelated project selection.
+
+`git.getProjectSettings(projectId)` and `git.setProjectSettings(projectId, settings)` are
+desktop-only. The strict settings schema rejects unknown fields. Each step has a name
+(1–60 characters), a single-line command (1–1,000 characters), a mode, a timeout
+(5–3,600 seconds), a readiness duration (2–300 seconds), and optional readiness text
+(up to 200 characters). `git.commitContext(repositoryRoot)` returns registered projects
+and their settings. Commit requests carry only a project ID; the Engine resolves the
+commands from stored settings.
+
+- **Run to completion:** exit code zero passes; failures and timeouts stop the sequence.
+- **Start and stop:** with readiness text, the step passes only once that text is printed
+  and fails if it is not printed before the timeout. Without readiness text, the command
+  must keep running for the configured readiness duration. Exiting early fails, even with
+  code zero. ATLAS then terminates the process group on POSIX or requests process-tree termination
+  on Windows. Commands that deliberately detach from the process tree are not contained.
+
+Commands run in the project's directory with the user's shell and environment (`CI=1`
+unless already set; login shell on macOS). They are trusted local commands with the user's
+permissions, not sandboxed jobs. They see the whole working tree, including excluded
+changes, and can modify files; cancelling a command does not undo those modifications.
+Do not put credentials in commands or print sensitive values in their output.
+
+Checks run before ATLAS changes staging. Failure returns `check-failed`, preserves the
+index as far as ATLAS's own staging is concerned, skips remaining checks, and prevents
+commit and push. Git hooks still run afterward. The Engine rechecks the index fingerprint
+after all checks, and the selected files' content and mode identity before and after the
+checks and against what `git add` staged. Invalid stored project settings refuse the
+commit instead of silently dropping checks: `git.commitContext` marks the project with
+`settingsInvalid`, as does `git.getProjectSettings` (optional field, absent when the
+settings are readable); the commit dialog shows a warning and disables committing, and the
+**Commit checks** form (dialog or project details) asks to save the settings again.
+Invalid stored global Git preferences (`git.preferences`) also refuse commits instead of
+dropping the stricter message rules: `git.getPreferences` returns the defaults with
+`invalid: true` (absent when readable), Settings → Git shows "Stored Git preferences are
+invalid; save to replace them.", and the commit dialog shows the same message and disables
+Commit. Choosing a repository does not save `lastRepositoryRoot` while the preferences are
+invalid, so they are only replaced from Settings. Running checks are
+cancellable; cancellation is disabled once staging and committing start. Step statuses,
+durations, exit codes and bounded failed output appear in the operation; output uses the
+same credential-pattern redaction as Git diagnostics.
+
+Settings use `application_settings` key `git.project.<projectId>` and are deleted when
+the project is removed. No database migration is needed. Older builds ignore these keys;
+rolling back to a build without project checks therefore stops enforcing them.
 
 ## Commit suggestions (FR-407)
 
@@ -122,29 +189,41 @@ is where Milestone B can add an AI-assisted strategy. Suggestions can be turned 
 ## Operations, feedback and concurrency (FR-414, FR-415)
 
 `GitOperationCoordinator` serializes mutations per repository on two lanes: `index`
-(index, HEAD, branches, working tree) and `remote` (network and remote-tracking refs). Pull
-takes both. Read-only inspection never waits for it. Each operation has an id, kind,
+(index, HEAD, branches, working tree) and `remote` (network and remote-tracking refs).
+Pull takes both. Read-only inspection never waits for it. Each operation has an id, kind,
 repository, start/finish time, status (`queued`, `running`, `succeeded`, `failed`,
 `cancelled`), throttled progress parsed from `--progress`, a summary, and an error with a
 code and Git's own output. Operations are published as `git-operation` events; the Git
-view shows the last ten with "Git output" on demand. Queued operations can be cancelled;
-running ones only when safe (fetch). Git runs in the Engine host process, so Electron's
-main and renderer processes never block. After every mutation the inspection cache is
-invalidated and a `git` event refreshes all views (terminal headers, sidebar counters).
+view shows the last ten with "Git output" on demand. Queued operations are cancelled
+immediately; running ones only when safe (fetch and pre-commit checks). Engine shutdown cancels queued and cancellable running operations, stops accepting new operations, and waits a bounded time (derived from the pre-commit step kill grace period) for operations that cannot be cancelled (commit, push) to finish. The desktop kills the Engine host only after a longer timeout derived from the same exported constants (`ENGINE_SHUTDOWN_TIMEOUT_MS`: Git wait plus terminal shutdown, plus a margin). Git runs in the Engine
+host process, so Electron's main and renderer processes never block. After every mutation
+the inspection cache is invalidated and a `git` event refreshes all views (terminal
+headers, sidebar counters).
 
 ## Errors and security log (FR-408–FR-412)
 
 Expected Git failures are reported on the operation, not thrown: `authentication`,
 `network`, `rejected`, `conflict`, `no-upstream`, `identity-missing`, `nothing-to-commit`,
-`hook-or-command-failed`, `locked`, `timeout`, `unavailable`. Their output is the real Git
-output with credentials removed (`user:password@` / `token@` in URLs and token-like query
-parameters) and limited to 8 KB. Logs record the kind, failure code and exit code only.
+`hook-or-command-failed`, `check-failed`, `locked`, `timeout`, `unavailable`. Their output
+is the real Git output with credentials removed and limited to 8 KB. Redaction covers
+`user:password@` / `token@` in URLs, token-like query parameters, and values of keys in
+which `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `PWD`, `PASS`, `CREDENTIALS`, `API_KEY`,
+`PRIVATE_KEY`, `ACCESS_KEY` or `AUTH` is a whole key-name segment (e.g. `GITHUB_TOKEN`,
+`AWS_SECRET_ACCESS_KEY`, `NPM_AUTH_TOKEN`, `_authToken`, `DB_PASS`; `max_tokens`, `oauth`,
+`passed` or `bypass` are not matched). Booleans and switches (`token: true`,
+`auth: enabled`) are not redacted; small numbers (`auth: 5 passed`) are kept only after
+keys that are not password-like, so `password: 1234` or `pwd=1234` are redacted. A
+redacted tail starts after the first line break (`\n` or `\r`). It also covers
+any `Authorization` scheme, cookies, known token prefixes, PEM private keys, and
+`--password` / `--token` flags. Logs record the kind, failure code and exit code only.
 Validation problems (`VALIDATION_FAILED` with issues, `GIT_INDEX_CHANGED`,
 `GIT_NO_UPSTREAM`, `GIT_REPOSITORY_UNAVAILABLE`) are request errors. A commit that fails
 after staging the selection says that the selection remains staged.
 
-- **Commit & Push**: the commit result and the push result are separate operations; a
-  failed push keeps the commit. Without an upstream the dialog asks for a remote and a
+- **Commit & Push**: the commit result and the push result are separate operations. Push
+  preconditions (upstream or destination) are validated before committing; a push failure
+  after a successful commit is reported as a push failure while the commit hash is
+  returned and the commit is kept. Without an upstream the dialog asks for a remote and a
   branch name (default: the current branch) before anything runs.
 - **Push**: shows `branch → upstream` and the commits to push (as of the last fetch).
 - **Pull**: shows `upstream → branch`, the commits to pull, the configured strategy
@@ -172,8 +251,24 @@ No migration: `application_settings` key `git.preferences` stores `commitTypes`,
 
 - `packages/conventional-commits`: specification examples, invalid messages, project
   rules, deterministic suggestions.
-- `packages/git`: per-file status, numstat, refs, remotes, progress parsing, credential
-  redaction; coordinator lanes, queueing, cancellation, failures and history.
+- `packages/git/tests/porcelain.test.ts`: per-file status, numstat, refs, remotes,
+  progress parsing and credential redaction; `packages/git/tests/coordinator.test.ts`:
+  coordinator lanes, queueing, cancellation, failures and history.
+- `packages/git/tests/sanitize.test.ts`: credential redaction by key-name segment
+  (including `pwd`, `pass` as a whole segment and `credentials`), numeric values redacted
+  after password-like keys, provider prefixes, flags and headers, plain values that stay
+  visible, `\r` as a line break in tails, and linear-time patterns.
+- `packages/git/tests/preferences.test.ts`: global preferences and project commit
+  settings, defaults, and invalid stored values refusing commits.
+- `apps/engine/tests/git-executor.test.ts`: the spawn-based Git executor fails instead of
+  truncating output over the hard limit, truncates only when asked and never reports a cut
+  output as exit code 0.
+- `apps/engine/tests/git-porcelain.test.ts`: `parseStatusV2` (branch headers) and
+  `parseBranches` used by inspection.
+- `apps/engine/tests/pre-commit-runner.test.ts` (POSIX): run-to-completion pass, failure
+  and timeout; start steps that keep running, print the readiness text, exit early (also
+  with code zero) or never print it; cancellation; missing shell; descendants stopped,
+  including ones that ignore SIGTERM.
 - `apps/engine/tests/git-workspace.test.ts`: real repositories and bare remotes in
   temporary directories — status mapping, diffs (partial staging, untracked, binary,
   truncated, symbolic links not followed), staging (literal pathspecs, renames, unborn
@@ -181,14 +276,29 @@ No migration: `application_settings` key `git.preferences` stores `commitTypes`,
   index, project rules, failing and passing hooks, missing identity, empty commit),
   Commit & Push, rejected push, explicit upstream, fetch/pull fast-forward, divergent pull,
   merge conflicts, network failure without credential leaks, branch create/switch/rename,
-  refusal to overwrite local changes, serialized mutations.
+  refusal to overwrite local changes, serialized mutations; selection restore after a
+  refused commit (exclusions restored when a selected new file is deleted before staging,
+  intent-to-add entries kept, unborn HEAD, restore failure reported as still staged).
 - `apps/desktop/tests/ipc.test.ts`: repositories outside projects and terminals are
-  refused; invalid paths and unknown fields rejected; operations emitted as events.
+  refused; invalid paths and unknown fields rejected; operations emitted as events;
+  unreadable stored preferences and project settings flagged (`invalid`,
+  `settingsInvalid`) until saved again.
+- `apps/desktop/tests/engine-client.test.ts`: the Engine host is killed only after a stop
+  timeout clearly longer than the Engine's graceful shutdown (Git wait plus terminals).
+- `apps/desktop/tests/git-review.test.ts`: review progress, next file to review, and
+  commit step drafts (validation messages by visible label, reordering).
+- `apps/desktop/tests/git-commit.test.ts`: the preferences save queue (order, failures,
+  latest save wins), matching the submitted commit operation, start steps with a ready
+  text, and keeping form keys after saving commit checks.
 - `tests/e2e/git.spec.ts`: commit with validation then Commit & Push to a bare remote;
   explicit inclusion of unstaged files, suggestion and a failing hook with Git output;
   fetch, behind count, fast-forward pull and branch create/switch; entry from standalone
   terminals, the context menu and the shortcut; stricter rules from Settings; no
-  horizontal overflow from 380 px to 1440 px.
+  horizontal overflow from 380 px to 1440 px; commit checks persisted, blocking and
+  reordered; committing blocked until the commit checks load, then Retry; a push failure
+  shown after a kept commit; the note for unlisted unstaged/untracked files while
+  committing listed staged files; invalid stored commit checks and invalid stored global
+  Git preferences refusing commits until saved again.
 
 ## Known limitations
 

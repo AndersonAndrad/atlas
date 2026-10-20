@@ -115,4 +115,15 @@ describe('credential redaction', () => {
     expect(long.length).toBeLessThanOrEqual(8 * 1024 + 1);
     expect(long.startsWith('…')).toBe(true);
   });
+
+  it('redacts common credentials printed by pre-commit commands', () => {
+    const output = sanitizeGitOutput(
+      'API_TOKEN=first-secret\n{"password": "second secret"}\nAuthorization: Bearer third-secret',
+    )!;
+    expect(output).not.toContain('first-secret');
+    expect(output).not.toContain('second secret');
+    expect(output).not.toContain('third-secret');
+    expect(output).toContain('API_TOKEN=***');
+    expect(output).toContain('Authorization: Bearer ***');
+  });
 });

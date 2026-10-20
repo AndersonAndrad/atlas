@@ -119,6 +119,112 @@ describe('GitOperationCoordinator', () => {
     expect((await fetch).operation.status).toBe('cancelled');
   });
 
+  it('settles a queued operation as soon as it is cancelled and keeps the others in order', async () => {
+    const { coordinator } = setup();
+    const gate = deferred();
+    const order: string[] = [];
+    const blocker = coordinator.run(request('commit', ['index']), async () => {
+      await gate.promise;
+      order.push('commit');
+      return { summary: 'ok', value: null };
+    });
+    const cancelled = coordinator.run(request('pull', ['index', 'remote']), async () => {
+      order.push('pull');
+      return { summary: 'ok', value: null };
+    });
+    const next = coordinator.run(request('stage', ['index']), async () => {
+      order.push('stage');
+      return { summary: 'ok', value: null };
+    });
+    const pullId = coordinator.list().find((op) => op.kind === 'pull')!.id;
+
+    expect(coordinator.cancel(pullId)).toMatchObject({ status: 'cancelled', cancellable: false });
+    // Settles while the lane is still held by the blocker.
+    expect((await cancelled).operation).toMatchObject({
+      status: 'cancelled',
+      summary: 'Cancelled before it started.',
+    });
+    expect(coordinator.list().find((op) => op.id === pullId)?.status).toBe('cancelled');
+    // The remote lane it had already taken is free again.
+    expect(
+      (
+        await coordinator.run(request('fetch', ['remote']), async () => ({
+          summary: 'ok',
+          value: 'fetched',
+        }))
+      ).value,
+    ).toBe('fetched');
+
+    gate.resolve();
+    await Promise.all([blocker, next]);
+    expect(order).toEqual(['commit', 'stage']);
+    expect(coordinator.isBusy('/repo')).toBe(false);
+  });
+
+  it('cancels everything that is safe to stop and waits for running operations', async () => {
+    const { coordinator } = setup();
+    const gate = deferred();
+    const pull = coordinator.run(request('pull', ['index', 'remote']), async () => {
+      await gate.promise;
+      return { summary: 'ok', value: null };
+    });
+    const fetch = coordinator.run(
+      { ...request('fetch', ['remote'], true), repositoryRoot: '/other' },
+      ({ signal }) =>
+        new Promise((_, reject) =>
+          signal.addEventListener('abort', () =>
+            reject(new GitCommandError('cancelled', 'cancelled')),
+          ),
+        ),
+    );
+    const queued = coordinator.run(request('stage', ['index']), async () => ({
+      summary: 'ok',
+      value: null,
+    }));
+    await until(() => coordinator.list().filter((op) => op.status === 'running').length === 2);
+
+    coordinator.cancelAll();
+    expect((await fetch).operation.status).toBe('cancelled');
+    expect((await queued).operation.status).toBe('cancelled');
+    // The pull cannot be interrupted: it keeps running and `idle` times out.
+    expect(await coordinator.idle(10)).toBe(false);
+    gate.resolve();
+    expect(await coordinator.idle(1000)).toBe(true);
+    expect((await pull).operation.status).toBe('succeeded');
+    expect(await coordinator.idle(0)).toBe(true);
+  });
+
+  it('stops accepting operations once closed, letting running ones finish', async () => {
+    const { coordinator, events } = setup();
+    const gate = deferred();
+    const commit = coordinator.run(request('commit', ['index']), async () => {
+      await gate.promise;
+      return { summary: 'committed', value: 'hash' };
+    });
+    await until(() => coordinator.list()[0]?.status === 'running');
+
+    coordinator.close();
+    expect(coordinator.closing).toBe(true);
+    let ran = false;
+    const push = await coordinator.run(request('push', ['remote']), async () => {
+      ran = true;
+      return { summary: 'pushed', value: null };
+    });
+    expect(ran).toBe(false);
+    expect(push.operation).toMatchObject({
+      status: 'cancelled',
+      summary: 'Cancelled because ATLAS is shutting down.',
+    });
+    expect(events.filter((event) => event.id === push.operation.id).at(-1)?.status).toBe(
+      'cancelled',
+    );
+    // The commit cannot be interrupted and keeps running until it settles.
+    expect(await coordinator.idle(10)).toBe(false);
+    gate.resolve();
+    expect((await commit).operation.status).toBe('succeeded');
+    expect(await coordinator.idle(1000)).toBe(true);
+  });
+
   it('refuses to cancel running operations that are not safe to interrupt', async () => {
     const { coordinator } = setup();
     const gate = deferred();
@@ -142,6 +248,15 @@ describe('GitOperationCoordinator', () => {
       }),
     ).rejects.toMatchObject({ code: 'GIT_INDEX_CHANGED' });
     expect(coordinator.list()[0]!.status).toBe('failed');
+    // A field issue explains the failure on the operation more precisely.
+    await expect(
+      coordinator.run(request('commit', ['index']), async () => {
+        throw new AtlasError('GIT_INDEX_CHANGED', 'changed', {
+          issues: [{ field: 'selection', message: 'Selected files changed.' }],
+        });
+      }),
+    ).rejects.toMatchObject({ code: 'GIT_INDEX_CHANGED' });
+    expect(coordinator.list()[1]!.error?.message).toBe('Selected files changed.');
 
     const outcome = await coordinator.run(request('stage', ['index']), async () => {
       throw new Error('boom /secret/path');

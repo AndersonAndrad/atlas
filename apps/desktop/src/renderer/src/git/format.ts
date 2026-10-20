@@ -84,3 +84,61 @@ export function isActive(operation: GitOperation): boolean {
 export function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? '' : 's'}`;
 }
+
+/**
+ * Review state: a file is reviewed when all of its changes are approved (staged).
+ * Conflicted files are excluded until they are resolved.
+ */
+export function reviewProgress(files: GitFileChange[]): { reviewed: number; total: number } {
+  const reviewable = files.filter((file) => file.staged !== 'conflicted');
+  return {
+    reviewed: reviewable.filter((file) => file.staged !== null && file.unstaged === null).length,
+    total: reviewable.length,
+  };
+}
+
+/** The next file still to review after `path`, in list order (wrapping around). */
+export function nextToReview(files: GitFileChange[], path: string): string | null {
+  const pending = files.filter((file) => file.unstaged !== null && file.staged !== 'conflicted');
+  if (pending.length === 0) return null;
+  const index = files.findIndex((file) => file.path === path);
+  const after = pending.find((file) => files.indexOf(file) > index && file.path !== path);
+  return (after ?? pending.find((file) => file.path !== path))?.path ?? null;
+}
+
+/**
+ * A submitted commit: the operations that already existed and when it was submitted. The commit
+ * request only answers once the commit finished, so the operation shown live is the first commit
+ * operation started afterwards that is not among the known ones; an older operation that arrives
+ * late (e.g. while the history was still loading) is never taken for it.
+ */
+export interface CommitSubmission {
+  known: ReadonlySet<string>;
+  at: number;
+}
+
+/** Called when the commit is submitted, never while rendering. */
+export function commitSubmission(operations: GitOperation[], now = Date.now()): CommitSubmission {
+  return { known: new Set(operations.map((operation) => operation.id)), at: now };
+}
+
+/**
+ * The commit operation started by `submission`, once it appears among `operations` (newest
+ * first, as `useGitOperations` returns them).
+ */
+export function submittedCommit(
+  operations: GitOperation[],
+  submission: CommitSubmission | null,
+): GitOperation | undefined {
+  if (submission === null) return undefined;
+  return operations.findLast(
+    (operation) =>
+      operation.kind === 'commit' &&
+      !submission.known.has(operation.id) &&
+      Date.parse(operation.startedAt) >= submission.at,
+  );
+}
+
+/** Shown while the stored Git preferences cannot be read; the Engine refuses commits. */
+export const INVALID_PREFERENCES_MESSAGE =
+  'Stored Git preferences are invalid; save to replace them.';

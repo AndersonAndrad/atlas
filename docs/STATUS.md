@@ -1,11 +1,14 @@
 # ATLAS Status
 
-Last updated: 2026-10-20 — SDD-004 Milestone A (PLAN-008 revision 1).
+Last updated: 2026-10-20 — SDD-004 Milestone A (PLAN-008 revision 1, PLAN-009 revision 1).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B
-(ATLAS Sessions) and SDD-004 Milestone A (Git workflow) implemented and validated on macOS
-(arm64); awaiting the developer's approval. SDD-004 Milestone B (Claude Code and Codex
-execution) not started — it needs its own plan. Version 0.5.0.
+(ATLAS Sessions) implemented and validated on macOS (arm64). SDD-004 Milestone A (Git
+workflow, PLAN-008) and its improvements (PLAN-009: file review that approves by staging,
+per-project Conventional Commits enforcement, up to five pre-commit steps with durations,
+pending-action dots, changed-file counts in the Terminals sidebar) implemented and validated.
+Both await the developer's approval. SDD-004 Milestone B (Claude Code and Codex execution)
+not started — it needs its own plan. Version 0.6.0 (0.5.0 was PLAN-008).
 
 Earlier in this version line: 0.4.1 (PLAN-005: sidebar logo, full window title,
 ahead/behind per project in the Terminals sidebar) and 0.4.2 (PLAN-007: dialogs stay within
@@ -44,23 +47,33 @@ bounds with long values).
 
 ### Validation results (2026-10-20, macOS arm64, Node 24.18.0, Git 2.55.0)
 
+Current revision (PLAN-009, version 0.6.0):
+
 | Check                                                        | Result                               |
 | ------------------------------------------------------------ | ------------------------------------ |
-| `pnpm install --frozen-lockfile`, `pnpm clean`, `pnpm build` | ok (renderer 1,089 kB, was 1,029 kB) |
+| `pnpm install --frozen-lockfile`, `pnpm clean`, `pnpm build` | ok (renderer 1,112 kB, was 1,089 kB) |
 | `pnpm typecheck`, `pnpm lint`, `pnpm format:check`           | ok                                   |
 | `pnpm audit`                                                 | no known vulnerabilities             |
-| `pnpm test`                                                  | 371/371 (29 files)                   |
-| `pnpm test:e2e` (Playwright, Electron)                       | 41/41, two consecutive runs          |
+| `pnpm test`                                                  | 537/537 (35 files)                   |
+| `pnpm test:e2e` (Playwright, Electron)                       | 49/49                                |
+
+Baseline (PLAN-008, version 0.5.0): 371/371 unit and integration tests, 41/41 E2E.
 
 ### Staff review
 
-No Critical or High findings. Fixed during review: repository authorization rediscovered
-every project and terminal periodically and kept a removed project's repository authorized
-for a few seconds (Medium; now a cached per-request check); an upstream remote read from
-the configuration was not checked against the configured remotes; untracked files were
-opened without `O_NOFOLLOW`; the commit dialog did not say that unselected staged files
-leave the index; a pull during an unfinished merge reported a misleading conflict (all
-Low). Regression tests were added for each.
+PLAN-009 review: no Critical or High findings remain. Pre-commit commands come only from
+stored project settings (never from a commit request), Git workflow and commit-check
+methods are desktop-only, commits can be cancelled only while steps run, the index and the
+selected files are re-checked after the steps, and step output is redacted before it is
+shown.
+
+Baseline review (before project commit checks): no Critical or High findings. Fixed during
+review: repository authorization rediscovered every project and terminal periodically and
+kept a removed project's repository authorized for a few seconds (Medium; now a cached
+per-request check); an upstream remote read from the configuration was not checked against
+the configured remotes; untracked files were opened without `O_NOFOLLOW`; the commit dialog
+did not say that unselected staged files leave the index; a pull during an unfinished merge
+reported a misleading conflict (all Low). Regression tests were added for each.
 
 ### Known limitations
 
@@ -276,6 +289,8 @@ Back-pressure pauses a PTY when a view is more than 1 MiB behind. Each session k
 
 ## Pending
 
+- Final validation of the current SDD-004 Milestone A revision (project commit checks,
+  review actions and related corrections); its results will replace the baseline above.
 - Manual verification of shortcuts with the physical keyboard and of the real directory
   picker.
 - Developer approval of SDD-003 Milestone B. Real execution (Claude/Codex adapters) is SDD-004.

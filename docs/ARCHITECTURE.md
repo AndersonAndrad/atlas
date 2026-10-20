@@ -79,6 +79,9 @@ Dependency direction is inward: `projects` and `terminal` define ports; `persist
 `response`, `event` and `stopped`. `EngineHostClient` (main) correlates requests by id,
 restarts the host after an unexpected exit (at most 3 times per minute, then reports a
 fatal error) and notifies the renderer (`engine:restarted`) so it reloads its state.
+On stop it kills the host only after `ENGINE_SHUTDOWN_TIMEOUT_MS` (exported by
+`@atlas/engine`: the Git operation wait plus terminal shutdown) and a further margin, so
+a finishing commit is not cut off.
 
 ## Terminal subsystem (SDD-002)
 
@@ -275,13 +278,29 @@ Full description: `docs/sdd/SDD-004-git-and-ai-execution.md`, Part I.
   allow-lists, bounded stdout, and `--progress` lines. Workflow commands use
   `--literal-pathspecs`; diffs use `--no-ext-diff --no-textconv`. Hooks always run.
 - **Index semantics**: commits commit the index after the user's explicit selection
-  (`stage`/`unstage` lists); an index fingerprint (HEAD + `diff --cached --raw`) detects
-  concurrent changes (`GIT_INDEX_CHANGED`).
+  (`stage`/`unstage` lists); an index fingerprint (HEAD + branch + staged entries) detects
+  concurrent changes (`GIT_INDEX_CHANGED`). Selected files are protected by a separate
+  content and mode identity check before and after the pre-commit steps and against what
+  `git add` staged; a refusal after staging restores the selection's paths to their
+  state before the commit attempt (including intent-to-add entries); if that restore
+  fails, the user is told the selection remains staged.
 - **Operations**: expected failures are reported on the `GitOperation` with a code and
   credential-free Git output; validation problems are request errors. `git-operation`
   events update every view; mutations invalidate the inspection cache and emit `git`.
-- **Conventional Commits**: validated in the renderer while typing and again in the Engine,
-  with stricter project rules from `git.preferences`.
+- **Conventional Commits**: enforced by default in the renderer and Engine, with stricter
+  rules from `git.preferences`. Project settings can disable enforcement and configure
+  ordered pre-commit commands through the Engine's `PreCommitStepRunner` adapter
+  (ADR-037). Running checks are cancellable; a failing check returns `check-failed` and
+  nothing is committed. Queued operations are cancelled immediately. Engine shutdown
+  cancels queued and cancellable running operations, stops accepting new operations, and
+  waits a bounded time (derived from the pre-commit step kill grace period) for operations
+  that cannot be cancelled (commit, push) to finish.
+- **Invalid stored settings**: unreadable global preferences (`git.preferences`) or
+  project commit checks refuse commits instead of dropping rules. `git.getPreferences`
+  returns the defaults with `invalid: true` and `git.getProjectSettings` with
+  `settingsInvalid: true` (both optional, absent when readable); Settings → Git warns
+  "Stored Git preferences are invalid; save to replace them." and the commit dialog shows
+  the same message with Commit disabled.
 
 ### Project context of a terminal
 

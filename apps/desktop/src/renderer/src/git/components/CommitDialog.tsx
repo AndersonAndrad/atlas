@@ -1,15 +1,26 @@
-import type {
-  GitCommitResult,
-  GitCommitSuggestion,
-  GitFileChange,
-  GitOperation,
-  GitPreferences,
-  GitRemote,
-  GitWorkingTree,
+import {
+  DEFAULT_PROJECT_GIT_SETTINGS,
+  type GitCommitContext,
+  type GitCommitResult,
+  type GitCommitSuggestion,
+  type GitFileChange,
+  type GitOperation,
+  type GitPreferences,
+  type GitRemote,
+  type GitWorkingTree,
+  type StoredGitPreferences,
 } from '@atlas/contracts';
 import { validateCommitMessage, type CommitMessageRules } from '@atlas/conventional-commits';
-import { Copy, GitBranch, GitCommitHorizontal, RefreshCw, Sparkles } from 'lucide-react';
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  Copy,
+  GitBranch,
+  GitCommitHorizontal,
+  ListChecks,
+  RefreshCw,
+  Sparkles,
+  TriangleAlert,
+} from 'lucide-react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { ApiError, api, errorMessage, unwrap } from '@/api';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -33,14 +44,26 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { directoryName, fileName, isPartiallyStaged, plural, sumStats } from '../format';
+import {
+  INVALID_PREFERENCES_MESSAGE,
+  commitSubmission,
+  directoryName,
+  fileName,
+  isActive,
+  isPartiallyStaged,
+  plural,
+  submittedCommit,
+  sumStats,
+  type CommitSubmission,
+} from '../format';
+import { useGitOperations } from '../hooks/useGit';
 import { ChangeCode, LineStats } from './ChangesList';
 import { OperationResult } from './OperationsPanel';
 
 interface CommitDialogProps {
   /** Live working tree; the dialog works on the snapshot taken when it opened. */
   tree: GitWorkingTree;
-  preferences: GitPreferences | null;
+  preferences: StoredGitPreferences | null;
   onClose: () => void;
   onDone: (result: GitCommitResult) => void;
 }
@@ -90,7 +113,60 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
   const [failure, setFailure] = useState<GitOperation | null>(null);
   const [remotes, setRemotes] = useState<GitRemote[] | null>(null);
   const [destination, setDestination] = useState({ remote: '', branch: tree.branch ?? '' });
+  const [context, setContext] = useState<GitCommitContext | null>(null);
+  /** Loading the commit checks failed; committing stays blocked until a retry succeeds. */
+  const [contextError, setContextError] = useState<string | null>(null);
+  /** The commit checks are (re)loading; committing waits for them. */
+  const [contextLoading, setContextLoading] = useState(true);
+  /** Incremented to load the commit checks again. */
+  const [contextAttempt, setContextAttempt] = useState(0);
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [submission, setSubmission] = useState<CommitSubmission | null>(null);
   const messageRef = useRef<HTMLTextAreaElement>(null);
+
+  // Commit checks of the repository's project(s); the Engine applies the same settings.
+  useEffect(() => {
+    let cancelled = false;
+    unwrap(api().git.commitContext(tree.repositoryRoot)).then(
+      (value) => {
+        if (cancelled) return;
+        setContext(value);
+        setContextError(null);
+        setContextLoading(false);
+        // Keep the chosen project when it still applies.
+        setProjectId((current) =>
+          value.projects.some((candidate) => candidate.id === current)
+            ? current
+            : (value.projects[0]?.id ?? null),
+        );
+      },
+      (caught: unknown) => {
+        if (cancelled) return;
+        setContextError(errorMessage(caught));
+        setContextLoading(false);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [tree.repositoryRoot, contextAttempt]);
+  const reloadContext = () => {
+    setContextError(null);
+    setContextLoading(true);
+    setContextAttempt((current) => current + 1);
+  };
+  const project = context?.projects.find((candidate) => candidate.id === projectId);
+  const settings = project?.settings ?? DEFAULT_PROJECT_GIT_SETTINGS;
+  const enforce = settings.enforceConventionalCommits;
+  const steps = settings.preCommitSteps;
+  /** The stored settings of the chosen project are unreadable; the Engine refuses its commits. */
+  const settingsInvalid = project?.settingsInvalid === true;
+  /** The stored Git preferences are unreadable; the Engine refuses every commit. */
+  const preferencesInvalid = preferences?.invalid === true;
+
+  // The running commit, to show its steps live and offer cancelling while they run.
+  const operations = useGitOperations(tree.repositoryRoot);
+  const live = submittedCommit(operations, submission);
 
   const needsDestination = snapshot.upstream === null || snapshot.upstreamGone;
   useEffect(() => {
@@ -142,15 +218,28 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
     ]),
   );
 
-  const rules = useMemo(() => rulesOf(preferences), [preferences]);
-  const validation = useMemo(() => validateCommitMessage(message, rules), [message, rules]);
   const hasMessage = message.trim() !== '';
+  const validation = enforce
+    ? validateCommitMessage(message, rulesOf(preferences))
+    : { valid: hasMessage, errors: [] as string[], breaking: false };
+  // Changes left out of this commit that the steps will still see.
+  const leftOut = snapshot.files.filter(
+    (file) =>
+      (file.unstaged !== null && !toStage.includes(file)) ||
+      (file.staged !== null && !choice(file).included),
+  ).length;
   const conflicts = snapshot.files.some((file) => file.staged === 'conflicted');
   const destinationReady =
     !needsDestination || (destination.remote !== '' && destination.branch.trim() !== '');
   const canCommit =
+    context !== null &&
+    !contextLoading &&
+    contextError === null &&
+    !settingsInvalid &&
+    !preferencesInvalid &&
     !busy &&
     !stale &&
+    !snapshot.stagedTruncated &&
     !conflicts &&
     validation.valid &&
     (included.length > 0 || snapshot.inProgress === 'merge') &&
@@ -160,6 +249,8 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
     setSnapshot(tree);
     setChoices(initialChoices(tree.files));
     setError(null);
+    // The commit checks may have changed too, or failed to load.
+    reloadContext();
   };
 
   async function submit(push: boolean) {
@@ -167,6 +258,7 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
     setBusy(true);
     setError(null);
     setFailure(null);
+    setSubmission(commitSubmission(operations));
     try {
       const outcome = await unwrap(
         api().git.commit({
@@ -176,6 +268,7 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
           unstage: toUnstage.map((file) => file.path),
           expectedFingerprint: snapshot.indexFingerprint,
           push,
+          ...(projectId === null ? {} : { projectId }),
           ...(push && needsDestination
             ? { setUpstream: { remote: destination.remote, branch: destination.branch.trim() } }
             : {}),
@@ -227,7 +320,7 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
       <DialogContent
-        className="sm:max-w-2xl"
+        className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"
         data-testid="commit-dialog"
         onKeyDown={onKeyDown}
         onOpenAutoFocus={(event) => {
@@ -268,10 +361,53 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
             </AlertDescription>
           </Alert>
         )}
+        {contextError && !committed && (
+          <Alert variant="destructive" role="alert">
+            <AlertDescription
+              className="flex flex-wrap items-center justify-between gap-2"
+              data-testid="commit-context-error"
+            >
+              <span>The commit checks could not be loaded: {contextError}</span>
+              <Button size="sm" variant="outline" onClick={reloadContext}>
+                <RefreshCw />
+                Retry
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
         {conflicts && (
           <Alert variant="destructive" role="alert">
             <AlertDescription>Resolve the merge conflicts before committing.</AlertDescription>
           </Alert>
+        )}
+        {preferencesInvalid && !committed && (
+          <Alert variant="destructive" role="alert">
+            <AlertDescription data-testid="commit-preferences-invalid">
+              {INVALID_PREFERENCES_MESSAGE}
+            </AlertDescription>
+          </Alert>
+        )}
+        {settingsInvalid && !committed && (
+          <Alert variant="destructive" role="alert">
+            <AlertDescription data-testid="commit-settings-invalid">
+              This project's commit checks settings are invalid; open settings to fix.
+            </AlertDescription>
+          </Alert>
+        )}
+        {snapshot.stagedTruncated ? (
+          <Alert variant="destructive" role="alert">
+            <AlertDescription data-testid="commit-staged-truncated">
+              Too many staged files to review safely. Commit from a terminal.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          snapshot.truncated && (
+            <Alert role="status">
+              <AlertDescription data-testid="commit-truncated">
+                Some unstaged or untracked files are not listed. They stay out of this commit.
+              </AlertDescription>
+            </Alert>
+          )
         )}
 
         <section className="flex min-w-0 flex-col gap-2" aria-labelledby={`${id}-changes`}>
@@ -391,18 +527,28 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
         <section className="flex min-w-0 flex-col gap-2">
           <div className="flex items-center justify-between gap-2">
             <Label htmlFor={`${id}-message`}>Commit message</Label>
-            {hasMessage && (
+            {!enforce ? (
               <span
-                className={cn(
-                  'rounded-full px-2 py-0.5 text-xs font-medium',
-                  validation.valid
-                    ? 'bg-success/15 text-success'
-                    : 'bg-destructive/15 text-destructive',
-                )}
+                className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs font-medium"
                 data-testid="commit-validation-badge"
+                title="This project does not enforce Conventional Commits"
               >
-                {validation.valid ? 'Conventional' : 'Not conventional'}
+                Conventional check off
               </span>
+            ) : (
+              hasMessage && (
+                <span
+                  className={cn(
+                    'rounded-full px-2 py-0.5 text-xs font-medium',
+                    validation.valid
+                      ? 'bg-success/15 text-success'
+                      : 'bg-destructive/15 text-destructive',
+                  )}
+                  data-testid="commit-validation-badge"
+                >
+                  {validation.valid ? 'Conventional' : 'Not conventional'}
+                </span>
+              )
             )}
           </div>
           <Textarea
@@ -427,12 +573,14 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
                   <li key={problem}>{problem}</li>
                 ))}
               </ul>
-            ) : (
+            ) : enforce ? (
               <p className="text-muted-foreground">
                 Conventional Commits 1.0.0: <code>type(scope)!: description</code>, optional body
                 and footers.{' '}
                 {validation.breaking && hasMessage && <strong>Breaking change.</strong>}
               </p>
+            ) : (
+              <p className="text-muted-foreground">Any non-empty message is accepted.</p>
             )}
           </div>
           {suggestion && (
@@ -480,6 +628,84 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
             </Button>
           </div>
         </section>
+
+        {context !== null && context.projects.length > 1 && !committed && (
+          <div className="flex flex-col gap-1">
+            <Label htmlFor={`${id}-project`}>Commit checks from project</Label>
+            <Select value={projectId ?? undefined} onValueChange={setProjectId}>
+              <SelectTrigger id={`${id}-project`} className="w-full sm:w-72">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {context.projects.map((candidate) => (
+                  <SelectItem key={candidate.id} value={candidate.id}>
+                    {candidate.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {steps.length > 0 && !committed && !busy && (
+          <section
+            className="flex min-w-0 flex-col gap-2 rounded-md border p-3"
+            aria-labelledby={`${id}-checks`}
+            data-testid="commit-checks"
+          >
+            <h3 id={`${id}-checks`} className="flex items-center gap-2 text-sm font-medium">
+              <ListChecks className="size-4" aria-hidden="true" />
+              Before committing, ATLAS runs {plural(steps.length, 'step')}
+            </h3>
+            <ol className="flex flex-col gap-1 text-xs">
+              {steps.map((step, index) => (
+                <li key={index} className="flex min-w-0 items-center gap-2">
+                  <span className="text-muted-foreground tabular-nums">{index + 1}.</span>
+                  <span className="font-medium">{step.name}</span>
+                  <code className="text-muted-foreground min-w-0 truncate" title={step.command}>
+                    {step.command}
+                  </code>
+                  {step.mode === 'start' && (
+                    <span className="text-muted-foreground shrink-0">(start and stop)</span>
+                  )}
+                </li>
+              ))}
+            </ol>
+            {leftOut > 0 && (
+              <p
+                className="text-warning flex items-center gap-1 text-xs"
+                data-testid="commit-checks-warning"
+              >
+                <TriangleAlert className="size-3.5" aria-hidden="true" />
+                Steps run on the whole working tree, including {plural(leftOut, 'file')} left out of
+                this commit.
+              </p>
+            )}
+          </section>
+        )}
+
+        {busy && live && (
+          <div className="flex flex-col gap-2 rounded-md border p-3" data-testid="commit-progress">
+            <OperationResult operation={live} />
+            {isActive(live) && live.cancellable && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="self-start"
+                onClick={() =>
+                  void unwrap(api().git.cancelOperation(live.id)).catch((caught: unknown) =>
+                    setError({
+                      message: `The checks could not be cancelled: ${errorMessage(caught)}`,
+                      indexChanged: false,
+                    }),
+                  )
+                }
+              >
+                Cancel checks
+              </Button>
+            )}
+          </div>
+        )}
 
         {needsDestination && !committed && (
           <fieldset
@@ -565,7 +791,11 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
                 Commit &amp; Push
               </Button>
               <Button disabled={!canCommit} onClick={() => void submit(false)}>
-                {busy ? 'Committing…' : 'Commit'}
+                {busy
+                  ? live?.steps?.some((step) => step.status === 'running')
+                    ? 'Running checks…'
+                    : 'Committing…'
+                  : 'Commit'}
               </Button>
             </>
           )}

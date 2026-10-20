@@ -25,7 +25,9 @@ import {
 } from '@/components/ui/context-menu';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { ActionDot } from '@/components/git/ActionDot';
 import { GitBadges } from '@/components/git/GitBadges';
+import { pendingGitActions } from '@/components/git/git-format';
 import { useTerminalGit } from '../hooks/useGitStatus';
 import { TerminalView } from '../state/terminal-view';
 import { endedSummary } from '../format';
@@ -178,11 +180,13 @@ export function TerminalPane({
             <Button
               variant="ghost"
               size="icon-xs"
+              className="relative"
               aria-label="Open Git panel"
-              title="Git panel"
+              title={['Git panel', ...pendingGitActions(snapshot)].join(' · ')}
               onClick={onOpenGit}
             >
               <GitBranch />
+              <ActionDot reasons={pendingGitActions(snapshot)} />
             </Button>
           )}
           <Button

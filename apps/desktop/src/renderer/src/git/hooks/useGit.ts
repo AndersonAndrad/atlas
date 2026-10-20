@@ -3,6 +3,7 @@ import type {
   GitFileDiff,
   GitOperation,
   GitPreferences,
+  StoredGitPreferences,
   GitRepositoryEntry,
   GitWorkingTree,
 } from '@atlas/contracts';
@@ -186,7 +187,7 @@ export function useGitDiff(
 }
 
 export function useGitPreferences() {
-  const [preferences, setPreferences] = useState<GitPreferences | null>(null);
+  const [preferences, setPreferences] = useState<StoredGitPreferences | null>(null);
   useEffect(() => {
     let cancelled = false;
     unwrap(api().git.getPreferences()).then(

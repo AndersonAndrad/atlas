@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 
@@ -65,7 +66,7 @@ test('inspects, stages and commits with Conventional Commits, then pushes', asyn
   await expect(page.getByTestId('git-diff')).toContainText('+# changed');
 
   // Staging is per file and does not touch other files.
-  await page.getByRole('button', { name: 'Stage README.md' }).click();
+  await page.getByRole('button', { name: 'Approve README.md' }).click();
   await expect(file(page, 'staged', 'README.md')).toBeVisible();
   await expect(file(page, 'untracked', 'notes.txt')).toBeVisible();
 
@@ -238,10 +239,22 @@ test('applies stricter project conventions from Settings', async ({ atlas }) => 
     .getByRole('button', { name: 'Settings', exact: true })
     .click();
   const settings = page.getByTestId('git-settings');
+  const conventionsSaved = settings.getByTestId('git-conventions-saved');
   await settings.getByLabel('Allowed commit types').fill('feat, fix');
   await settings.getByRole('button', { name: 'Save conventions' }).click();
-  await expect(settings.getByRole('status')).toHaveText('Saved.');
+  await expect(conventionsSaved).toHaveText('Saved.');
+  // Editing again makes "Saved." stale; an invalid value reports an error that editing clears.
+  await settings.getByLabel('Maximum header length').fill('abc');
+  await expect(conventionsSaved).toBeHidden();
+  await settings.getByRole('button', { name: 'Save conventions' }).click();
+  await expect(settings.getByTestId('git-settings-error')).toContainText('whole number');
+  await settings.getByLabel('Maximum header length').fill('');
+  await expect(settings.getByTestId('git-settings-error')).toBeHidden();
+  // A checkbox reports its own outcome, never next to "Save conventions".
   await settings.getByLabel(/Require a scope/).click();
+  await expect(settings.getByTestId('git-preferences-status')).toHaveText('Saved.');
+  await expect(conventionsSaved).toBeHidden();
+  await expect(settings.getByLabel(/Require a scope/)).toBeChecked();
 
   await openGit(page);
   await page.getByRole('button', { name: 'Commit…' }).click();
@@ -253,6 +266,144 @@ test('applies stricter project conventions from Settings', async ({ atlas }) => 
   await expect(dialog.getByTestId('commit-validation-errors')).toContainText('requires a scope');
   await message.fill('fix(readme): x');
   await expect(dialog.getByTestId('commit-validation-badge')).toHaveText('Conventional');
+});
+
+test('persists commit checks and blocks a commit until they pass', async ({ atlas }) => {
+  const dir = atlas.workspace('checks');
+  const { git } = repositoryWithRemote(dir, path.join(atlas.root, 'home'));
+  const head = git('rev-parse', 'HEAD');
+  atlas.cli('project', 'add', dir);
+  const { app, page } = await atlas.launch();
+  await openGit(page);
+  await page.getByRole('button', { name: 'Commit checks…' }).click();
+  const settings = page.getByTestId('commit-settings');
+  await settings.getByLabel('Enforce Conventional Commits').click();
+  await settings.getByRole('button', { name: 'Add step' }).click();
+  await settings.getByLabel('Name, step 1').fill('Tests');
+  await settings.getByLabel('Command, step 1').fill('echo check-failed >&2; exit 1');
+  await settings.getByRole('button', { name: 'Save commit checks' }).click();
+  await expect(settings.getByRole('status')).toHaveText('Saved.');
+
+  for (const width of [380, 760, 1440]) {
+    await app.evaluate(({ BrowserWindow }, size) => {
+      BrowserWindow.getAllWindows()[0]!.setContentSize(size, 800);
+    }, width);
+    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(width);
+    expect(await settings.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+    await expect(settings.getByRole('button', { name: 'Save commit checks' })).toBeVisible();
+    if (process.env.ATLAS_SCREENSHOTS) {
+      await page.screenshot({
+        path: path.join(process.env.ATLAS_SCREENSHOTS, `commit-checks-${width}.png`),
+      });
+    }
+  }
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Commit…' }).click();
+  const dialog = page.getByTestId('commit-dialog');
+  await dialog.getByLabel('Include README.md', { exact: true }).click();
+  await dialog.getByLabel('Commit message').fill('Updated readme');
+  await expect(dialog.getByTestId('commit-checks')).toContainText('Tests');
+  await dialog.getByRole('button', { name: 'Commit', exact: true }).click();
+  await expect(dialog.getByTestId('commit-failure')).toContainText('Nothing was committed.');
+  expect(git('rev-parse', 'HEAD')).toBe(head);
+  expect(git('diff', '--cached', '--name-only').trim()).toBe('');
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: 'Commit checks…' }).click();
+  await expect(settings.getByLabel('Enforce Conventional Commits')).not.toBeChecked();
+  await expect(settings.getByLabel('Command, step 1')).toHaveValue('echo check-failed >&2; exit 1');
+  await settings.getByLabel('Command, step 1').fill('echo checks-passed');
+  await settings.getByRole('button', { name: 'Save commit checks' }).click();
+  await expect(settings.getByRole('status')).toHaveText('Saved.');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Commit…' }).click();
+  await dialog.getByLabel('Include README.md', { exact: true }).click();
+  await dialog.getByLabel('Commit message').fill('Updated readme');
+  await dialog.getByRole('button', { name: 'Commit', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  expect(git('log', '-1', '--format=%s').trim()).toBe('Updated readme');
+});
+
+test('adds, reorders and removes commit steps by their visible labels', async ({ atlas }) => {
+  const dir = atlas.workspace('steps');
+  repositoryWithRemote(dir, path.join(atlas.root, 'home'));
+  atlas.cli('project', 'add', dir);
+  const { page } = await atlas.launch();
+  await openGit(page);
+  await page.getByRole('button', { name: 'Commit checks…' }).click();
+  const settings = page.getByTestId('commit-settings');
+  const steps = settings.getByTestId('commit-step-editor');
+
+  await settings.getByRole('button', { name: 'Add step' }).click();
+  await settings.getByLabel('Name, step 1').fill('Tests');
+  await settings.getByLabel('Command, step 1').fill('npm test');
+  await settings.getByRole('button', { name: 'Add step' }).click();
+  await settings.getByLabel('Name, step 2').fill('Server');
+  await settings.getByLabel('Command, step 2').fill('npm start');
+
+  // A "start" step shows its own fields, named as they are labelled.
+  await settings.getByRole('combobox', { name: 'Mode, step 2' }).click();
+  await page.getByRole('option', { name: 'Start and stop' }).click();
+  await expect(settings.getByLabel('Must keep running (s), step 2')).toHaveValue('15');
+  await settings.getByLabel('Ready text (optional), step 2').fill('listening on');
+  // Validation names the field by its visible label; editing clears the message.
+  await settings.getByLabel('Ready text timeout (s), step 2').fill('1');
+  await settings.getByRole('button', { name: 'Save commit checks' }).click();
+  await expect(settings.getByTestId('commit-settings-error')).toContainText(
+    'Step 2 — Ready text timeout (s):',
+  );
+  await settings.getByLabel('Ready text timeout (s), step 2').fill('60');
+  await expect(settings.getByTestId('commit-settings-error')).toBeHidden();
+
+  // Moving a step keeps keyboard focus on it; at the top, focus goes to its other move button.
+  await settings.getByRole('button', { name: 'Move step 2 up' }).click();
+  await expect(steps.nth(0).getByLabel('Name, step 1')).toHaveValue('Server');
+  await expect(steps.nth(1).getByLabel('Name, step 2')).toHaveValue('Tests');
+  await expect(settings.getByRole('button', { name: 'Move step 1 down' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(steps.nth(0).getByLabel('Name, step 1')).toHaveValue('Tests');
+  await expect(settings.getByRole('button', { name: 'Move step 2 up' })).toBeFocused();
+
+  await settings.getByRole('button', { name: 'Remove step 1' }).click();
+  await expect(steps).toHaveCount(1);
+  await expect(settings.getByLabel('Name, step 1')).toHaveValue('Server');
+  await settings.getByRole('button', { name: 'Save commit checks' }).click();
+  await expect(settings.getByRole('status')).toHaveText('Saved.');
+
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Commit checks…' }).click();
+  await expect(steps).toHaveCount(1);
+  await expect(settings.getByLabel('Name, step 1')).toHaveValue('Server');
+  await expect(settings.getByLabel('Ready text (optional), step 1')).toHaveValue('listening on');
+  await expect(settings.getByLabel('Ready text timeout (s), step 1')).toHaveValue('60');
+});
+
+test('approves a file from its diff and moves on only once it is staged', async ({ atlas }) => {
+  const dir = atlas.workspace('approve');
+  const { git } = repositoryWithRemote(dir, path.join(atlas.root, 'home'));
+  writeFileSync(path.join(dir, 'notes.txt'), 'draft\n');
+  atlas.cli('project', 'add', dir);
+  const { page } = await atlas.launch();
+  await openGit(page);
+
+  await file(page, 'unstaged', 'README.md').locator('button[aria-pressed]').click();
+  await expect(page.getByTestId('git-diff-path')).toHaveText('README.md');
+
+  // Staging fails while another Git process holds the index lock: the file stays shown.
+  const lock = path.join(dir, '.git', 'index.lock');
+  writeFileSync(lock, '');
+  await page.getByTestId('git-diff-review').click();
+  await expect(
+    page.locator('[data-testid="git-operation"][data-kind="stage"]').first(),
+  ).toHaveAttribute('data-status', 'failed', { timeout: 15_000 });
+  await expect(page.getByTestId('git-diff-path')).toHaveText('README.md');
+  expect(git('diff', '--cached', '--name-only').trim()).toBe('');
+
+  rmSync(lock);
+  await page.getByTestId('git-diff-review').click();
+  await expect(file(page, 'staged', 'README.md')).toBeVisible();
+  await expect(page.getByTestId('git-diff-path')).toHaveText('notes.txt');
+  expect(git('diff', '--cached', '--name-only').trim()).toBe('README.md');
 });
 
 test('Git view has no horizontal overflow across window sizes', async ({ atlas }) => {
@@ -302,4 +453,179 @@ test('Git view has no horizontal overflow across window sizes', async ({ atlas }
       .fill('fix(ui): prevent modal flickering during close animation');
     await page.screenshot({ path: path.join(process.env.ATLAS_SCREENSHOTS, 'commit-1440.png') });
   }
+});
+
+test('blocks committing until the commit checks load, then retries', async ({ atlas }) => {
+  const dir = atlas.workspace('retry');
+  const { git } = repositoryWithRemote(dir, path.join(atlas.root, 'home'));
+  git('add', 'README.md');
+  atlas.cli('project', 'add', dir);
+  const { app, page } = await atlas.launch();
+  await openGit(page);
+  // The first request for the commit checks fails; later ones answer (no projects apply).
+  await app.evaluate(({ ipcMain }) => {
+    let calls = 0;
+    ipcMain.removeHandler('atlas:git:commit-context');
+    ipcMain.handle('atlas:git:commit-context', () => {
+      calls += 1;
+      if (calls === 1) throw new Error('unavailable');
+      return { ok: true, data: { projects: [] } };
+    });
+  });
+
+  await page.getByRole('button', { name: 'Commit…' }).click();
+  const dialog = page.getByTestId('commit-dialog');
+  await dialog.getByLabel('Commit message').fill('docs: update readme');
+  const contextError = dialog.getByTestId('commit-context-error');
+  await expect(contextError).toContainText('could not be loaded');
+  await expect(dialog.getByRole('button', { name: 'Commit', exact: true })).toBeDisabled();
+  await contextError.getByRole('button', { name: 'Retry' }).click();
+  await expect(contextError).toBeHidden();
+  await expect(dialog.getByRole('button', { name: 'Commit', exact: true })).toBeEnabled();
+});
+
+test('keeps the commit and shows the push failure when pushing fails', async ({ atlas }) => {
+  const dir = atlas.workspace('offline');
+  const { git } = repositoryWithRemote(dir, path.join(atlas.root, 'home'));
+  // The upstream stays configured, but its remote points to a missing directory.
+  git('remote', 'set-url', 'origin', path.join(atlas.root, 'missing-origin.git'));
+  atlas.cli('project', 'add', dir);
+  const { page } = await atlas.launch();
+  await openGit(page);
+
+  await page.getByRole('button', { name: 'Commit…' }).click();
+  const dialog = page.getByTestId('commit-dialog');
+  await dialog.getByRole('checkbox', { name: 'Include README.md' }).click();
+  await dialog.getByLabel('Commit message').fill('docs: update readme');
+  await dialog.getByRole('button', { name: 'Commit & Push' }).click();
+
+  const result = dialog.getByTestId('commit-result');
+  await expect(result.locator('[data-testid="git-operation"][data-kind="commit"]')).toHaveAttribute(
+    'data-status',
+    'succeeded',
+    { timeout: 15_000 },
+  );
+  await expect(result.locator('[data-testid="git-operation"][data-kind="push"]')).toHaveAttribute(
+    'data-status',
+    'failed',
+    { timeout: 15_000 },
+  );
+  expect(git('log', '-1', '--format=%s').trim()).toBe('docs: update readme');
+  // Committing again is not offered; closing keeps the commit.
+  await expect(dialog.getByRole('button', { name: 'Commit', exact: true })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Close', exact: true }).first().click();
+  await expect(dialog).toBeHidden();
+});
+
+test('commits listed staged files while other changes are not all listed', async ({ atlas }) => {
+  const dir = atlas.workspace('many');
+  const { git } = repositoryWithRemote(dir, path.join(atlas.root, 'home'));
+  git('add', 'README.md');
+  // More untracked files than the Engine lists; the staged file is listed first.
+  const untracked = path.join(dir, 'generated');
+  mkdirSync(untracked);
+  for (let index = 0; index < 2001; index += 1) {
+    writeFileSync(path.join(untracked, `file-${index}.txt`), `${index}\n`);
+  }
+  atlas.cli('project', 'add', dir);
+  const { page } = await atlas.launch();
+  await openGit(page);
+
+  await page.getByRole('button', { name: 'Commit…' }).click();
+  const dialog = page.getByTestId('commit-dialog');
+  await expect(dialog.getByTestId('commit-truncated')).toContainText('not listed', {
+    timeout: 15_000,
+  });
+  await expect(dialog.getByTestId('commit-staged-truncated')).toHaveCount(0);
+  await expect(dialog.getByTestId('commit-file-count')).toHaveText('1 file');
+  await dialog.getByLabel('Commit message').fill('docs: update readme');
+  await dialog.getByRole('button', { name: 'Commit', exact: true }).click();
+  await expect(dialog).toBeHidden({ timeout: 15_000 });
+  expect(git('log', '-1', '--format=%s').trim()).toBe('docs: update readme');
+  expect(git('diff', '--cached', '--name-only').trim()).toBe('');
+});
+
+test('refuses commits while the stored commit checks are invalid', async ({ atlas }) => {
+  const dir = atlas.workspace('invalid');
+  const { git } = repositoryWithRemote(dir, path.join(atlas.root, 'home'));
+  git('add', 'README.md');
+  const { project } = JSON.parse(atlas.cli('project', 'add', dir, '--json')) as {
+    project: { id: string };
+  };
+  // Stored settings that no longer match the contract, as left by a broken edit.
+  const db = new DatabaseSync(path.join(atlas.dataDir, 'atlas.db'));
+  db.prepare('INSERT INTO application_settings (key, value) VALUES (?, ?)').run(
+    `git.project.${project.id}`,
+    '{"preCommitSteps":"npm test"}',
+  );
+  db.close();
+  const { page } = await atlas.launch();
+  await openGit(page);
+
+  await page.getByRole('button', { name: 'Commit…' }).click();
+  const dialog = page.getByTestId('commit-dialog');
+  await dialog.getByLabel('Commit message').fill('docs: update readme');
+  await expect(dialog.getByTestId('commit-settings-invalid')).toContainText(
+    'commit checks settings are invalid; open settings to fix',
+  );
+  await expect(dialog.getByRole('button', { name: 'Commit', exact: true })).toBeDisabled();
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: 'Commit checks…' }).click();
+  const settings = page.getByTestId('commit-settings');
+  await expect(settings.getByTestId('commit-settings-invalid')).toBeVisible();
+  await settings.getByRole('button', { name: 'Save commit checks' }).click();
+  await expect(settings.getByRole('status')).toHaveText('Saved.');
+  await expect(settings.getByTestId('commit-settings-invalid')).toBeHidden();
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: 'Commit…' }).click();
+  await dialog.getByLabel('Commit message').fill('docs: update readme');
+  await expect(dialog.getByTestId('commit-settings-invalid')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Commit', exact: true }).click();
+  await expect(dialog).toBeHidden({ timeout: 15_000 });
+  expect(git('log', '-1', '--format=%s').trim()).toBe('docs: update readme');
+});
+
+test('refuses commits while the stored Git preferences are invalid', async ({ atlas }) => {
+  const dir = atlas.workspace('invalid-preferences');
+  const { git } = repositoryWithRemote(dir, path.join(atlas.root, 'home'));
+  git('add', 'README.md');
+  atlas.cli('project', 'add', dir);
+  // Stored preferences that no longer match the contract, as left by a broken edit.
+  const db = new DatabaseSync(path.join(atlas.dataDir, 'atlas.db'));
+  db.prepare('INSERT INTO application_settings (key, value) VALUES (?, ?)').run(
+    'git.preferences',
+    '{"headerMaxLength":"short"}',
+  );
+  db.close();
+  const { page } = await atlas.launch();
+  await openGit(page);
+
+  await page.getByRole('button', { name: 'Commit…' }).click();
+  const dialog = page.getByTestId('commit-dialog');
+  await dialog.getByLabel('Commit message').fill('docs: update readme');
+  await expect(dialog.getByTestId('commit-preferences-invalid')).toHaveText(
+    'Stored Git preferences are invalid; save to replace them.',
+  );
+  await expect(dialog.getByRole('button', { name: 'Commit', exact: true })).toBeDisabled();
+  await page.keyboard.press('Escape');
+
+  await page
+    .getByRole('navigation', { name: 'Main navigation' })
+    .getByRole('button', { name: 'Settings', exact: true })
+    .click();
+  const settings = page.getByTestId('git-settings');
+  await expect(settings.getByTestId('git-preferences-invalid')).toBeVisible();
+  await settings.getByRole('button', { name: 'Save conventions' }).click();
+  await expect(settings.getByTestId('git-conventions-saved')).toHaveText('Saved.');
+  await expect(settings.getByTestId('git-preferences-invalid')).toHaveCount(0);
+
+  await openGit(page);
+  await page.getByRole('button', { name: 'Commit…' }).click();
+  await dialog.getByLabel('Commit message').fill('docs: update readme');
+  await expect(dialog.getByTestId('commit-preferences-invalid')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Commit', exact: true }).click();
+  await expect(dialog).toBeHidden({ timeout: 15_000 });
+  expect(git('log', '-1', '--format=%s').trim()).toBe('docs: update readme');
 });

@@ -103,6 +103,11 @@ const api: AtlasApi = {
     cancelOperation: (id) => ipcRenderer.invoke(IPC_CHANNELS.gitCancelOperation, id),
     getPreferences: () => ipcRenderer.invoke(IPC_CHANNELS.gitGetPreferences),
     setPreferences: (input) => ipcRenderer.invoke(IPC_CHANNELS.gitSetPreferences, input),
+    commitContext: (root) => ipcRenderer.invoke(IPC_CHANNELS.gitCommitContext, root),
+    getProjectSettings: (projectId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.gitGetProjectSettings, projectId),
+    setProjectSettings: (projectId, settings) =>
+      ipcRenderer.invoke(IPC_CHANNELS.gitSetProjectSettings, projectId, settings),
   },
   sessions: {
     list: (filter) =>

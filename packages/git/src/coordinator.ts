@@ -1,4 +1,9 @@
-import type { GitFailureCode, GitOperation, GitOperationKind } from '@atlas/contracts';
+import type {
+  GitFailureCode,
+  GitOperation,
+  GitOperationKind,
+  GitPreCommitStepResult,
+} from '@atlas/contracts';
 import { AtlasError, describeError, noopLogger, type Logger } from '@atlas/shared';
 import { parseProgress } from './porcelain.js';
 import { GitCommandError } from './runner.js';
@@ -27,6 +32,10 @@ export interface GitOperationContext {
   signal: AbortSignal;
   /** Feeds a raw Git progress line; the coordinator parses and throttles it. */
   progress(line: string): void;
+  /** Publishes the current state of pre-commit steps. */
+  setSteps(steps: GitPreCommitStepResult[]): void;
+  /** Whether cancelling is safe from now on (e.g. only before a commit is created). */
+  setCancellable(cancellable: boolean): void;
 }
 
 export interface GitOperationRequest {
@@ -53,7 +62,23 @@ export interface GitOperationCoordinatorOptions {
 interface Tracked {
   operation: GitOperation;
   controller: AbortController;
+  /** Settles when `run` returned or threw. */
+  done: Promise<void>;
 }
+
+/** Waiting for a lane ended because the operation was cancelled while queued. */
+class CancelledWhileQueued extends Error {}
+
+interface Lane {
+  held: boolean;
+  /** FIFO of operations waiting for the lane. */
+  waiters: { grant: () => void }[];
+}
+
+const copy = (operation: GitOperation): GitOperation => ({
+  ...operation,
+  steps: operation.steps?.map((step) => ({ ...step })) ?? null,
+});
 
 const LANE_ORDER: Record<GitLane, number> = { index: 0, remote: 1 };
 
@@ -62,10 +87,11 @@ const LANE_ORDER: Record<GitLane, number> = { index: 0, remote: 1 };
  * history of operations. Read-only inspection does not go through it.
  */
 export class GitOperationCoordinator {
-  private readonly tails = new Map<string, Promise<void>>();
+  private readonly lanes = new Map<string, Lane>();
   private readonly tracked = new Map<string, Tracked>();
   private readonly logger: Logger;
   private readonly now: () => Date;
+  private closed = false;
 
   constructor(private readonly options: GitOperationCoordinatorOptions) {
     this.logger = options.logger ?? noopLogger;
@@ -74,7 +100,7 @@ export class GitOperationCoordinator {
 
   /** Recent operations, oldest first. */
   list(): GitOperation[] {
-    return [...this.tracked.values()].map((entry) => ({ ...entry.operation }));
+    return [...this.tracked.values()].map((entry) => copy(entry.operation));
   }
 
   /** Whether a mutation is queued or running for the repository. */
@@ -86,22 +112,75 @@ export class GitOperationCoordinator {
     );
   }
 
-  /** Cancels a queued operation, or a running one that is safe to interrupt. */
+  /**
+   * Cancels a queued operation, which settles immediately and leaves the queue, or a
+   * running one that is safe to interrupt. Returns the operation's current state.
+   */
   cancel(id: string): GitOperation {
     const entry = this.tracked.get(id);
     if (!entry) throw new AtlasError('GIT_OPERATION_NOT_FOUND');
     const { operation, controller } = entry;
-    if (
-      operation.status === 'queued' ||
-      (operation.status === 'running' && operation.cancellable)
-    ) {
+    if (operation.status === 'queued') {
+      this.finish(operation, 'cancelled', 'Cancelled before it started.');
+      controller.abort();
+    } else if (operation.status === 'running' && operation.cancellable) {
       controller.abort();
     } else if (operation.status === 'running') {
       throw new AtlasError('VALIDATION_FAILED', 'Operation cannot be cancelled safely.', {
         issues: [{ field: 'operation', message: 'This operation cannot be cancelled safely.' }],
       });
     }
-    return { ...operation };
+    return copy(operation);
+  }
+
+  /**
+   * Cancels every queued operation and every running one that is safe to interrupt,
+   * e.g. on shutdown. Running operations that cannot be interrupted keep running.
+   */
+  cancelAll(): void {
+    for (const { operation } of [...this.tracked.values()]) {
+      if (
+        operation.status === 'queued' ||
+        (operation.status === 'running' && operation.cancellable)
+      ) {
+        this.cancel(operation.id);
+      }
+    }
+  }
+
+  /**
+   * Stops accepting operations (e.g. on shutdown) and cancels what is safe to stop.
+   * Operations requested afterwards, such as the push that follows a commit which
+   * was still finishing, settle as cancelled without running.
+   */
+  close(): void {
+    this.closed = true;
+    this.cancelAll();
+  }
+
+  /** Whether `close` was called. */
+  get closing(): boolean {
+    return this.closed;
+  }
+
+  /**
+   * Resolves once no operation is queued or running, or after `timeoutMs`.
+   * Returns whether every operation settled in time.
+   */
+  async idle(timeoutMs: number): Promise<boolean> {
+    const pending = [...this.tracked.values()]
+      .filter(({ operation }) => operation.status === 'queued' || operation.status === 'running')
+      .map((entry) => entry.done);
+    if (pending.length === 0) return true;
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), timeoutMs);
+    });
+    try {
+      return await Promise.race([Promise.all(pending).then(() => true as const), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async run<T>(
@@ -120,21 +199,28 @@ export class GitOperationCoordinator {
       summary: null,
       error: null,
       cancellable: true,
+      steps: null,
     };
-    this.track({ operation, controller });
+    let settle!: () => void;
+    const done = new Promise<void>((resolve) => (settle = resolve));
+    this.track({ operation, controller, done });
     this.emit(operation);
+    if (this.closed) {
+      settle();
+      return {
+        operation: this.finish(operation, 'cancelled', 'Cancelled because ATLAS is shutting down.'),
+        value: null,
+      };
+    }
 
     const releases: (() => void)[] = [];
     const lanes = [...new Set(request.lanes)].sort((a, b) => LANE_ORDER[a] - LANE_ORDER[b]);
     try {
-      for (const lane of lanes)
-        releases.push(await this.acquire(`${request.repositoryRoot}\0${lane}`));
-      if (controller.signal.aborted) {
-        return {
-          operation: this.finish(operation, 'cancelled', 'Cancelled before it started.'),
-          value: null,
-        };
+      for (const lane of lanes) {
+        releases.push(await this.acquire(`${request.repositoryRoot}\0${lane}`, controller.signal));
       }
+      // `cancel` already settled a queued operation; it never starts.
+      if (operation.status === 'cancelled') return { operation: copy(operation), value: null };
       operation.status = 'running';
       operation.cancellable = request.cancellable;
       this.emit(operation);
@@ -153,12 +239,22 @@ export class GitOperationCoordinator {
             this.emit(operation);
           }
         },
+        setSteps: (steps) => {
+          operation.steps = steps.map((step) => ({ ...step }));
+          this.emit(operation);
+        },
+        setCancellable: (cancellable) => {
+          if (operation.cancellable === cancellable) return;
+          operation.cancellable = cancellable;
+          this.emit(operation);
+        },
       });
       return {
         operation: this.finish(operation, 'succeeded', result.summary),
         value: result.value,
       };
     } catch (error) {
+      if (error instanceof CancelledWhileQueued) return { operation: copy(operation), value: null };
       if (error instanceof GitCommandError && error.kind === 'cancelled') {
         return { operation: this.finish(operation, 'cancelled', 'Cancelled.'), value: null };
       }
@@ -167,7 +263,9 @@ export class GitOperationCoordinator {
         return { operation: this.finish(operation, 'failed', null), value: null };
       }
       if (error instanceof AtlasError) {
-        operation.error = { code: 'unavailable', message: error.userMessage, output: null };
+        // Issues are safe to show and explain the failure more precisely.
+        const message = error.issues[0]?.message ?? error.userMessage;
+        operation.error = { code: 'unavailable', message, output: null };
         this.finish(operation, 'failed', null);
         throw error;
       }
@@ -183,6 +281,7 @@ export class GitOperationCoordinator {
       return { operation: this.finish(operation, 'failed', null), value: null };
     } finally {
       for (const release of releases.reverse()) release();
+      settle();
     }
   }
 
@@ -196,11 +295,11 @@ export class GitOperationCoordinator {
     operation.finishedAt = this.now().toISOString();
     operation.cancellable = false;
     this.emit(operation);
-    return { ...operation };
+    return copy(operation);
   }
 
   private emit(operation: GitOperation): void {
-    this.options.onChange?.({ ...operation });
+    this.options.onChange?.(copy(operation));
   }
 
   private track(entry: Tracked): void {
@@ -212,17 +311,45 @@ export class GitOperationCoordinator {
     }
   }
 
-  /** FIFO mutex per key; resolves with the release function. */
-  private async acquire(key: string): Promise<() => void> {
-    const previous = this.tails.get(key) ?? Promise.resolve();
-    let release!: () => void;
-    const current = new Promise<void>((resolve) => (release = resolve));
-    const tail = previous.then(() => current);
-    this.tails.set(key, tail);
-    await previous;
-    return () => {
-      release();
-      if (this.tails.get(key) === tail) this.tails.delete(key);
+  /**
+   * FIFO mutex per key; resolves with the release function. Rejects with
+   * `CancelledWhileQueued` when `signal` aborts before the lock was granted, removing
+   * the waiter so the operations behind it keep their order.
+   */
+  private acquire(key: string, signal: AbortSignal): Promise<() => void> {
+    let lane = this.lanes.get(key);
+    if (lane === undefined) {
+      lane = { held: false, waiters: [] };
+      this.lanes.set(key, lane);
+    }
+    const current = lane;
+    const release = () => {
+      const next = current.waiters.shift();
+      if (next !== undefined) next.grant();
+      else {
+        current.held = false;
+        this.lanes.delete(key);
+      }
     };
+    if (signal.aborted) return Promise.reject(new CancelledWhileQueued());
+    if (!current.held) {
+      current.held = true;
+      return Promise.resolve(release);
+    }
+    return new Promise((resolve, reject) => {
+      const waiter = {
+        grant: () => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(release);
+        },
+      };
+      const onAbort = () => {
+        const index = current.waiters.indexOf(waiter);
+        if (index !== -1) current.waiters.splice(index, 1);
+        reject(new CancelledWhileQueued());
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      current.waiters.push(waiter);
+    });
   }
 }

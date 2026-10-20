@@ -15,7 +15,7 @@ import {
   Plus,
 } from 'lucide-react';
 import { useState, type DragEvent, type ReactNode } from 'react';
-import { GitSyncBadges } from '@/components/git/GitBadges';
+import { GitChangesBadge, GitSyncBadges } from '@/components/git/GitBadges';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -268,9 +268,10 @@ function SidebarProjectRow({
         />
         <span className="truncate">{item.project.name}</span>
       </button>
-      {tracksUpstream && (
+      {snapshot !== null && (
         <span className="flex shrink-0 items-center gap-1" data-testid="sidebar-project-sync">
-          <GitSyncBadges snapshot={snapshot} />
+          <GitChangesBadge snapshot={snapshot} />
+          {tracksUpstream && <GitSyncBadges snapshot={snapshot} />}
         </span>
       )}
       <Button

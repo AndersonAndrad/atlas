@@ -5,7 +5,10 @@ import { Button } from '@/components/ui/button';
 import { AVAILABILITY_LABELS, formatDate, gitSummary } from '@/format';
 import type { ProjectDetails } from '@/types';
 import { useProjectGit } from '@/terminal/hooks/useGitStatus';
+import { CommitSettingsForm } from '@/git/components/CommitSettingsForm';
+import { ActionDot } from './git/ActionDot';
 import { GitDetails } from './git/GitDetails';
+import { pendingGitActions } from './git/git-format';
 import { StatusBadge } from './StatusBadge';
 
 interface ProjectDetailsPanelProps {
@@ -31,6 +34,8 @@ export function ProjectDetailsPanel({
   const unavailable = availability.status !== 'available';
   const repositoryRoot = git.repositoryRoot ?? project.git.repositoryRoot;
   const projectGit = useProjectGit(project.id);
+  const pendingActions =
+    projectGit.status?.state === 'repository' ? pendingGitActions(projectGit.status.snapshot) : [];
 
   return (
     <section
@@ -53,9 +58,16 @@ export function ProjectDetailsPanel({
             </Button>
           )}
           {onOpenGit && projectGit.status?.state === 'repository' && (
-            <Button variant="secondary" onClick={onOpenGit} disabled={unavailable}>
+            <Button
+              variant="secondary"
+              className="relative"
+              onClick={onOpenGit}
+              disabled={unavailable}
+              title={pendingActions.join(' · ') || 'Git'}
+            >
               <GitBranch />
               Git
+              <ActionDot reasons={pendingActions} />
             </Button>
           )}
           {onNewSession && (
@@ -149,6 +161,18 @@ export function ProjectDetailsPanel({
         loading={projectGit.loading}
         onRefresh={projectGit.refresh}
       />
+
+      {onEdit && projectGit.status?.state === 'repository' && (
+        <section
+          className="flex flex-col gap-3 rounded-lg border p-4"
+          aria-labelledby="commit-checks-title"
+        >
+          <h3 id="commit-checks-title" className="font-semibold">
+            Commit checks
+          </h3>
+          <CommitSettingsForm key={project.id} projectId={project.id} />
+        </section>
+      )}
     </section>
   );
 }

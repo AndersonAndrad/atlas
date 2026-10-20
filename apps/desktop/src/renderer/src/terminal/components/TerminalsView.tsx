@@ -179,7 +179,7 @@ export function TerminalsView({
   return (
     <main className="flex min-h-0 min-w-0 flex-1">
       <aside
-        className="hidden w-64 shrink-0 flex-col border-r md:flex"
+        className="hidden w-72 shrink-0 flex-col border-r md:flex"
         aria-label="Terminal navigation"
       >
         <TerminalSidebar

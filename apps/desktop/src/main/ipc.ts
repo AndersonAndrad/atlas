@@ -19,6 +19,7 @@ import {
   GitRepositoryRootSchema,
   GitSwitchBranchInputSchema,
   UpdateGitPreferencesSchema,
+  ProjectGitSettingsSchema,
   IPC_CHANNELS,
   IPC_SEND_CHANNELS,
   TERMINAL_VIEW_ID_PATTERN,
@@ -347,6 +348,13 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
   gitCall(IPC_CHANNELS.gitRenameBranch, z.tuple([GitRenameBranchInputSchema]), 'git.renameBranch');
   gitCall(IPC_CHANNELS.gitSuggestMessage, z.tuple([GitPathsInputSchema]), 'git.suggestMessage');
   gitCall(IPC_CHANNELS.gitOperations, NoArgs, 'git.operations');
+  gitCall(IPC_CHANNELS.gitCommitContext, RootArgs, 'git.commitContext');
+  gitCall(IPC_CHANNELS.gitGetProjectSettings, IdArgs, 'git.getProjectSettings');
+  gitCall(
+    IPC_CHANNELS.gitSetProjectSettings,
+    z.tuple([ProjectIdSchema, ProjectGitSettingsSchema]),
+    'git.setProjectSettings',
+  );
   gitCall(IPC_CHANNELS.gitCancelOperation, z.tuple([GitOperationIdSchema]), 'git.cancelOperation');
   gitCall(IPC_CHANNELS.gitGetPreferences, NoArgs, 'git.getPreferences');
   gitCall(

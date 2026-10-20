@@ -9,6 +9,7 @@ import type {
 import type { AppInfo } from './app-info.js';
 import type {
   GitBranchList,
+  GitCommitContext,
   GitCommitInput,
   GitCommitResult,
   GitCommitSuggestion,
@@ -28,6 +29,9 @@ import type {
   GitStatus,
   GitSwitchBranchInput,
   GitWorkingTree,
+  ProjectGitSettings,
+  StoredGitPreferences,
+  StoredProjectGitSettings,
   TerminalGitContext,
   TerminalProjectContext,
   UpdateGitPreferences,
@@ -120,6 +124,9 @@ export const IPC_CHANNELS = {
   gitCancelOperation: 'atlas:git:cancel-operation',
   gitGetPreferences: 'atlas:git:get-preferences',
   gitSetPreferences: 'atlas:git:set-preferences',
+  gitCommitContext: 'atlas:git:commit-context',
+  gitGetProjectSettings: 'atlas:git:get-project-settings',
+  gitSetProjectSettings: 'atlas:git:set-project-settings',
   appInfo: 'atlas:app:info',
 
   listSessions: 'atlas:sessions:list',
@@ -292,8 +299,16 @@ export interface AtlasApi {
     suggestMessage(input: GitPathsInput): Promise<IpcResult<GitCommitSuggestion | null>>;
     operations(): Promise<IpcResult<GitOperation[]>>;
     cancelOperation(id: string): Promise<IpcResult<GitOperation>>;
-    getPreferences(): Promise<IpcResult<GitPreferences>>;
+    getPreferences(): Promise<IpcResult<StoredGitPreferences>>;
     setPreferences(input: UpdateGitPreferences): Promise<IpcResult<GitPreferences>>;
+    /** Projects of a repository and the commit settings each applies. */
+    commitContext(repositoryRoot: string): Promise<IpcResult<GitCommitContext>>;
+    getProjectSettings(projectId: string): Promise<IpcResult<StoredProjectGitSettings>>;
+    /** Pre-commit steps are commands run by the Engine before each commit from ATLAS. */
+    setProjectSettings(
+      projectId: string,
+      settings: ProjectGitSettings,
+    ): Promise<IpcResult<ProjectGitSettings>>;
   };
   sessions: {
     list(filter?: ListSessionsInput): Promise<IpcResult<AtlasSessionListItem[]>>;

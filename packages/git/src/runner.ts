@@ -1,5 +1,12 @@
 export type GitFailureKind =
-  'not-installed' | 'timeout' | 'cancelled' | 'unsafe-ownership' | 'not-repository' | 'failed';
+  | 'not-installed'
+  | 'timeout'
+  | 'cancelled'
+  | 'unsafe-ownership'
+  | 'not-repository'
+  /** Git wrote more output than the executor accepts; the process was stopped. */
+  | 'output-too-large'
+  | 'failed';
 
 export class GitCommandError extends Error {
   constructor(
@@ -28,7 +35,11 @@ export interface GitExecOptions extends GitRunOptions {
   input?: string;
   /** Exit codes treated as success. Defaults to `[0]`. */
   okExitCodes?: readonly number[];
-  /** Standard output beyond this size is discarded and `truncated` is set. */
+  /**
+   * Opts into partial output: Git is stopped once standard output reaches this size
+   * and the result has `truncated` set. Only for reading commands. Without it,
+   * output beyond the executor's hard limit fails with `output-too-large`.
+   */
   maxOutputBytes?: number;
   /** Receives each progress line Git writes to standard error. */
   onProgress?: (line: string) => void;
@@ -37,6 +48,7 @@ export interface GitExecOptions extends GitRunOptions {
 export interface GitExecResult {
   stdout: string;
   stderr: string;
+  /** Git's exit code; -1 when Git was stopped after `maxOutputBytes`. */
   exitCode: number;
   /** Standard output was cut at `maxOutputBytes`. */
   truncated: boolean;

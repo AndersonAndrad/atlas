@@ -169,8 +169,10 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     'git.unstage': async ([input]: [GitPathsInput]) =>
       gitService.unstage(await repo(input.repositoryRoot), input.paths),
     'git.commit': async ([input]: [GitCommitInput]) => {
-      await repo(input.repositoryRoot);
-      return gitService.commit(input, await engine.gitPreferences.commitRules());
+      const root = await repo(input.repositoryRoot);
+      // Steps and enforcement come from stored settings, never from the request.
+      const checks = await engine.gitCommitChecks(root, input.projectId);
+      return gitService.commit(input, await engine.gitPreferences.commitRules(), checks);
     },
     'git.push': async ([input]: [GitPushInput]) =>
       gitService.push(await repo(input.repositoryRoot), input.setUpstream),
@@ -196,7 +198,20 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     },
     'git.operations': () => engine.gitOperations.list(),
     'git.cancelOperation': ([id]: [string]) => engine.gitOperations.cancel(id),
-    'git.getPreferences': () => engine.gitPreferences.get(),
+    'git.commitContext': async ([root]: [string]) => engine.gitCommitContext(await repo(root)),
+    'git.getProjectSettings': async ([projectId]: [string]) => {
+      await projects.getDetails(projectId);
+      const { settings, invalid } = await engine.projectGitSettings.read(projectId);
+      return invalid ? { ...settings, settingsInvalid: true } : settings;
+    },
+    'git.setProjectSettings': async ([projectId, input]: [string, unknown]) => {
+      await projects.getDetails(projectId);
+      return engine.projectGitSettings.set(projectId, input);
+    },
+    'git.getPreferences': async () => {
+      const { preferences, invalid } = await engine.gitPreferences.read();
+      return invalid ? { ...preferences, invalid: true } : preferences;
+    },
     'git.setPreferences': ([input]: [unknown]) => engine.gitPreferences.update(input),
 
     'sessions.list': ([filter]: [unknown]) => engine.sessions.list(filter),

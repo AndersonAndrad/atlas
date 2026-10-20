@@ -1,5 +1,6 @@
 import type { GitFileDiff } from '@atlas/contracts';
-import { FileDiff } from 'lucide-react';
+import { Check, FileDiff, Undo2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { CHANGE_LABELS } from '../format';
 import { LineStats } from './ChangesList';
@@ -9,6 +10,8 @@ interface DiffViewerProps {
   error: string | null;
   /** Nothing is selected yet. */
   empty: boolean;
+  /** Review action for the shown file: approve (stage) or revoke (unstage). */
+  action?: { kind: 'approve' | 'revoke'; disabled: boolean; run: () => void };
 }
 
 function lineClass(line: string): string {
@@ -20,7 +23,7 @@ function lineClass(line: string): string {
 }
 
 /** Read-only unified diff of one file in one area (staged or unstaged). */
-export function DiffViewer({ diff, error, empty }: DiffViewerProps) {
+export function DiffViewer({ diff, error, empty, action }: DiffViewerProps) {
   if (empty) {
     return (
       <div className="text-muted-foreground flex h-full flex-col items-center justify-center gap-2 p-6 text-sm">
@@ -53,8 +56,20 @@ export function DiffViewer({ diff, error, empty }: DiffViewerProps) {
         <span className="text-muted-foreground text-xs">
           {CHANGE_LABELS[diff.change]} · {diff.area === 'staged' ? 'staged' : 'not staged'}
         </span>
-        <span className="ml-auto">
+        <span className="ml-auto flex items-center gap-3">
           <LineStats stats={diff.binary ? null : { added: diff.added, removed: diff.removed }} />
+          {action && (
+            <Button
+              size="xs"
+              variant={action.kind === 'approve' ? 'default' : 'outline'}
+              disabled={action.disabled}
+              onClick={action.run}
+              data-testid="git-diff-review"
+            >
+              {action.kind === 'approve' ? <Check /> : <Undo2 />}
+              {action.kind === 'approve' ? 'Approve file' : 'Revoke approval'}
+            </Button>
+          )}
         </span>
       </header>
       {diff.truncated && (

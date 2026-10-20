@@ -4,6 +4,7 @@ import {
   ArrowUp,
   ChevronDown,
   CloudDownload,
+  ListChecks,
   GitBranch,
   GitCommitHorizontal,
   RefreshCw,
@@ -29,7 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { isActive } from '../format';
+import { isActive, nextToReview } from '../format';
 import {
   useGitDiff,
   useGitOperations,
@@ -41,6 +42,7 @@ import {
 import { BranchesDialog } from './BranchesDialog';
 import { ChangesList } from './ChangesList';
 import { CommitDialog } from './CommitDialog';
+import { CommitSettingsDialog } from './CommitSettingsDialog';
 import { DiffViewer } from './DiffViewer';
 import { OperationsPanel } from './OperationsPanel';
 import { PullDialog, PushDialog } from './RemoteDialogs';
@@ -52,7 +54,7 @@ export interface GitOpenRequest {
   nonce: number;
 }
 
-type GitDialog = 'commit' | 'push' | 'pull' | 'branches' | null;
+type GitDialog = 'commit' | 'push' | 'pull' | 'branches' | 'checks' | null;
 
 interface GitViewProps {
   request: GitOpenRequest | null;
@@ -134,15 +136,21 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
   const choose = (root: string) => {
     setPending(null);
     setChosenRoot(root);
-    void updatePreferences({ lastRepositoryRoot: root }).catch(() => undefined);
+    // Saving would replace unreadable preferences with the defaults, silently dropping
+    // stricter conventions; they are only replaced from the Git settings.
+    if (preferences?.invalid !== true) {
+      void updatePreferences({ lastRepositoryRoot: root }).catch(() => undefined);
+    }
   };
 
-  async function mutate(action: () => Promise<unknown>) {
+  /** Runs a Git action and refreshes the tree; resolves to its result, or null when it threw. */
+  async function mutate<T>(action: () => Promise<T>): Promise<T | null> {
     setActionError(null);
     try {
-      await action();
+      return await action();
     } catch (caught) {
       setActionError(errorMessage(caught));
+      return null;
     } finally {
       void refresh();
     }
@@ -157,6 +165,53 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
     );
 
   const error = actionError ?? listError ?? treeError;
+
+  // Approving from the diff stages the file and, once staged, moves on to the next file to review.
+  const shownFile =
+    shownSelection === null
+      ? undefined
+      : tree?.files.find((file) => file.path === shownSelection.path);
+  const reviewAction =
+    tree === null ||
+    shownSelection === null ||
+    shownFile === undefined ||
+    shownFile.staged === 'conflicted'
+      ? undefined
+      : shownSelection.area === 'unstaged'
+        ? {
+            kind: 'approve' as const,
+            disabled: busy,
+            run: () => {
+              const path = shownSelection.path;
+              const next = nextToReview(tree.files, path);
+              const root = tree.repositoryRoot;
+              void mutate(() =>
+                unwrap(api().git.stage({ repositoryRoot: root, paths: [path] })),
+              ).then((operation) => {
+                // A Git failure is reported on the operation; the file stays shown. A file the
+                // user selected meanwhile is kept too.
+                if (operation?.status !== 'succeeded' || next === null) return;
+                setSelected((current) =>
+                  current?.root === root && current.selection.path === path
+                    ? { root, selection: { path: next, area: 'unstaged' } }
+                    : current,
+                );
+              });
+            },
+          }
+        : {
+            kind: 'revoke' as const,
+            disabled: busy,
+            run: () =>
+              void mutate(() =>
+                unwrap(
+                  api().git.unstage({
+                    repositoryRoot: tree.repositoryRoot,
+                    paths: [shownSelection.path],
+                  }),
+                ),
+              ),
+          };
 
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="git-view">
@@ -322,6 +377,10 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
                     <GitBranch />
                     Branches…
                   </Button>
+                  <Button variant="outline" size="sm" onClick={() => setDialog('checks')}>
+                    <ListChecks />
+                    Commit checks…
+                  </Button>
                   <Button size="sm" disabled={busy} onClick={() => setDialog('commit')}>
                     <GitCommitHorizontal />
                     Commit…
@@ -432,7 +491,12 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
                 className="bg-terminal h-96 min-w-0 overflow-hidden rounded-lg border lg:h-auto"
                 aria-label="Diff"
               >
-                <DiffViewer diff={diff} error={diffError} empty={shownSelection === null} />
+                <DiffViewer
+                  diff={diff}
+                  error={diffError}
+                  empty={shownSelection === null}
+                  {...(reviewAction ? { action: reviewAction } : {})}
+                />
               </section>
             </div>
 
@@ -465,6 +529,12 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
       )}
       {tree && dialog === 'pull' && (
         <PullDialog tree={tree} onClose={() => setDialog(null)} onDone={() => setDialog(null)} />
+      )}
+      {tree && dialog === 'checks' && (
+        <CommitSettingsDialog
+          repositoryRoot={tree.repositoryRoot}
+          onClose={() => setDialog(null)}
+        />
       )}
       {tree && dialog === 'branches' && (
         <BranchesDialog tree={tree} onClose={() => setDialog(null)} />

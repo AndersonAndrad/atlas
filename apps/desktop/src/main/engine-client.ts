@@ -1,5 +1,5 @@
 import type { EngineMethod, EngineMethodParams, EngineMethodResults } from '@atlas/contracts';
-import { fromSerialized, type EngineEventMessage } from '@atlas/engine';
+import { ENGINE_SHUTDOWN_TIMEOUT_MS, fromSerialized, type EngineEventMessage } from '@atlas/engine';
 import { AtlasError, type Logger } from '@atlas/shared';
 import type { UtilityProcess } from 'electron';
 import type { HostToMainMessage, MainToHostMessage } from '../shared/engine-host-protocol';
@@ -27,7 +27,12 @@ export interface EngineCaller {
   ): Promise<EngineMethodResults[M]>;
 }
 
-const STOP_TIMEOUT_MS = 8000;
+/**
+ * How long a stopping Engine host gets before it is killed: clearly longer than
+ * the Engine's own graceful shutdown (Git operations, then terminals), so a
+ * commit that is finishing is not cut off by the host being killed.
+ */
+export const STOP_TIMEOUT_MS = ENGINE_SHUTDOWN_TIMEOUT_MS + 5_000;
 const RESTART_WINDOW_MS = 60_000;
 const MAX_RESTARTS_PER_WINDOW = 3;
 

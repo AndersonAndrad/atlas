@@ -1,8 +1,9 @@
 import type { GitRepositorySnapshot } from '@atlas/contracts';
-import { ArrowDown, ArrowUp, GitBranch } from 'lucide-react';
+import { ArrowDown, ArrowUp, FileDiff, GitBranch } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { plural } from '@/git/format';
 import { branchLabel, trackingDescription } from './git-format';
 
 function Chip({
@@ -61,6 +62,21 @@ export function GitSyncBadges({ snapshot }: { snapshot: GitRepositorySnapshot })
   );
 }
 
+/** Number of changed files (any kind), highlighted when there is something to commit. */
+export function GitChangesBadge({ snapshot }: { snapshot: GitRepositorySnapshot }) {
+  const { total } = snapshot.changes;
+  return (
+    <Chip
+      tone={total > 0 ? 'warning' : 'neutral'}
+      tip={`${plural(total, 'changed file')} (modified, staged or untracked)`}
+      testId="git-changes-count"
+    >
+      <FileDiff className="size-3" aria-hidden="true" />
+      {total}
+    </Chip>
+  );
+}
+
 /** Compact Git indicators: branch, modified/staged counts and ahead/behind. */
 export function GitBadges({ snapshot }: { snapshot: GitRepositorySnapshot }) {
   const { changes } = snapshot;
@@ -73,17 +89,14 @@ export function GitBadges({ snapshot }: { snapshot: GitRepositorySnapshot }) {
       {changes.modified > 0 && (
         <Chip
           tone="warning"
-          tip={`${changes.modified} modified file${changes.modified === 1 ? '' : 's'} in the working tree`}
+          tip={`${plural(changes.modified, 'modified file')} in the working tree`}
           testId="git-modified"
         >
           M:{changes.modified}
         </Chip>
       )}
       {changes.staged > 0 && (
-        <Chip
-          tip={`${changes.staged} file${changes.staged === 1 ? '' : 's'} with staged changes`}
-          testId="git-staged"
-        >
+        <Chip tip={`${plural(changes.staged, 'file')} with staged changes`} testId="git-staged">
           S:{changes.staged}
         </Chip>
       )}

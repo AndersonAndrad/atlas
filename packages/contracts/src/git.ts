@@ -128,6 +128,8 @@ export interface GitWorkingTree {
   files: GitFileChange[];
   /** True when more changed paths exist than were listed. */
   truncated: boolean;
+  /** True when a staged path was not listed; commits are refused while it is set. */
+  stagedTruncated: boolean;
   /**
    * Identifies HEAD and the staged content. A commit is refused when it changed
    * since the user reviewed the selection.
@@ -226,6 +228,8 @@ export const GIT_FAILURE_CODES = [
   'locked',
   'timeout',
   'unavailable',
+  /** A pre-commit step configured for the project failed; nothing was committed. */
+  'check-failed',
 ] as const;
 export type GitFailureCode = (typeof GIT_FAILURE_CODES)[number];
 
@@ -247,6 +251,25 @@ export interface GitOperation {
     output: string | null;
   } | null;
   cancellable: boolean;
+  /** Pre-commit steps of a commit, in order; null for other operations. */
+  steps: GitPreCommitStepResult[] | null;
+}
+
+export type GitPreCommitStepStatus =
+  'pending' | 'running' | 'passed' | 'failed' | 'cancelled' | 'skipped';
+
+export interface GitPreCommitStepResult {
+  name: string;
+  command: string;
+  mode: PreCommitStepMode;
+  status: GitPreCommitStepStatus;
+  /** Wall-clock time of the step; null until it finished. */
+  durationMs: number | null;
+  exitCode: number | null;
+  /** Why the step failed, e.g. "exited with code 1" or "timed out after 600 s". */
+  detail: string | null;
+  /** Tail of the step's output (credentials removed), kept for failed steps. */
+  output: string | null;
 }
 
 export interface GitCommitResult {
@@ -318,6 +341,11 @@ export const GitCommitInputSchema = z.strictObject({
   push: z.boolean(),
   /** Required to push a branch without upstream. */
   setUpstream: GitSetUpstreamSchema.optional(),
+  /**
+   * Project whose commit settings apply when several registered projects share the
+   * repository. The Engine reads the settings itself; the request never carries commands.
+   */
+  projectId: z.uuid().optional(),
 });
 export type GitCommitInput = z.infer<typeof GitCommitInputSchema>;
 
@@ -390,6 +418,15 @@ export const DEFAULT_GIT_PREFERENCES: GitPreferences = {
   lastRepositoryRoot: null,
 };
 
+/** Preferences as read for display. */
+export type StoredGitPreferences = GitPreferences & {
+  /**
+   * Stored preferences exist but cannot be read: the defaults are returned and commits
+   * are refused until the preferences are saved again. Absent when they are readable.
+   */
+  invalid?: boolean;
+};
+
 /** A reviewed-before-use commit message proposal; it is never applied automatically. */
 export interface GitCommitSuggestion {
   /** A complete message, or a template with `<type>` when the type is not evident. */
@@ -398,4 +435,72 @@ export interface GitCommitSuggestion {
   scope: string | null;
   description: string;
   rationale: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Project commit settings (PLAN-009)
+// ---------------------------------------------------------------------------
+
+export const PRE_COMMIT_STEP_MODES = ['complete', 'start'] as const;
+/**
+ * `complete`: the command must exit with code 0 (tests, builds).
+ * `start`: the command must keep running for `readyAfterSeconds` (or print
+ * `readyText`); ATLAS then stops it and everything it started.
+ */
+export type PreCommitStepMode = (typeof PRE_COMMIT_STEP_MODES)[number];
+
+export const PRE_COMMIT_STEPS_MAX = 5;
+
+export const PreCommitStepSchema = z.strictObject({
+  name: z.string().trim().min(1, 'Enter a name.').max(60),
+  command: z
+    .string()
+    .trim()
+    .min(1, 'Enter a command.')
+    .max(1000)
+    .refine((value) => !/[\0\r\n]/.test(value), 'Use a single-line command.'),
+  mode: z.enum(PRE_COMMIT_STEP_MODES),
+  /** Maximum duration of a `complete` step, or of waiting for `readyText`. */
+  timeoutSeconds: z.number().int().min(5).max(3600),
+  /** How long a `start` step must keep running to pass. */
+  readyAfterSeconds: z.number().int().min(2).max(300),
+  /** For `start` steps: passes as soon as the output contains this text. */
+  readyText: z.string().trim().max(200).nullable(),
+});
+export type PreCommitStep = z.infer<typeof PreCommitStepSchema>;
+
+export const ProjectGitSettingsSchema = z.strictObject({
+  /** On by default: messages must follow Conventional Commits. */
+  enforceConventionalCommits: z.boolean(),
+  preCommitSteps: z.array(PreCommitStepSchema).max(PRE_COMMIT_STEPS_MAX, 'Up to 5 steps.'),
+});
+export type ProjectGitSettings = z.infer<typeof ProjectGitSettingsSchema>;
+
+export const DEFAULT_PROJECT_GIT_SETTINGS: ProjectGitSettings = {
+  enforceConventionalCommits: true,
+  preCommitSteps: [],
+};
+
+/** Project commit settings as read for display. */
+export type StoredProjectGitSettings = ProjectGitSettings & {
+  /**
+   * Stored settings exist but cannot be read: the defaults are returned and commits for
+   * the project are refused until the settings are saved again. Absent when readable.
+   */
+  settingsInvalid?: boolean;
+};
+
+/** Projects sharing a repository, with the commit settings each would apply. */
+export interface GitCommitContext {
+  projects: {
+    id: string;
+    name: string;
+    workspacePath: string;
+    settings: ProjectGitSettings;
+    /**
+     * Stored settings exist but cannot be read: `settings` are the defaults and commits
+     * for this project are refused until the settings are saved again.
+     */
+    settingsInvalid?: boolean;
+  }[];
 }

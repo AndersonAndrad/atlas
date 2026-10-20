@@ -1,6 +1,7 @@
 export * from './engine.js';
 export * from './data-dir.js';
 export * from './host.js';
+export * from './shutdown-timing.js';
 export { NodePathInspector } from './adapters/node-path-inspector.js';
 export { inspectGit } from './adapters/git-inspector.js';
 export { FileLogger } from './adapters/file-logger.js';

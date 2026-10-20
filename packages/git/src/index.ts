@@ -5,3 +5,4 @@ export * from './coordinator.js';
 export { GitInspectionService, type GitInspectionOptions } from './inspection-service.js';
 export * from './workspace-service.js';
 export * from './preferences.js';
+export * from './pre-commit.js';

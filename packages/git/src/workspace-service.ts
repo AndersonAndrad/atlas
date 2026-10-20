@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, open, readlink, stat } from 'node:fs/promises';
+import { lstat, open, readlink, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type {
   GitBranchList,
@@ -43,6 +43,12 @@ import {
   parseStatusV2,
 } from './porcelain.js';
 import {
+  DEFAULT_COMMIT_CHECKS,
+  runPreCommitSteps,
+  type CommitChecks,
+  type PreCommitStepRunner,
+} from './pre-commit.js';
+import {
   GitCommandError,
   type GitExecOptions,
   type GitExecResult,
@@ -75,6 +81,8 @@ export interface GitWorkspaceLimits {
 
 export interface GitWorkspaceServiceOptions {
   exec: GitExecutor;
+  /** Runs project pre-commit steps; commits with steps are refused without it. */
+  stepRunner?: PreCommitStepRunner;
   coordinator: GitOperationCoordinator;
   now?: () => Date;
   logger?: Logger;
@@ -133,6 +141,11 @@ export class GitWorkspaceService {
   // Reads
   // -------------------------------------------------------------------------
 
+  /**
+   * The working tree. Staged entries are listed first, so untracked or unstaged
+   * files beyond the limit never hide what a commit would contain;
+   * `stagedTruncated` reports staged entries that still did not fit.
+   */
   async workingTree(repositoryRoot: string): Promise<GitWorkingTree> {
     const [status, staged, unstaged, head, rawIndex, name, email, gitDir] = await Promise.all([
       this.read(repositoryRoot, [
@@ -162,7 +175,7 @@ export class GitWorkspaceService {
     const stagedStats = parseNumstat(staged);
     const unstagedStats = parseNumstat(unstaged);
     const entries = parseStatusEntries(status);
-    const listed = entries.slice(0, this.limits.maxFiles);
+    const { listed, hiddenStaged } = listEntries(entries, this.limits.maxFiles);
     const untrackedStats = await this.untrackedStats(
       repositoryRoot,
       listed.filter((entry) => entry.unstaged === 'untracked').map((entry) => entry.path),
@@ -185,7 +198,7 @@ export class GitWorkspaceService {
       this.modifiedAt(path.join(directory, 'FETCH_HEAD')),
       this.inProgress(directory),
     ]);
-    return {
+    const tree: GitWorkingTree = {
       repositoryRoot,
       repositoryName: path.basename(repositoryRoot),
       branch: parsed.branch,
@@ -200,13 +213,17 @@ export class GitWorkspaceService {
       inProgress,
       files,
       truncated: entries.length > listed.length,
+      stagedTruncated: hiddenStaged > 0,
       indexFingerprint: createHash('sha256')
         .update(head.stdout.trim())
+        .update('\0')
+        .update(parsed.branch ?? '')
         .update('\0')
         .update(rawIndex)
         .digest('hex'),
       inspectedAt: this.now().toISOString(),
     };
+    return tree;
   }
 
   async diff(
@@ -245,7 +262,7 @@ export class GitWorkspaceService {
         ...paths,
       ],
       [0],
-      this.limits.maxDiffBytes,
+      { maxOutputBytes: this.limits.maxDiffBytes },
     );
     return { ...base, ...this.summarizeDiff(result.stdout, result.truncated) };
   }
@@ -364,61 +381,125 @@ export class GitWorkspaceService {
    * Commits exactly what is staged after applying the user's explicit selection.
    * Hooks always run. With `push`, pushes only after Git confirmed the commit.
    */
-  async commit(input: GitCommitInput, rules: CommitMessageRules = {}): Promise<GitCommitOutcome> {
+  async commit(
+    input: GitCommitInput,
+    rules: CommitMessageRules = {},
+    checks: CommitChecks = DEFAULT_COMMIT_CHECKS(input.repositoryRoot),
+  ): Promise<GitCommitOutcome> {
     const { repositoryRoot } = input;
-    const validation = validateCommitMessage(input.message, rules);
-    if (!validation.valid) {
-      throw new AtlasError('VALIDATION_FAILED', 'Invalid commit message.', {
-        issues: validation.errors.map((message) => ({ field: 'message', message })),
-      });
+    if (checks.enforceConventionalCommits) {
+      const validation = validateCommitMessage(input.message, rules);
+      if (!validation.valid) {
+        throw new AtlasError('VALIDATION_FAILED', 'Invalid commit message.', {
+          issues: validation.errors.map((message) => ({ field: 'message', message })),
+        });
+      }
+    } else if (input.message.trim() === '') {
+      throw invalid('message', 'Enter a commit message.');
+    }
+    if (checks.steps.length > 0 && this.options.stepRunner === undefined) {
+      throw invalid(
+        'preCommitSteps',
+        'This project has pre-commit steps, which only run in ATLAS Control. ' +
+          'Commit from ATLAS Control or remove the steps in the project settings.',
+      );
     }
     const overlap = input.stage.filter((file) => input.unstage.includes(file));
     if (overlap.length > 0) throw invalid('stage', 'A file cannot be both included and excluded.');
-    if (input.push && input.setUpstream === undefined) {
+    // Everything that would make the push refuse to start is checked before the
+    // commit exists, so Commit & Push never fails halfway on a validation error.
+    let pushPlan: PushPlan | null = null;
+    if (input.push) {
       const tree = await this.workingTree(repositoryRoot);
-      if (tree.upstream === null || tree.upstreamGone) throw new AtlasError('GIT_NO_UPSTREAM');
+      if (input.setUpstream === undefined && (tree.upstream === null || tree.upstreamGone)) {
+        throw new AtlasError('GIT_NO_UPSTREAM');
+      }
+      pushPlan = await this.planPush(repositoryRoot, tree, input.setUpstream);
     }
 
-    const outcome = await this.mutate(repositoryRoot, 'commit', ['index'], false, async () => {
-      const tree = await this.workingTree(repositoryRoot);
-      if (tree.indexFingerprint !== input.expectedFingerprint)
-        throw new AtlasError('GIT_INDEX_CHANGED');
-      if (tree.files.some((file) => file.staged === 'conflicted')) {
-        throw new GitOperationFailure('conflict', 'Resolve the merge conflicts before committing.');
-      }
-      const toUnstage = this.requireFiles(tree, input.unstage, 'staged');
-      const toStage = this.requireFiles(tree, input.stage, 'unstaged');
-      if (toUnstage.length > 0) await this.unstageFiles(repositoryRoot, tree, toUnstage);
-      if (toStage.length > 0) {
-        await this.write(repositoryRoot, ['add', '--', ...toStage.map((file) => file.path)]);
-      }
-      const pending = await this.read(repositoryRoot, ['diff', '--cached', '--quiet'], [0, 1]);
-      if (pending.exitCode === 0 && tree.inProgress !== 'merge') {
-        throw new GitOperationFailure(
-          'nothing-to-commit',
-          'There are no staged changes to commit.',
-        );
-      }
-      try {
-        await this.write(repositoryRoot, ['commit', '-F', '-'], {
-          input: input.message,
-          timeoutMs: this.timeouts.commit,
-        });
-      } catch (error) {
-        const failure = toFailure(error);
-        const kept =
-          toStage.length + toUnstage.length > 0 ? ' Your file selection remains staged.' : '';
-        throw new GitOperationFailure(failure.code, `${failure.message}${kept}`, failure.output);
-      }
-      const hash = (await this.read(repositoryRoot, ['rev-parse', 'HEAD'])).trim();
-      const header = input.message.split(/\r?\n/, 1)[0]!;
-      const where = tree.branch ?? 'detached HEAD';
-      return { summary: `Committed ${hash.slice(0, 7)} on ${where}: ${header}`, value: hash };
-    });
+    const hasSteps = checks.steps.length > 0;
+    const outcome = await this.mutate(
+      repositoryRoot,
+      'commit',
+      ['index'],
+      hasSteps,
+      async (context) => {
+        // Cheap checks first, so long steps never run for a commit that cannot happen.
+        const before = await this.workingTree(repositoryRoot);
+        this.checkCommittable(before, input, pushPlan);
+        // Selected files are staged from disk after the steps ran: their content must
+        // still be what it was when the commit started.
+        const selected = this.requireFiles(before, input.stage, 'unstaged');
+        const identity = await this.selectionIdentity(repositoryRoot, selected);
+        if (hasSteps) {
+          await runPreCommitSteps(checks, this.options.stepRunner!, context);
+          if (context.signal.aborted) {
+            throw new GitCommandError('cancelled', 'pre-commit steps cancelled');
+          }
+          // From here on the commit may be created: it is no longer safe to cancel.
+          context.setCancellable(false);
+        }
+        const tree = hasSteps ? await this.workingTree(repositoryRoot) : before;
+        this.checkCommittable(tree, input, pushPlan);
+        const toUnstage = this.requireFiles(tree, input.unstage, 'staged');
+        const toStage = this.requireFiles(tree, input.stage, 'unstaged');
+        if (hasSteps) await this.requireSameIdentity(repositoryRoot, toStage, identity);
+        // Refusals between applying the selection and committing put the index back,
+        // so a refused commit leaves the staged files as the user reviewed them.
+        // Conflicted entries (which `write-tree` cannot record) were refused above.
+        const touched = [...unstagedPaths(toUnstage), ...toStage.map((file) => file.path)];
+        // `write-tree` does not record intent-to-add entries; they are re-marked.
+        const intentToAdd = toStage.filter(isIntentToAdd).map((file) => file.path);
+        const snapshot =
+          touched.length > 0
+            ? (await this.write(repositoryRoot, ['write-tree'])).stdout.trim()
+            : null;
+        try {
+          if (toUnstage.length > 0) await this.unstageFiles(repositoryRoot, tree, toUnstage);
+          if (toStage.length > 0) {
+            await this.write(repositoryRoot, ['add', '--', ...toStage.map((file) => file.path)]);
+            await this.requireStagedIdentity(repositoryRoot, toStage, identity);
+          }
+          const pending = await this.read(repositoryRoot, ['diff', '--cached', '--quiet'], [0, 1]);
+          if (pending.exitCode === 0 && tree.inProgress !== 'merge') {
+            throw new GitOperationFailure(
+              'nothing-to-commit',
+              'There are no staged changes to commit.',
+            );
+          }
+        } catch (error) {
+          throw snapshot === null
+            ? error
+            : await this.restoreSelection(
+                repositoryRoot,
+                { tree: snapshot, paths: touched, intentToAdd },
+                error,
+              );
+        }
+        // Hooks ran against the selection, so a failing commit keeps it staged for a
+        // retry or for inspection in a terminal.
+        try {
+          await this.write(repositoryRoot, ['commit', '-F', '-'], {
+            input: input.message,
+            timeoutMs: this.timeouts.commit,
+          });
+        } catch (error) {
+          const failure = toFailure(error);
+          const kept = snapshot === null ? '' : ' Your file selection remains staged.';
+          throw new GitOperationFailure(failure.code, `${failure.message}${kept}`, failure.output);
+        }
+        const hash = (await this.read(repositoryRoot, ['rev-parse', 'HEAD'])).trim();
+        const header = input.message.split(/\r?\n/, 1)[0]!;
+        const where = tree.branch ?? 'detached HEAD';
+        return { summary: `Committed ${hash.slice(0, 7)} on ${where}: ${header}`, value: hash };
+      },
+    );
 
     let push: GitOperation | null = null;
-    if (input.push && outcome.operation.status === 'succeeded') {
-      push = await this.push(repositoryRoot, input.setUpstream);
+    if (pushPlan !== null && outcome.operation.status === 'succeeded') {
+      // The plan was validated before committing; a failing push is reported on its
+      // own operation and the commit result keeps its hash.
+      push = await this.runPush(repositoryRoot, pushPlan);
     }
     return { commit: outcome.operation, hash: outcome.value, push };
   }
@@ -428,50 +509,72 @@ export class GitWorkspaceService {
    * branch that becomes its upstream. Never forces.
    */
   async push(repositoryRoot: string, setUpstream?: GitSetUpstream): Promise<GitOperation> {
-    const tree = await this.workingTree(repositoryRoot);
+    const plan = await this.planPush(
+      repositoryRoot,
+      await this.workingTree(repositoryRoot),
+      setUpstream,
+    );
+    return this.runPush(repositoryRoot, plan);
+  }
+
+  /** Validates a push of the current branch and resolves its arguments; never mutates. */
+  private async planPush(
+    repositoryRoot: string,
+    tree: GitWorkingTree,
+    setUpstream: GitSetUpstream | undefined,
+  ): Promise<PushPlan> {
     const branch = tree.branch;
     if (branch === null) throw invalid('branch', 'Switch to a branch before pushing.');
-    let args: string[];
-    let destination: string;
     if (setUpstream !== undefined) {
       if (!(await this.remoteNames(repositoryRoot)).includes(setUpstream.remote)) {
         throw invalid('remote', 'Choose one of the configured remotes.');
       }
       await this.requireBranchName(repositoryRoot, setUpstream.branch);
-      args = [
-        'push',
-        '--progress',
-        '--set-upstream',
-        setUpstream.remote,
-        `refs/heads/${branch}:refs/heads/${setUpstream.branch}`,
-      ];
-      destination = `${setUpstream.remote}/${setUpstream.branch}`;
-    } else {
-      const [remote, merge] = await Promise.all([
-        this.config(repositoryRoot, `branch.${branch}.remote`),
-        this.config(repositoryRoot, `branch.${branch}.merge`),
-      ]);
-      if (remote === null || merge === null) throw new AtlasError('GIT_NO_UPSTREAM');
-      // The remote is passed as an argument: it must be a configured remote (or ".").
-      if (remote !== '.' && !(await this.remoteNames(repositoryRoot)).includes(remote)) {
-        throw new AtlasError('GIT_NO_UPSTREAM');
-      }
-      args = ['push', '--progress', remote, `refs/heads/${branch}:${merge}`];
-      destination = tree.upstream ?? `${remote}/${merge.replace(/^refs\/heads\//, '')}`;
+      return {
+        branch,
+        args: [
+          'push',
+          '--progress',
+          '--set-upstream',
+          setUpstream.remote,
+          `refs/heads/${branch}:refs/heads/${setUpstream.branch}`,
+        ],
+        destination: `${setUpstream.remote}/${setUpstream.branch}`,
+      };
     }
+    const [remote, merge] = await Promise.all([
+      this.config(repositoryRoot, `branch.${branch}.remote`),
+      this.config(repositoryRoot, `branch.${branch}.merge`),
+    ]);
+    if (remote === null || merge === null) throw new AtlasError('GIT_NO_UPSTREAM');
+    // The remote is passed as an argument: it must be a configured remote (or ".").
+    if (remote !== '.' && !(await this.remoteNames(repositoryRoot)).includes(remote)) {
+      throw new AtlasError('GIT_NO_UPSTREAM');
+    }
+    return {
+      branch,
+      args: ['push', '--progress', remote, `refs/heads/${branch}:${merge}`],
+      destination: tree.upstream ?? `${remote}/${merge.replace(/^refs\/heads\//, '')}`,
+    };
+  }
+
+  /** Runs a validated push; Git failures are reported on the operation, not thrown. */
+  private async runPush(repositoryRoot: string, plan: PushPlan): Promise<GitOperation> {
     const outcome = await this.mutate(
       repositoryRoot,
       'push',
       ['remote'],
       false,
       async ({ progress }) => {
-        const result = await this.write(repositoryRoot, args, {
+        const result = await this.write(repositoryRoot, plan.args, {
           timeoutMs: this.timeouts.network,
           onProgress: progress,
         });
         const upToDate = /Everything up-to-date/i.test(result.stderr);
         return {
-          summary: upToDate ? 'Everything up-to-date.' : `Pushed ${branch} to ${destination}.`,
+          summary: upToDate
+            ? 'Everything up-to-date.'
+            : `Pushed ${plan.branch} to ${plan.destination}.`,
           value: null,
         };
       },
@@ -666,6 +769,218 @@ export class GitWorkspaceService {
     }
   }
 
+  /** Refuses a commit that cannot succeed, before any step or mutation runs. */
+  private checkCommittable(
+    tree: GitWorkingTree,
+    input: GitCommitInput,
+    pushPlan: PushPlan | null,
+  ): void {
+    // Only hidden staged entries (or hidden selected files) make the reviewed list
+    // incomplete; untracked files beyond the limit are never committed implicitly.
+    const listed = new Set(tree.files.map((file) => file.path));
+    if (tree.stagedTruncated || (tree.truncated && input.stage.some((file) => !listed.has(file)))) {
+      throw invalid('paths', 'Too many changed files to review safely. Commit from a terminal.');
+    }
+    if (tree.indexFingerprint !== input.expectedFingerprint) {
+      throw new AtlasError('GIT_INDEX_CHANGED');
+    }
+    // The push was planned for this branch; a switch since then must not push another.
+    if (pushPlan !== null && tree.branch !== pushPlan.branch) {
+      throw new AtlasError('GIT_INDEX_CHANGED');
+    }
+    if (tree.files.some((file) => file.staged === 'conflicted')) {
+      throw new GitOperationFailure('conflict', 'Resolve the merge conflicts before committing.');
+    }
+    this.requireFiles(tree, input.unstage, 'staged');
+    const toStage = this.requireFiles(tree, input.stage, 'unstaged');
+    const excluded = new Set(input.unstage);
+    const remainsStaged = tree.files.some(
+      (file) => file.staged !== null && !excluded.has(file.path),
+    );
+    if (!remainsStaged && toStage.length === 0 && tree.inProgress !== 'merge') {
+      throw new GitOperationFailure('nothing-to-commit', 'There are no staged changes to commit.');
+    }
+  }
+
+  /**
+   * Identity of files the commit will stage, keyed by path: the blob id Git would
+   * store for regular files (filters applied, as `git add` does) plus their
+   * executable bit, the target of symbolic links, the checked-out commit of
+   * submodules (gitlinks, which `git add` records by that commit), or that the file
+   * is missing (a deletion). One `hash-object` call for all regular files.
+   */
+  private async selectionIdentity(
+    repositoryRoot: string,
+    files: readonly GitFileChange[],
+  ): Promise<Map<string, string>> {
+    const identity = new Map<string, string>();
+    const regular: { file: string; mode: string }[] = [];
+    for (const { path: file } of files) {
+      const absolute = path.resolve(repositoryRoot, file);
+      try {
+        const info = await lstat(absolute);
+        if (info.isSymbolicLink()) identity.set(file, `link:${await readlink(absolute)}`);
+        else if (info.isFile()) regular.push({ file, mode: fileMode(info.mode) });
+        else if (info.isDirectory()) identity.set(file, await this.gitlinkIdentity(absolute));
+        else identity.set(file, 'other');
+      } catch {
+        identity.set(file, 'missing');
+      }
+    }
+    if (regular.length > 0) {
+      // Paths go through standard input (no argument limits), C-quoted as Git expects.
+      const result = await this.read(repositoryRoot, ['hash-object', '--stdin-paths'], [0], {
+        input: regular.map(({ file }) => `${quotePath(file)}\n`).join(''),
+        timeoutMs: this.timeouts.commit,
+      });
+      const ids = result.stdout.split('\n').filter((line) => line !== '');
+      if (ids.length !== regular.length) throw new AtlasError('GIT_INDEX_CHANGED');
+      regular.forEach(({ file, mode }, index) => identity.set(file, `file:${mode}:${ids[index]!}`));
+    }
+    return identity;
+  }
+
+  /**
+   * `gitlink:<commit>` for a directory that is the root of a checked-out repository
+   * (a submodule or an embedded repository); `directory` for anything else.
+   */
+  private async gitlinkIdentity(directory: string): Promise<string> {
+    const result = await this.read(directory, ['rev-parse', '--show-toplevel', 'HEAD'], [0, 128]);
+    const [top, commit] = result.stdout.split('\n');
+    if (result.exitCode !== 0 || top === undefined || commit === undefined) return 'directory';
+    const [actualTop, expectedTop] = await Promise.all([
+      realpath(top).catch(() => top),
+      realpath(directory).catch(() => directory),
+    ]);
+    return actualTop === expectedTop ? `gitlink:${commit.trim()}` : 'directory';
+  }
+
+  /** Refuses the commit when a selected file changed since `expected` was taken. */
+  private async requireSameIdentity(
+    repositoryRoot: string,
+    files: readonly GitFileChange[],
+    expected: ReadonlyMap<string, string>,
+  ): Promise<void> {
+    const actual = await this.selectionIdentity(repositoryRoot, files);
+    for (const [file, value] of actual) {
+      if (expected.get(file) !== value) throw new AtlasError('GIT_INDEX_CHANGED');
+    }
+  }
+
+  /**
+   * Verifies that `git add` staged exactly the identified content and mode, closing
+   * the gap between the last check and staging.
+   */
+  private async requireStagedIdentity(
+    repositoryRoot: string,
+    files: readonly GitFileChange[],
+    expected: ReadonlyMap<string, string>,
+  ): Promise<void> {
+    const [result, fileModeConfig] = await Promise.all([
+      this.read(
+        repositoryRoot,
+        ['ls-files', '--stage', '-z', '--', ...files.map((file) => file.path)],
+        [0],
+        {
+          timeoutMs: this.timeouts.commit,
+        },
+      ),
+      this.read(repositoryRoot, ['config', '--bool', '--get', 'core.fileMode'], [0, 1]),
+    ]);
+    // Without core.fileMode Git ignores the executable bit and keeps the index mode.
+    const tracksExecutableBit = fileModeConfig.stdout.trim() !== 'false';
+    const staged = new Map<string, { mode: string; object: string }>();
+    for (const record of result.stdout.split('\0')) {
+      // "<mode> <object> <stage>\t<path>"
+      const tab = record.indexOf('\t');
+      if (tab === -1) continue;
+      const [mode = '', object = ''] = record.slice(0, tab).split(' ');
+      staged.set(record.slice(tab + 1), { mode, object });
+    }
+    const changed = () => new AtlasError('GIT_INDEX_CHANGED');
+    const links: GitFileChange[] = [];
+    for (const file of files) {
+      const value = expected.get(file.path) ?? '';
+      // Git lists an embedded repository selected as `dir/` by its entry `dir`.
+      const entry = staged.get(file.path.replace(/\/$/, ''));
+      const [kind = '', ...parts] = value.split(':');
+      if (value === 'missing') {
+        if (entry !== undefined) throw changed();
+      } else if (kind === 'file') {
+        const [mode, object] = parts;
+        const sameMode = tracksExecutableBit
+          ? entry?.mode === mode
+          : entry?.mode === '100644' || entry?.mode === '100755';
+        if (entry?.object !== object || !sameMode) throw changed();
+      } else if (kind === 'gitlink') {
+        if (entry?.mode !== '160000' || entry.object !== parts[0]) throw changed();
+      } else if (kind === 'link') {
+        if (entry?.mode !== '120000') throw changed();
+        links.push(file);
+      } else {
+        // Directories that are not repositories and special files cannot be staged.
+        throw changed();
+      }
+    }
+    // A link's blob is its target; re-reading the target is cheaper than hashing it.
+    if (links.length > 0) {
+      try {
+        await this.requireSameIdentity(repositoryRoot, links, expected);
+      } catch {
+        throw changed();
+      }
+    }
+  }
+
+  /**
+   * Puts the selected paths of the index back to the `snapshot` tree after a refusal
+   * and returns the error to report. Only the touched paths are restored, so flags of
+   * other entries (sparse checkout, intent-to-add) are kept; touched paths that were
+   * intent-to-add are marked again. `git reset` (unlike `git restore --staged`) also
+   * accepts paths that are in neither the tree nor the index, e.g. a new file that
+   * was deleted before it could be staged. The reported message travels in the
+   * error's issues or the operation's message, which reach the client.
+   */
+  private async restoreSelection(
+    repositoryRoot: string,
+    snapshot: { tree: string; paths: readonly string[]; intentToAdd: readonly string[] },
+    error: unknown,
+  ): Promise<unknown> {
+    let restored = true;
+    try {
+      await this.write(repositoryRoot, ['reset', '-q', snapshot.tree, '--', ...snapshot.paths]);
+      if (snapshot.intentToAdd.length > 0) {
+        await this.write(repositoryRoot, ['add', '-N', '--', ...snapshot.intentToAdd]);
+      }
+    } catch (restoreError) {
+      restored = false;
+      this.logger.warn('Could not restore the index after a refused commit', {
+        exitCode: restoreError instanceof GitCommandError ? restoreError.exitCode : null,
+      });
+    }
+    const kept = restored ? '' : ' Your file selection remains staged.';
+    if (error instanceof AtlasError && error.code === 'GIT_INDEX_CHANGED') {
+      const message = restored
+        ? 'Selected files changed while the commit was prepared. Nothing was committed and the staged files were restored.'
+        : 'Selected files changed while the commit was prepared. Nothing was committed, but your file selection remains staged.';
+      return new AtlasError('GIT_INDEX_CHANGED', message, {
+        issues: [{ field: 'selection', message }],
+        details: { selectionStaged: !restored },
+        cause: error,
+      });
+    }
+    if (restored) return error;
+    if (error instanceof AtlasError) {
+      return new AtlasError(error.code, error.message, {
+        issues: [...error.issues, { field: 'selection', message: kept.trim() }],
+        details: { ...error.details, selectionStaged: true },
+        cause: error,
+      });
+    }
+    const failure = toFailure(error);
+    return new GitOperationFailure(failure.code, `${failure.message}${kept}`, failure.output);
+  }
+
   /** Files of the working tree with changes in `area`; rejects anything else. */
   private requireFiles(
     tree: GitWorkingTree,
@@ -687,12 +1002,7 @@ export class GitWorkspaceService {
     tree: GitWorkingTree,
     files: GitFileChange[],
   ): Promise<void> {
-    // A staged rename is two index entries: the new path and the removed original.
-    const paths = files.flatMap((file) =>
-      file.originalPath !== null && file.staged === 'renamed'
-        ? [file.path, file.originalPath]
-        : [file.path],
-    );
+    const paths = unstagedPaths(files);
     const args = tree.unbornHead
       ? ['rm', '--cached', '-q', '--', ...paths]
       : ['restore', '--staged', '--', ...paths];
@@ -858,19 +1168,19 @@ export class GitWorkspaceService {
     repositoryRoot: string,
     args: string[],
     okExitCodes: readonly number[],
-    maxOutputBytes?: number,
+    extra?: Partial<Pick<GitExecOptions, 'maxOutputBytes' | 'input' | 'timeoutMs'>>,
   ): Promise<GitExecResult>;
   private async read(
     repositoryRoot: string,
     args: string[],
     okExitCodes?: readonly number[],
-    maxOutputBytes?: number,
+    extra: Partial<Pick<GitExecOptions, 'maxOutputBytes' | 'input' | 'timeoutMs'>> = {},
   ): Promise<string | GitExecResult> {
     const result = await this.options.exec(['--literal-pathspecs', ...args], {
       cwd: repositoryRoot,
       timeoutMs: this.timeouts.read,
       okExitCodes: okExitCodes ?? [0],
-      ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
+      ...extra,
     });
     return okExitCodes === undefined ? result.stdout : result;
   }
@@ -886,6 +1196,69 @@ export class GitWorkspaceService {
       ...options,
     });
   }
+}
+
+interface PushPlan {
+  branch: string;
+  args: string[];
+  destination: string;
+}
+
+/**
+ * Keeps at most `max` entries in their original order, preferring staged ones, and
+ * counts the staged entries that still did not fit.
+ */
+function listEntries<T extends { staged: unknown }>(
+  entries: readonly T[],
+  max: number,
+): { listed: T[]; hiddenStaged: number } {
+  if (entries.length <= max) return { listed: [...entries], hiddenStaged: 0 };
+  const staged = entries.filter((entry) => entry.staged !== null);
+  const kept = new Set(staged.slice(0, max));
+  for (const entry of entries) {
+    if (kept.size >= max) break;
+    kept.add(entry);
+  }
+  return {
+    listed: entries.filter((entry) => kept.has(entry)),
+    hiddenStaged: Math.max(0, staged.length - max),
+  };
+}
+
+/** Index paths that unstaging `files` changes. */
+/**
+ * Whether the path is an intent-to-add index entry (`git add -N`): only those make
+ * the working tree differ from the index as an added (or, with rename detection,
+ * renamed-to) path.
+ */
+function isIntentToAdd(file: GitFileChange): boolean {
+  return file.unstaged === 'added' || file.unstaged === 'renamed';
+}
+
+function unstagedPaths(files: readonly GitFileChange[]): string[] {
+  // A staged rename is two index entries: the new path and the removed original.
+  return files.flatMap((file) =>
+    file.originalPath !== null && file.staged === 'renamed'
+      ? [file.path, file.originalPath]
+      : [file.path],
+  );
+}
+
+/** The index mode Git records for a regular file with these permission bits. */
+function fileMode(permissions: number): string {
+  return (permissions & 0o111) === 0 ? '100644' : '100755';
+}
+
+/** Quotes a path for Git's line-based input (`--stdin-paths`) in C style. */
+function quotePath(file: string): string {
+  let quoted = '';
+  for (const char of file) {
+    const code = char.codePointAt(0)!;
+    if (char === '"' || char === '\\') quoted += `\\${char}`;
+    else if (code < 0x20 || code === 0x7f) quoted += `\\${code.toString(8).padStart(3, '0')}`;
+    else quoted += char;
+  }
+  return `"${quoted}"`;
 }
 
 function invalid(field: string, message: string): AtlasError {
@@ -976,6 +1349,11 @@ export function toFailure(error: unknown): GitOperationFailure {
       return new GitOperationFailure('timeout', 'Git took too long and was stopped.', output);
     case 'not-installed':
       return new GitOperationFailure('unavailable', 'Git is not installed or not on the PATH.');
+    case 'output-too-large':
+      return new GitOperationFailure(
+        'unavailable',
+        'Git produced more output than ATLAS can process. Use a terminal for this repository.',
+      );
     case 'unsafe-ownership':
       return new GitOperationFailure(
         'unavailable',

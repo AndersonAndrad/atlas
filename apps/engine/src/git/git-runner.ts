@@ -1,4 +1,4 @@
-import { execFile, spawn } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { GitCommandError, type GitExecutor, type GitRunner } from '@atlas/git';
 
 /**
@@ -75,6 +75,8 @@ export function createGitRunner(
           const failure = error as NodeJS.ErrnoException & { killed?: boolean; code?: unknown };
           if (failure.code === 'ENOENT') {
             reject(new GitCommandError('not-installed', 'git executable not found'));
+          } else if (failure.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+            reject(new GitCommandError('output-too-large', 'git output exceeded the limit'));
           } else if (failure.killed || failure.name === 'AbortError') {
             reject(new GitCommandError('timeout', 'git command timed out'));
           } else {
@@ -87,35 +89,65 @@ export function createGitRunner(
 }
 
 /**
+ * Stops a git process together with the hooks and helpers it started. On POSIX the
+ * process leads its own process group (it is spawned detached), so the whole group
+ * is killed; on Windows `taskkill /T` ends the process tree.
+ */
+function killTree(child: ChildProcess): void {
+  const pid = child.pid;
+  if (pid === undefined) return;
+  if (process.platform === 'win32') {
+    spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
+      .on('error', () => child.kill())
+      .unref();
+    return;
+  }
+  try {
+    process.kill(-pid, 'SIGKILL');
+  } catch {
+    child.kill('SIGKILL');
+  }
+}
+
+/**
  * Creates an executor for any git command, mutations included. Like the runner it
  * never uses a shell. Standard input carries data such as commit messages, and
- * progress lines from standard error are reported as they arrive.
+ * progress lines from standard error are reported as they arrive. Output beyond
+ * the hard limit is an error unless the caller opted into truncation with
+ * `maxOutputBytes`; a stopped process never reports success.
  */
 export function createGitExecutor(
-  options: { executable?: string; env?: Record<string, string | undefined> } = {},
+  options: {
+    executable?: string;
+    env?: Record<string, string | undefined>;
+    /** Hard limit of standard output per command; defaults to 16 MiB. */
+    outputLimitBytes?: number;
+  } = {},
 ): GitExecutor {
   const executable = options.executable ?? 'git';
   const env = gitEnvironment(options.env ?? process.env);
+  const hardLimit = options.outputLimitBytes ?? MAX_OUTPUT_BYTES;
   return (args, { cwd, timeoutMs, signal, input, okExitCodes = [0], maxOutputBytes, onProgress }) =>
     new Promise((resolve, reject) => {
-      const limit = maxOutputBytes ?? MAX_OUTPUT_BYTES;
+      const limit = Math.min(maxOutputBytes ?? hardLimit, hardLimit);
       const child = spawn(executable, [...SAFE_PREFIX, ...args], {
         cwd,
         env,
         windowsHide: true,
+        // Own process group on POSIX, so hooks are stopped with git (see killTree).
+        detached: process.platform !== 'win32',
         stdio: ['pipe', 'pipe', 'pipe'],
       });
       const stdout: Buffer[] = [];
       let stdoutBytes = 0;
-      let truncated = false;
       let stderr = '';
       let pendingLine = '';
-      let ending: 'timeout' | 'cancelled' | 'truncated' | null = null;
+      let ending: 'timeout' | 'cancelled' | 'truncated' | 'too-large' | null = null;
 
-      const stop = (reason: 'timeout' | 'cancelled' | 'truncated') => {
+      const stop = (reason: NonNullable<typeof ending>) => {
         if (ending !== null) return;
         ending = reason;
-        child.kill('SIGKILL');
+        killTree(child);
       };
       const timer = setTimeout(() => stop('timeout'), timeoutMs);
       const onAbort = () => stop('cancelled');
@@ -123,13 +155,12 @@ export function createGitExecutor(
       signal?.addEventListener('abort', onAbort, { once: true });
 
       child.stdout.on('data', (chunk: Buffer) => {
-        if (truncated) return;
+        if (ending !== null) return;
         const room = limit - stdoutBytes;
         if (chunk.length > room) {
           stdout.push(chunk.subarray(0, room));
           stdoutBytes = limit;
-          truncated = true;
-          stop('truncated');
+          stop(maxOutputBytes === undefined ? 'too-large' : 'truncated');
           return;
         }
         stdout.push(chunk);
@@ -162,24 +193,26 @@ export function createGitExecutor(
         clearTimeout(timer);
         signal?.removeEventListener('abort', onAbort);
         const out = Buffer.concat(stdout).toString('utf8');
+        const output = { stdout: out, stderr };
         if (ending === 'timeout') {
-          reject(
-            new GitCommandError('timeout', 'git command timed out', null, { stdout: out, stderr }),
-          );
+          reject(new GitCommandError('timeout', 'git command timed out', null, output));
         } else if (ending === 'cancelled') {
+          reject(new GitCommandError('cancelled', 'git command cancelled', null, output));
+        } else if (ending === 'too-large') {
           reject(
-            new GitCommandError('cancelled', 'git command cancelled', null, {
-              stdout: out,
+            new GitCommandError('output-too-large', 'git output exceeded the limit', null, {
+              stdout: '',
               stderr,
             }),
           );
         } else if (ending === 'truncated') {
-          // Only reading commands set a limit; their partial output is still useful.
-          resolve({ stdout: out, stderr, exitCode: code ?? 0, truncated: true });
+          // Requested by a reading command: its partial output is still useful, but
+          // Git was stopped, so there is no exit code to report as success.
+          resolve({ stdout: out, stderr, exitCode: -1, truncated: true });
         } else if (code !== null && okExitCodes.includes(code)) {
-          resolve({ stdout: out, stderr, exitCode: code, truncated });
+          resolve({ stdout: out, stderr, exitCode: code, truncated: false });
         } else {
-          reject(classify(stderr, code, { stdout: out, stderr }));
+          reject(classify(stderr, code, output));
         }
       });
     });

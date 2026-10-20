@@ -1,16 +1,21 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  DEFAULT_GIT_PREFERENCES,
+  DEFAULT_PROJECT_GIT_SETTINGS,
   IPC_CHANNELS,
   IPC_SEND_CHANNELS,
   type AtlasSession,
   type AtlasSessionDetails,
   type DirectoryChoice,
+  type GitCommitContext,
   type GitOperation,
   type GitRepositoryEntry,
+  type ProjectGitSettings,
   type GitWorkingTree,
   type IpcResult,
   type Project,
@@ -336,6 +341,25 @@ describe('desktop IPC handlers', () => {
       writeFileSync(path.join(dir, 'a.txt'), 'a\n');
     };
 
+    it('rejects Git workflow methods from CLI clients and untrusted renderer frames', async () => {
+      const dispatcher = createEngineDispatcher(engine);
+      for (const method of [
+        'git.commit',
+        'git.commitContext',
+        'git.getProjectSettings',
+        'git.setProjectSettings',
+      ]) {
+        await expect(dispatcher.call(method, [], 'cli')).rejects.toMatchObject({
+          code: 'VALIDATION_FAILED',
+        });
+      }
+      trusted = false;
+      expect(await invoke(IPC_CHANNELS.gitCommitContext, workspace)).toMatchObject({
+        ok: false,
+        error: { code: 'INTERNAL_ERROR' },
+      });
+    });
+
     it('only accepts repositories resolved from projects or terminals', async () => {
       gitRepository(workspace);
       const outsider = path.join(temp.dir, 'outsider');
@@ -364,6 +388,128 @@ describe('desktop IPC handlers', () => {
       expect(await invoke(IPC_CHANNELS.gitWorkingTree, workspace)).toMatchObject({
         ok: false,
         error: { code: 'GIT_REPOSITORY_UNAVAILABLE' },
+      });
+    });
+
+    it('stores per-project commit settings and removes them with the project', async () => {
+      gitRepository(workspace);
+      const project = await registerProject();
+      const defaults = await invoke<ProjectGitSettings>(
+        IPC_CHANNELS.gitGetProjectSettings,
+        project.id,
+      );
+      expect(defaults).toEqual({
+        ok: true,
+        data: { enforceConventionalCommits: true, preCommitSteps: [] },
+      });
+
+      const step = {
+        name: 'Tests',
+        command: 'npm run test',
+        mode: 'complete',
+        timeoutSeconds: 600,
+        readyAfterSeconds: 15,
+        readyText: null,
+      };
+      const saved = await invoke<ProjectGitSettings>(
+        IPC_CHANNELS.gitSetProjectSettings,
+        project.id,
+        {
+          enforceConventionalCommits: false,
+          preCommitSteps: [step],
+        },
+      );
+      expect(saved).toMatchObject({ ok: true, data: { enforceConventionalCommits: false } });
+      for (const invalid of [
+        { enforceConventionalCommits: true, preCommitSteps: Array.from({ length: 6 }, () => step) },
+        { enforceConventionalCommits: true, preCommitSteps: [{ ...step, command: 'a\nb' }] },
+        { enforceConventionalCommits: true, preCommitSteps: [{ ...step, mode: 'shell' }] },
+      ]) {
+        expect(await invoke(IPC_CHANNELS.gitSetProjectSettings, project.id, invalid)).toMatchObject(
+          { ok: false, error: { code: 'VALIDATION_FAILED' } },
+        );
+      }
+
+      const context = await invoke<GitCommitContext>(IPC_CHANNELS.gitCommitContext, workspace);
+      expect(context).toMatchObject({
+        ok: true,
+        data: { projects: [{ id: project.id, settings: { preCommitSteps: [step] } }] },
+      });
+      // A project that is not part of the repository is refused for commits.
+      expect(
+        await invoke(IPC_CHANNELS.gitCommit, {
+          repositoryRoot: workspace,
+          message: 'docs: x',
+          stage: ['a.txt'],
+          unstage: [],
+          expectedFingerprint: '0'.repeat(64),
+          push: false,
+          projectId: '00000000-0000-4000-8000-000000000000',
+        }),
+      ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+
+      await invoke(IPC_CHANNELS.removeProject, project.id);
+      expect(await engine.projectGitSettings.get(project.id)).toEqual({
+        enforceConventionalCommits: true,
+        preCommitSteps: [],
+      });
+    });
+
+    it('flags unreadable stored preferences and commit settings without changing them', async () => {
+      gitRepository(workspace);
+      const project = await registerProject();
+      // Stored values that no longer match the contract, as left by a broken edit.
+      const db = new DatabaseSync(path.join(temp.dir, 'data', 'atlas.db'));
+      const store = db.prepare('INSERT INTO application_settings (key, value) VALUES (?, ?)');
+      store.run('git.preferences', '{"headerMaxLength":"short"}');
+      store.run(`git.project.${project.id}`, '{"preCommitSteps":"npm test"}');
+      db.close();
+
+      expect(await invoke(IPC_CHANNELS.gitGetPreferences)).toEqual({
+        ok: true,
+        data: { ...DEFAULT_GIT_PREFERENCES, invalid: true },
+      });
+      expect(await invoke(IPC_CHANNELS.gitGetProjectSettings, project.id)).toEqual({
+        ok: true,
+        data: { ...DEFAULT_PROJECT_GIT_SETTINGS, settingsInvalid: true },
+      });
+
+      // Saving replaces them; readable values carry no flag.
+      await invoke(IPC_CHANNELS.gitSetPreferences, { requireScope: true });
+      await invoke(IPC_CHANNELS.gitSetProjectSettings, project.id, DEFAULT_PROJECT_GIT_SETTINGS);
+      expect(await invoke(IPC_CHANNELS.gitGetPreferences)).toEqual({
+        ok: true,
+        data: { ...DEFAULT_GIT_PREFERENCES, requireScope: true },
+      });
+      expect(await invoke(IPC_CHANNELS.gitGetProjectSettings, project.id)).toEqual({
+        ok: true,
+        data: DEFAULT_PROJECT_GIT_SETTINGS,
+      });
+    });
+
+    it('includes newly registered projects in a previously discovered repository', async () => {
+      gitRepository(workspace);
+      const first = await registerProject();
+      await invoke(IPC_CHANNELS.gitRepositories);
+      const nested = path.join(workspace, 'nested');
+      mkdirSync(nested);
+      const second = await engine.projects.create({ workspacePath: nested, name: 'Nested' });
+      await engine.projectGitSettings.set(second.id, {
+        enforceConventionalCommits: false,
+        preCommitSteps: [],
+      });
+      const context = await invoke<GitCommitContext>(IPC_CHANNELS.gitCommitContext, workspace);
+      expect(context.ok).toBe(true);
+      if (!context.ok) throw new Error('Commit context failed');
+      expect(context.data.projects.map((project) => project.id).sort()).toEqual(
+        [first.id, second.id].sort(),
+      );
+      await expect(engine.gitCommitChecks(workspace)).rejects.toMatchObject({
+        code: 'VALIDATION_FAILED',
+      });
+      expect(await engine.gitCommitChecks(workspace, second.id)).toMatchObject({
+        enforceConventionalCommits: false,
+        cwd: nested,
       });
     });
 

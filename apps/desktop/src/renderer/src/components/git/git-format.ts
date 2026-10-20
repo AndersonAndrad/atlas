@@ -1,4 +1,5 @@
 import type { GitRepositorySnapshot, GitUnavailableReason } from '@atlas/contracts';
+import { plural } from '@/git/format';
 
 export const GIT_UNAVAILABLE_LABELS: Record<GitUnavailableReason, string> = {
   'not-installed': 'Git is not installed or not on the PATH.',
@@ -36,4 +37,18 @@ export function relativeTime(value: string | null): string {
     if (Math.abs(seconds) >= size) return relative.format(Math.round(seconds / size), unit);
   }
   return relative.format(Math.round(seconds), 'second');
+}
+
+/** Things waiting in a repository: changed files, commits to push and to pull. */
+export function pendingGitActions(snapshot: GitRepositorySnapshot): string[] {
+  const reasons: string[] = [];
+  const { total } = snapshot.changes;
+  if (total > 0) reasons.push(`${plural(total, 'changed file')} to commit`);
+  if (snapshot.ahead !== null && snapshot.ahead > 0) {
+    reasons.push(`${plural(snapshot.ahead, 'commit')} to push`);
+  }
+  if (snapshot.behind !== null && snapshot.behind > 0) {
+    reasons.push(`${plural(snapshot.behind, 'commit')} to pull`);
+  }
+  return reasons;
 }

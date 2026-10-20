@@ -284,7 +284,11 @@ superseded decisions are marked, not deleted.
 
 - **Decision**: Mutations queue per repository on an `index` lane (index, HEAD, branches,
   working tree) and a `remote` lane (network, remote-tracking refs); pull takes both. Reads
-  never queue. Only fetch (and queued operations) can be cancelled.
+  never queue. Queued operations are cancelled immediately; while running, only fetch and
+  project commit checks (ADR-037) can be cancelled. Engine shutdown cancels queued and
+  cancellable running operations, stops accepting new operations, and waits a bounded time
+  (derived from the pre-commit step kill grace period) for operations that cannot be
+  cancelled (commit, push) to finish.
 - **Consequences**: A long fetch does not block commits; a pull waits for staging and
   commits to finish.
 
@@ -301,3 +305,23 @@ superseded decisions are marked, not deleted.
 - **Decision**: The Pull dialog defaults to `--ff-only --no-rebase` and explains the
   configured strategy before running it. Diffs show colored lines without syntax
   highlighting (no highlighting dependency); hunk staging is deferred.
+
+## ADR-037 — Project commit checks (SDD-004 A)
+
+- **Context**: The desktop client can store shell commands in a project's Git settings
+  (`git.setProjectSettings`). The Engine runs them with the user's login shell before a
+  commit, so storing a command is equivalent to scheduling code execution.
+- **Decision**: Commit checks are desktop-only: CLI socket clients are blocked from Git
+  workflow methods. Commands are persisted in project settings and schema-validated
+  (single line, at most 1,000 characters, at most five steps). The commit RPC carries only
+  a project ID, never commands; the Engine resolves them from stored settings. The
+  renderer can already run arbitrary commands through terminals, so this adds no new
+  privilege to the trust boundary.
+- **Consequences**: Stopping a step terminates its process group on POSIX; on Windows a
+  `taskkill` tree termination is best-effort. Step output is redacted and capped. Invalid
+  stored settings refuse the commit instead of silently dropping checks. The committed
+  content is fingerprinted, including the selected files' content, and re-checked after
+  the checks finish. Checks run against the working tree, not an isolated snapshot, so
+  they can see and modify uncommitted files.
+- **Rollback**: The feature is opt-in; removing a project's steps in its settings disables
+  it. Older builds ignore the stored settings.

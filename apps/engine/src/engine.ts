@@ -7,6 +7,7 @@ import path from 'node:path';
 import {
   CreateProjectInputSchema,
   parseInput,
+  type GitCommitContext,
   type GitRepositoryEntry,
   type GitStatus,
   type Project,
@@ -49,6 +50,7 @@ import { NodePathInspector } from './adapters/node-path-inspector.js';
 import { NodePtySpawner } from './adapters/node-pty-spawner.js';
 import { OsProcessCwdResolver } from './adapters/process-cwd-resolver.js';
 import { ShellEnvironment } from './adapters/shell-environment.js';
+import { ShellPreCommitRunner } from './adapters/shell-pre-commit-runner.js';
 import { CUSTOM_SHELLS_FILE_NAME, SystemShellProvider } from './adapters/system-shell-provider.js';
 import { DATABASE_FILE_NAME, resolveDataDir } from './data-dir.js';
 import {
@@ -56,11 +58,15 @@ import {
   GitOperationCoordinator,
   GitPreferencesStore,
   GitWorkspaceService,
+  ProjectGitSettingsStore,
+  type CommitChecks,
   type GitExecutor,
   type GitRunner,
+  type PreCommitStepRunner,
 } from '@atlas/git';
 import { createGitExecutor, createGitRunner } from './git/git-runner.js';
 import { RepositoryWatcher } from './git/repository-watcher.js';
+import { GIT_SHUTDOWN_TIMEOUT_MS } from './shutdown-timing.js';
 
 export interface TerminalRuntimeOptions {
   /** Version reported to shells through TERM_PROGRAM_VERSION. */
@@ -88,6 +94,8 @@ export interface EngineOptions {
   gitRunner?: GitRunner;
   /** Runs Git workflow commands (mutations included); defaults to the system `git`. */
   gitExecutor?: GitExecutor;
+  /** Runs project pre-commit steps; defaults to the user's shell in the Engine host. */
+  preCommitRunner?: PreCommitStepRunner;
   /** Version of this Engine build; defaults to the @atlas/engine package version. */
   engineVersion?: string;
   /**
@@ -109,6 +117,15 @@ export interface Engine {
   readonly gitWorkspace: GitWorkspaceService;
   readonly gitOperations: GitOperationCoordinator;
   readonly gitPreferences: GitPreferencesStore;
+  /** Per-project Conventional Commits enforcement and pre-commit steps. */
+  readonly projectGitSettings: ProjectGitSettingsStore;
+  /** Registered projects of an authorized repository with their commit settings. */
+  gitCommitContext(repositoryRoot: string): Promise<GitCommitContext>;
+  /**
+   * Checks a commit from ATLAS must pass, read from stored settings: the project's when
+   * the repository has one (or `projectId` among several), defaults otherwise.
+   */
+  gitCommitChecks(repositoryRoot: string, projectId?: string): Promise<CommitChecks>;
   /**
    * Repositories of registered projects and open terminals. Git workflow requests
    * may only target these roots.
@@ -150,7 +167,10 @@ export interface Engine {
     input: unknown,
   ): Promise<{ project: Project; session: TerminalSession }>;
   updateTerminalPreferences(input: unknown): Promise<TerminalPreferences>;
-  /** Terminates terminal processes, then closes the database. */
+  /**
+   * Cancels Git operations that are safe to stop and waits briefly for the rest,
+   * terminates terminal processes, then closes the database.
+   */
   shutdown(): Promise<void>;
   /** Closes the database immediately. Prefer `shutdown` when terminals may run. */
   close(): void;
@@ -318,8 +338,23 @@ export function createEngine(options: EngineOptions = {}): Engine {
     logger,
     onChange: (operation) => terminals?.publish({ type: 'git-operation', operation }),
   });
+  // Steps are user-configured commands; only the Engine host (which owns processes) runs them.
+  const preCommitRunner =
+    options.preCommitRunner ??
+    (terminalOptions === undefined
+      ? undefined
+      : new ShellPreCommitRunner({
+          platform,
+          shell: env.SHELL ?? (platform === 'darwin' ? '/bin/zsh' : '/bin/sh'),
+          env: new ShellEnvironment({
+            env,
+            platform,
+            appVersion: terminalOptions.appVersion ?? engineVersion,
+          }).shellEnvironment(),
+        }));
   const gitWorkspace = new GitWorkspaceService({
     exec: options.gitExecutor ?? createGitExecutor({ env }),
+    ...(preCommitRunner ? { stepRunner: preCommitRunner } : {}),
     coordinator: gitOperations,
     now: () => clock.now(),
     logger,
@@ -329,6 +364,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
     },
   });
   const gitPreferences = new GitPreferencesStore(settings, logger);
+  const projectGitSettings = new ProjectGitSettingsStore(settings, logger);
 
   // Roots resolved by the Engine itself; client-supplied paths are only accepted
   // when they match one of them.
@@ -384,6 +420,20 @@ export function createEngine(options: EngineOptions = {}): Engine {
     return false;
   };
 
+  /** Projects whose directory still resolves to the (authorized) repository. */
+  const repositoryProjects = async (repositoryRoot: string) => {
+    const found = [];
+    // Discovery may predate a newly registered project in an already known root.
+    for (const { project, availability } of await projects.listDetails()) {
+      if (availability.status !== 'available') continue;
+      const status = await git.inspect(project.workspacePath);
+      if (status.state === 'repository' && status.snapshot.repositoryRoot === repositoryRoot) {
+        found.push(project);
+      }
+    }
+    return found.sort((a, b) => a.name.localeCompare(b.name));
+  };
+
   const requireTerminals = (): TerminalService => {
     if (terminals === undefined) {
       throw new AtlasError('ENGINE_UNAVAILABLE', 'Terminal runtime is not enabled.');
@@ -410,7 +460,50 @@ export function createEngine(options: EngineOptions = {}): Engine {
     gitWorkspace,
     gitOperations,
     gitPreferences,
+    projectGitSettings,
     gitRepositories: discoverRepositories,
+    gitCommitContext: async (repositoryRoot) => ({
+      projects: await Promise.all(
+        (await repositoryProjects(repositoryRoot)).map(async (project) => {
+          const { settings, invalid } = await projectGitSettings.read(project.id);
+          return {
+            id: project.id,
+            name: project.name,
+            workspacePath: project.workspacePath,
+            settings,
+            ...(invalid ? { settingsInvalid: true } : {}),
+          };
+        }),
+      ),
+    }),
+    gitCommitChecks: async (repositoryRoot, projectId) => {
+      const candidates = await repositoryProjects(repositoryRoot);
+      const project =
+        projectId === undefined
+          ? candidates.length === 1
+            ? candidates[0]
+            : undefined
+          : candidates.find((candidate) => candidate.id === projectId);
+      if (projectId !== undefined && project === undefined) {
+        throw new AtlasError('VALIDATION_FAILED', 'Project is not part of this repository.', {
+          issues: [{ field: 'projectId', message: 'Choose a project of this repository.' }],
+        });
+      }
+      if (project === undefined && candidates.length > 1) {
+        throw new AtlasError('VALIDATION_FAILED', 'Several projects share this repository.', {
+          issues: [{ field: 'projectId', message: 'Choose which project’s commit checks apply.' }],
+        });
+      }
+      if (project === undefined) {
+        return { enforceConventionalCommits: true, steps: [], cwd: repositoryRoot };
+      }
+      const stored = await projectGitSettings.forCommit(project.id);
+      return {
+        enforceConventionalCommits: stored.enforceConventionalCommits,
+        steps: stored.preCommitSteps,
+        cwd: project.workspacePath,
+      };
+    },
     requireGitRepository: async (repositoryRoot) => {
       // Re-checking the sources of a known root is cheap (cached inspection) and
       // reflects removed projects and closed terminals immediately.
@@ -438,6 +531,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
       // Sessions take over the directory before the association is cleared.
       await sessions.detachProject(project.id, project.workspacePath);
       await projects.remove(project.id);
+      await projectGitSettings.remove(project.id);
       await terminals?.detachProject(project.id);
     },
     projectGit: async (projectId) => {
@@ -483,6 +577,13 @@ export function createEngine(options: EngineOptions = {}): Engine {
         projects.resolveAvailableDirectory(directory),
       ),
     shutdown: async () => {
+      // New Git operations are refused (a push that would follow a finishing commit
+      // settles as cancelled), queued ones and running pre-commit steps are cancelled;
+      // commits and pushes that cannot be interrupted get a bounded time to finish.
+      gitOperations.close();
+      if (!(await gitOperations.idle(GIT_SHUTDOWN_TIMEOUT_MS))) {
+        logger.warn('Git operations were still running at shutdown');
+      }
       try {
         await terminals?.shutdown();
       } catch (error) {

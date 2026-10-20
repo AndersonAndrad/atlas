@@ -1,13 +1,15 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { GitOperation, GitWorkingTree } from '@atlas/contracts';
-import { GitOperationCoordinator, GitWorkspaceService } from '@atlas/git';
+import type { GitExecutor } from '@atlas/git';
+import { GitCommandError, GitOperationCoordinator, GitWorkspaceService } from '@atlas/git';
 import { AtlasError } from '@atlas/shared';
 import { createTempDir } from '../../../tests/support/temp.js';
-import { createGitExecutor } from '../src/index.js';
+import { ShellPreCommitRunner } from '../src/adapters/shell-pre-commit-runner.js';
+import { createEngine, createGitExecutor } from '../src/index.js';
 
 const gitAvailable = (() => {
   try {
@@ -29,6 +31,7 @@ describe.skipIf(!gitAvailable)('GitWorkspaceService with real repositories', () 
   let service: GitWorkspaceService;
   let operations: GitOperation[];
   let changed: string[];
+  let coordinator: GitOperationCoordinator;
 
   const git = (cwd: string, ...args: string[]) =>
     execFileSync('git', args, { cwd, env: { ...env, GIT_CONFIG_NOSYSTEM: '1' }, encoding: 'utf8' });
@@ -69,15 +72,23 @@ describe.skipIf(!gitAvailable)('GitWorkspaceService with real repositories', () 
     state.files.find((entry) => entry.path === name);
   const commitMessage = (dir: string) => git(dir, 'log', '-1', '--format=%B').trim();
 
-  const makeService = (environment: Record<string, string>) =>
-    new GitWorkspaceService({
+  const makeService = (environment: Record<string, string>) => {
+    coordinator = new GitOperationCoordinator({
+      generateId: randomUUID,
+      onChange: (operation) => operations.push(operation),
+    });
+    return new GitWorkspaceService({
       exec: createGitExecutor({ env: environment }),
-      coordinator: new GitOperationCoordinator({
-        generateId: randomUUID,
-        onChange: (operation) => operations.push(operation),
+      stepRunner: new ShellPreCommitRunner({
+        platform: 'linux',
+        shell: '/bin/sh',
+        env: environment,
+        killGraceMs: 500,
       }),
+      coordinator,
       onRepositoryChanged: (root) => changed.push(root),
     });
+  };
 
   beforeEach(() => {
     temp = createTempDir();
@@ -354,6 +365,26 @@ describe.skipIf(!gitAvailable)('GitWorkspaceService with real repositories', () 
       ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
     });
 
+    it('refuses a commit after switching branches at the same HEAD', async () => {
+      const dir = committed('branch-fingerprint');
+      write(dir, 'README.md', 'changed\n');
+      git(dir, 'add', 'README.md');
+      const state = await tree(dir);
+      const head = git(dir, 'rev-parse', 'HEAD');
+      git(dir, 'switch', '-q', '-c', 'other');
+      await expect(
+        service.commit({
+          repositoryRoot: dir,
+          message: 'docs: reviewed on main',
+          stage: [],
+          unstage: [],
+          expectedFingerprint: state.indexFingerprint,
+          push: false,
+        }),
+      ).rejects.toMatchObject({ code: 'GIT_INDEX_CHANGED' });
+      expect(git(dir, 'rev-parse', 'HEAD')).toBe(head);
+    });
+
     it('runs hooks and reports their failure with Git output, keeping the selection staged', async () => {
       const dir = committed('hooks');
       const hook = path.join(dir, '.git', 'hooks', 'pre-commit');
@@ -427,6 +458,675 @@ describe.skipIf(!gitAvailable)('GitWorkspaceService with real repositories', () 
     });
   });
 
+  describe('commit checks', () => {
+    const steps = (...commands: string[]) =>
+      commands.map((command, index) => ({
+        name: `step ${index + 1}`,
+        command,
+        mode: 'complete' as const,
+        timeoutSeconds: 30,
+        readyAfterSeconds: 2,
+        readyText: null,
+      }));
+    const prepared = async (name: string) => {
+      const dir = committed(name);
+      write(dir, 'README.md', 'staged\n');
+      git(dir, 'add', 'README.md');
+      write(dir, 'new.txt', 'new\n');
+      return { dir, state: await tree(dir) };
+    };
+
+    it('runs every step before committing and records their durations', async () => {
+      const { dir, state } = await prepared('checks-pass');
+      const result = await service.commit(
+        {
+          repositoryRoot: dir,
+          message: 'docs: checked',
+          stage: ['new.txt'],
+          unstage: [],
+          expectedFingerprint: state.indexFingerprint,
+          push: false,
+        },
+        {},
+        {
+          enforceConventionalCommits: true,
+          steps: steps('true', 'echo built > build.log'),
+          cwd: dir,
+        },
+      );
+      expect(result.commit.status).toBe('succeeded');
+      expect(result.commit.steps?.map((step) => step.status)).toEqual(['passed', 'passed']);
+      expect(result.commit.steps?.every((step) => step.durationMs !== null)).toBe(true);
+      expect(read(dir, 'build.log')).toBe('built\n');
+      expect(commitMessage(dir)).toBe('docs: checked');
+      // Running steps were published while the commit was in progress.
+      expect(operations.some((op) => op.steps?.[0]?.status === 'running')).toBe(true);
+    });
+
+    it('does not commit or touch the index when a step fails', async () => {
+      const { dir, state } = await prepared('checks-fail');
+      const head = git(dir, 'rev-parse', 'HEAD');
+      const result = await service.commit(
+        {
+          repositoryRoot: dir,
+          message: 'docs: checked',
+          stage: ['new.txt'],
+          unstage: [],
+          expectedFingerprint: state.indexFingerprint,
+          push: false,
+        },
+        {},
+        {
+          enforceConventionalCommits: true,
+          steps: steps('true', 'echo "2 tests failed" >&2; exit 1', 'echo never > never.log'),
+          cwd: dir,
+        },
+      );
+      expect(result.commit).toMatchObject({ status: 'failed', error: { code: 'check-failed' } });
+      expect(result.commit.error?.message).toContain('step 2');
+      expect(result.commit.steps?.map((step) => step.status)).toEqual([
+        'passed',
+        'failed',
+        'skipped',
+      ]);
+      expect(result.commit.steps?.[1]).toMatchObject({ exitCode: 1 });
+      expect(result.commit.steps?.[1]?.output).toContain('2 tests failed');
+      expect(git(dir, 'rev-parse', 'HEAD')).toBe(head);
+      expect((await tree(dir)).indexFingerprint).toBe(state.indexFingerprint);
+      expect(file(await tree(dir), 'new.txt')?.staged).toBeNull();
+    });
+
+    it('refuses before running steps when nothing would be committed', async () => {
+      const dir = committed('checks-empty');
+      const result = await service.commit(
+        {
+          repositoryRoot: dir,
+          message: 'docs: nothing',
+          stage: [],
+          unstage: [],
+          expectedFingerprint: (await tree(dir)).indexFingerprint,
+          push: false,
+        },
+        {},
+        { enforceConventionalCommits: true, steps: steps('echo ran > ran.log'), cwd: dir },
+      );
+      expect(result.commit.error?.code).toBe('nothing-to-commit');
+      expect(result.commit.steps).toBeNull();
+      expect(() => read(dir, 'ran.log')).toThrow();
+    });
+
+    it('refuses commits when the file list hides part of the index', async () => {
+      const { dir } = await prepared('checks-truncated');
+      git(dir, 'add', 'new.txt');
+      const limited = new GitWorkspaceService({
+        exec: createGitExecutor({ env }),
+        coordinator,
+        limits: { maxFiles: 1 },
+      });
+      const state = await limited.workingTree(dir);
+      const head = git(dir, 'rev-parse', 'HEAD');
+      expect(state.truncated).toBe(true);
+      expect(state.stagedTruncated).toBe(true);
+      await expect(
+        limited.commit({
+          repositoryRoot: dir,
+          message: 'docs: incomplete selection',
+          stage: [],
+          unstage: [],
+          expectedFingerprint: state.indexFingerprint,
+          push: false,
+        }),
+      ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+      expect(git(dir, 'rev-parse', 'HEAD')).toBe(head);
+      expect((await limited.workingTree(dir)).indexFingerprint).toBe(state.indexFingerprint);
+    });
+
+    it('detects index changes made while steps run', async () => {
+      const { dir, state } = await prepared('checks-race');
+      await expect(
+        service.commit(
+          {
+            repositoryRoot: dir,
+            message: 'docs: checked',
+            stage: [],
+            unstage: [],
+            expectedFingerprint: state.indexFingerprint,
+            push: false,
+          },
+          {},
+          { enforceConventionalCommits: true, steps: steps('git add new.txt'), cwd: dir },
+        ),
+      ).rejects.toMatchObject({ code: 'GIT_INDEX_CHANGED' });
+    });
+
+    it('does not commit when cancellation arrives with the last passing check', async () => {
+      const { dir, state } = await prepared('checks-last-cancel');
+      const head = git(dir, 'rev-parse', 'HEAD');
+      const cancelling = new GitWorkspaceService({
+        exec: createGitExecutor({ env }),
+        coordinator,
+        stepRunner: {
+          async run() {
+            const running = coordinator.list().find((operation) => operation.status === 'running')!;
+            coordinator.cancel(running.id);
+            return {
+              status: 'passed',
+              exitCode: 0,
+              detail: 'exited with code 0',
+              output: '',
+              durationMs: 1,
+            };
+          },
+        },
+      });
+      const result = await cancelling.commit(
+        {
+          repositoryRoot: dir,
+          message: 'docs: cancelled',
+          stage: ['new.txt'],
+          unstage: [],
+          expectedFingerprint: state.indexFingerprint,
+          push: false,
+        },
+        {},
+        { enforceConventionalCommits: true, steps: steps('true'), cwd: dir },
+      );
+      expect(result.commit.status).toBe('cancelled');
+      expect(git(dir, 'rev-parse', 'HEAD')).toBe(head);
+      expect((await tree(dir)).indexFingerprint).toBe(state.indexFingerprint);
+    });
+
+    it('accepts any message when the project does not enforce Conventional Commits', async () => {
+      const { dir, state } = await prepared('checks-free');
+      const input = {
+        repositoryRoot: dir,
+        message: 'wip: anything goes',
+        stage: [],
+        unstage: [],
+        expectedFingerprint: state.indexFingerprint,
+        push: false,
+      };
+      await expect(
+        service.commit({ ...input, message: 'updated stuff' }, { requireScope: true }),
+      ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+      const result = await service.commit(
+        { ...input, message: 'updated stuff' },
+        { requireScope: true },
+        { enforceConventionalCommits: false, steps: [], cwd: dir },
+      );
+      expect(result.commit.status).toBe('succeeded');
+      expect(commitMessage(dir)).toBe('updated stuff');
+      await expect(
+        service.commit(
+          { ...input, message: '   ', expectedFingerprint: (await tree(dir)).indexFingerprint },
+          {},
+          { enforceConventionalCommits: false, steps: [], cwd: dir },
+        ),
+      ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    });
+
+    it('can be cancelled while steps run, without committing', async () => {
+      const { dir, state } = await prepared('checks-cancel');
+      const head = git(dir, 'rev-parse', 'HEAD');
+      const pending = service.commit(
+        {
+          repositoryRoot: dir,
+          message: 'docs: checked',
+          stage: [],
+          unstage: [],
+          expectedFingerprint: state.indexFingerprint,
+          push: false,
+        },
+        {},
+        { enforceConventionalCommits: true, steps: steps('sleep 30'), cwd: dir },
+      );
+      for (let i = 0; i < 100; i += 1) {
+        if (operations.some((op) => op.steps?.[0]?.status === 'running')) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      const running = operations.find((op) => op.kind === 'commit' && op.cancellable)!;
+      expect(running).toBeDefined();
+      coordinator.cancel(running.id);
+      const result = await pending;
+      expect(result.commit.status).toBe('cancelled');
+      expect(result.commit.steps?.[0]?.status).toBe('cancelled');
+      expect(git(dir, 'rev-parse', 'HEAD')).toBe(head);
+    });
+  });
+
+  describe('commit safety', () => {
+    const step = {
+      name: 'check',
+      command: 'true',
+      mode: 'complete' as const,
+      timeoutSeconds: 30,
+      readyAfterSeconds: 2,
+      readyText: null,
+    };
+    const passed = {
+      status: 'passed' as const,
+      exitCode: 0,
+      detail: 'exited with code 0',
+      output: '',
+      durationMs: 1,
+    };
+    /** A service whose only pre-commit step runs `during` instead of a command. */
+    const withStep = (during: (signal: AbortSignal) => Promise<void> | void) =>
+      new GitWorkspaceService({
+        exec: createGitExecutor({ env }),
+        coordinator,
+        stepRunner: {
+          async run(_step, { signal }) {
+            await during(signal);
+            return passed;
+          },
+        },
+      });
+    const selection = async (dir: string, stage: string[]) => ({
+      repositoryRoot: dir,
+      message: 'docs: reviewed',
+      stage,
+      unstage: [],
+      expectedFingerprint: (await tree(dir)).indexFingerprint,
+      push: false,
+    });
+    const checks = (dir: string) => ({ enforceConventionalCommits: true, steps: [step], cwd: dir });
+
+    /**
+     * A real executor that runs `before(args)` ahead of each Git command, e.g. to
+     * change a file between the last check and `git add`.
+     */
+    const wrapped =
+      (before: (args: readonly string[]) => void | Promise<void>): GitExecutor =>
+      async (args, options) => {
+        await before(args);
+        return createGitExecutor({ env })(args, options);
+      };
+    const isCommand = (args: readonly string[], command: string) => args[1] === command;
+    const stagedRaw = (dir: string) => git(dir, 'diff', '--cached', '--raw', '--no-abbrev');
+    /** A repository with a staged edit to exclude and a new file to include. */
+    const mixedSelection = async (name: string) => {
+      const dir = committed(name);
+      write(dir, 'README.md', 'staged edit\n');
+      git(dir, 'add', 'README.md');
+      write(dir, 'new.txt', 'reviewed\n');
+      return {
+        dir,
+        input: {
+          ...(await selection(dir, ['new.txt'])),
+          unstage: ['README.md'],
+        },
+      };
+    };
+
+    it('restores the index when a selected file changes right before it is staged', async () => {
+      const { dir, input } = await mixedSelection('safety-restore');
+      const before = stagedRaw(dir);
+      const head = git(dir, 'rev-parse', 'HEAD');
+      const racing = new GitWorkspaceService({
+        exec: wrapped((args) => {
+          if (isCommand(args, 'add')) write(dir, 'new.txt', 'changed after the check\n');
+        }),
+        coordinator,
+      });
+      await expect(racing.commit(input)).rejects.toMatchObject({
+        code: 'GIT_INDEX_CHANGED',
+        issues: [{ field: 'selection', message: expect.stringContaining('were restored') }],
+      });
+      expect(stagedRaw(dir)).toBe(before);
+      expect(git(dir, 'rev-parse', 'HEAD')).toBe(head);
+      const failed = operations.filter((operation) => operation.status === 'failed').at(-1);
+      expect(failed?.error?.message).toContain('were restored');
+    });
+
+    it('says the selection remains staged when the index cannot be restored', async () => {
+      const { dir, input } = await mixedSelection('safety-restore-failed');
+      const head = git(dir, 'rev-parse', 'HEAD');
+      const racing = new GitWorkspaceService({
+        exec: wrapped((args) => {
+          if (isCommand(args, 'add')) write(dir, 'new.txt', 'changed after the check\n');
+          if (isCommand(args, 'reset')) throw new GitCommandError('failed', 'reset failed', 1);
+        }),
+        coordinator,
+      });
+      await expect(racing.commit(input)).rejects.toMatchObject({
+        code: 'GIT_INDEX_CHANGED',
+        issues: [{ field: 'selection', message: expect.stringContaining('remains staged') }],
+      });
+      expect(git(dir, 'rev-parse', 'HEAD')).toBe(head);
+      expect(file(await tree(dir), 'new.txt')?.staged).toBe('added');
+    });
+
+    it('restores exclusions when a selected new file is deleted before it is staged', async () => {
+      const { dir, input } = await mixedSelection('safety-restore-deleted');
+      const before = stagedRaw(dir);
+      const head = git(dir, 'rev-parse', 'HEAD');
+      const racing = new GitWorkspaceService({
+        exec: wrapped((args) => {
+          if (isCommand(args, 'add')) rmSync(path.join(dir, 'new.txt'));
+        }),
+        coordinator,
+      });
+      const result = await racing.commit(input);
+      expect(result.commit.status).toBe('failed');
+      expect(result.commit.error?.message).not.toContain('remains staged');
+      // `README.md` is staged again although `new.txt` is in neither the tree nor the index.
+      expect(stagedRaw(dir)).toBe(before);
+      expect(git(dir, 'rev-parse', 'HEAD')).toBe(head);
+    });
+
+    it('restores the index of a repository without commits', async () => {
+      const dir = repository('safety-restore-unborn');
+      write(dir, 'staged.txt', 'staged\n');
+      git(dir, 'add', 'staged.txt');
+      write(dir, 'new.txt', 'reviewed\n');
+      const before = stagedRaw(dir);
+      const racing = new GitWorkspaceService({
+        exec: wrapped((args) => {
+          if (isCommand(args, 'add')) write(dir, 'new.txt', 'changed after the check\n');
+        }),
+        coordinator,
+      });
+      await expect(
+        racing.commit({ ...(await selection(dir, ['new.txt'])), unstage: ['staged.txt'] }),
+      ).rejects.toMatchObject({ code: 'GIT_INDEX_CHANGED' });
+      expect(stagedRaw(dir)).toBe(before);
+      expect(file(await tree(dir), 'new.txt')?.unstaged).toBe('untracked');
+    });
+
+    it('keeps intent-to-add files marked when the index is restored', async () => {
+      const dir = committed('safety-restore-intent');
+      write(dir, 'README.md', 'staged edit\n');
+      git(dir, 'add', 'README.md');
+      write(dir, 'intent.txt', 'planned\n');
+      git(dir, 'add', '-N', 'intent.txt');
+      const before = stagedRaw(dir);
+      const status = () => git(dir, 'status', '--porcelain=v2', '--', 'intent.txt');
+      const intent = status();
+      expect(intent).toMatch(/^1 \.A /);
+      const racing = new GitWorkspaceService({
+        exec: wrapped((args) => {
+          if (isCommand(args, 'add') && !args.includes('-N')) {
+            write(dir, 'intent.txt', 'changed after the check\n');
+          }
+        }),
+        coordinator,
+      });
+      await expect(
+        racing.commit({ ...(await selection(dir, ['intent.txt'])), unstage: ['README.md'] }),
+      ).rejects.toMatchObject({
+        code: 'GIT_INDEX_CHANGED',
+        issues: [{ field: 'selection', message: expect.stringContaining('were restored') }],
+      });
+      expect(stagedRaw(dir)).toBe(before);
+      expect(status()).toBe(intent);
+    });
+
+    it('restores the index when the executable bit changes right before staging', async () => {
+      const dir = committed('safety-mode');
+      write(dir, 'run.sh', 'echo hi\n');
+      chmodSync(path.join(dir, 'run.sh'), 0o644);
+      const before = stagedRaw(dir);
+      const racing = new GitWorkspaceService({
+        exec: wrapped((args) => {
+          if (isCommand(args, 'add')) chmodSync(path.join(dir, 'run.sh'), 0o755);
+        }),
+        coordinator,
+      });
+      await expect(racing.commit(await selection(dir, ['run.sh']))).rejects.toMatchObject({
+        code: 'GIT_INDEX_CHANGED',
+      });
+      expect(stagedRaw(dir)).toBe(before);
+    });
+
+    it('refuses a commit when the executable bit changes while the steps run', async () => {
+      const dir = committed('safety-mode-steps');
+      const head = git(dir, 'rev-parse', 'HEAD');
+      write(dir, 'run.sh', 'echo hi\n');
+      chmodSync(path.join(dir, 'run.sh'), 0o644);
+      const editing = withStep(() => chmodSync(path.join(dir, 'run.sh'), 0o755));
+      await expect(
+        editing.commit(await selection(dir, ['run.sh']), {}, checks(dir)),
+      ).rejects.toMatchObject({ code: 'GIT_INDEX_CHANGED' });
+      expect(git(dir, 'rev-parse', 'HEAD')).toBe(head);
+    });
+
+    it('commits a selected submodule by its commit and refuses it when that commit moves', async () => {
+      const dir = committed('safety-gitlink');
+      const sub = path.join(dir, 'sub');
+      mkdirSync(sub);
+      git(sub, 'init', '-q', '-b', 'main');
+      write(sub, 'a.txt', 'a\n');
+      git(sub, 'add', 'a.txt');
+      git(sub, 'commit', '-q', '-m', 'chore: sub');
+      git(dir, '-c', 'advice.addEmbeddedRepo=false', 'add', 'sub');
+      git(dir, 'commit', '-q', '-m', 'chore: add sub');
+      const advance = (content: string) => {
+        write(sub, 'a.txt', content);
+        git(sub, 'commit', '-q', '-am', 'chore: move');
+      };
+
+      advance('b\n');
+      const head = git(dir, 'rev-parse', 'HEAD');
+      const moving = withStep(() => advance('c\n'));
+      await expect(
+        moving.commit(await selection(dir, ['sub']), {}, checks(dir)),
+      ).rejects.toMatchObject({ code: 'GIT_INDEX_CHANGED' });
+      expect(git(dir, 'rev-parse', 'HEAD')).toBe(head);
+
+      const steady = withStep(() => undefined);
+      const result = await steady.commit(await selection(dir, ['sub']), {}, checks(dir));
+      expect(result.commit.status).toBe('succeeded');
+      expect(git(dir, 'rev-parse', 'HEAD:sub')).toBe(git(sub, 'rev-parse', 'HEAD'));
+    });
+
+    it('uses the commit timeout for identity checks of large selections', async () => {
+      const dir = committed('safety-timeouts');
+      write(dir, 'new.txt', 'new\n');
+      const seen = new Map<string, number>();
+      const exec: GitExecutor = (args, options) => {
+        seen.set(args[1]!, options.timeoutMs);
+        return createGitExecutor({ env })(args, options);
+      };
+      const timed = new GitWorkspaceService({
+        exec,
+        coordinator,
+        timeouts: { read: 1_111, commit: 99_999 },
+      });
+      const result = await timed.commit(await selection(dir, ['new.txt']));
+      expect(result.commit.status).toBe('succeeded');
+      expect(seen.get('hash-object')).toBe(99_999);
+      expect(seen.get('ls-files')).toBe(99_999);
+      expect(seen.get('status')).toBe(1_111);
+    });
+
+    it('refuses a commit when a selected file changes while the steps run', async () => {
+      const dir = committed('safety-edit');
+      write(dir, 'new.txt', 'reviewed\n');
+      const head = git(dir, 'rev-parse', 'HEAD');
+      const editing = withStep(() => write(dir, 'new.txt', 'changed by a step\n'));
+      await expect(
+        editing.commit(await selection(dir, ['new.txt']), {}, checks(dir)),
+      ).rejects.toMatchObject({ code: 'GIT_INDEX_CHANGED' });
+      expect(git(dir, 'rev-parse', 'HEAD')).toBe(head);
+      expect(file(await tree(dir), 'new.txt')?.staged).toBeNull();
+    });
+
+    it('refuses a commit when a selected deletion is undone while the steps run', async () => {
+      const dir = committed('safety-delete');
+      git(dir, 'rm', '-q', '--cached', 'README.md');
+      git(dir, 'commit', '-q', '-m', 'chore: untrack readme');
+      write(dir, 'gone.txt', 'tracked\n');
+      git(dir, 'add', 'gone.txt');
+      git(dir, 'commit', '-q', '-m', 'chore: add gone');
+      execFileSync('rm', [path.join(dir, 'gone.txt')]);
+      const head = git(dir, 'rev-parse', 'HEAD');
+      const restoring = withStep(() => write(dir, 'gone.txt', 'back\n'));
+      await expect(
+        restoring.commit(await selection(dir, ['gone.txt']), {}, checks(dir)),
+      ).rejects.toMatchObject({ code: 'GIT_INDEX_CHANGED' });
+      expect(git(dir, 'rev-parse', 'HEAD')).toBe(head);
+    });
+
+    it('commits selected files whose names need quoting for Git', async () => {
+      const dir = committed('safety-names');
+      const names = ['quote"d.txt', 'back\\slash.txt', 'new\nline.txt', 'ação.txt'];
+      for (const name of names) write(dir, name, `${name}\n`);
+      const steady = withStep(() => undefined);
+      const result = await steady.commit(await selection(dir, names), {}, checks(dir));
+      expect(result.commit.status).toBe('succeeded');
+      const committedNames = git(dir, 'show', '-z', '--name-only', '--format=', 'HEAD')
+        .split('\0')
+        .filter((name) => name !== '');
+      expect(committedNames.sort()).toEqual([...names].sort());
+    });
+
+    it('lists staged files first, so many untracked files do not block commits', async () => {
+      const dir = committed('safety-untracked');
+      for (let i = 0; i < 2001; i += 1)
+        write(dir, `untracked/${String(i).padStart(4, '0')}.txt`, '');
+      write(dir, 'zz-staged.txt', 'staged\n');
+      git(dir, 'add', 'zz-staged.txt');
+      const state = await tree(dir);
+      expect(state.truncated).toBe(true);
+      expect(state.stagedTruncated).toBe(false);
+      expect(state.files).toHaveLength(2000);
+      expect(file(state, 'zz-staged.txt')?.staged).toBe('added');
+      const result = await service.commit({
+        repositoryRoot: dir,
+        message: 'docs: one staged file',
+        stage: [],
+        unstage: [],
+        expectedFingerprint: state.indexFingerprint,
+        push: false,
+      });
+      expect(result.commit.status).toBe('succeeded');
+      expect(git(dir, 'show', '--name-only', '--format=', 'HEAD').trim()).toBe('zz-staged.txt');
+    });
+
+    it('refuses a selected file that the truncated list does not show', async () => {
+      const dir = committed('safety-hidden-selection');
+      for (const name of ['a.txt', 'b.txt', 'c.txt']) write(dir, name, `${name}\n`);
+      const limited = new GitWorkspaceService({
+        exec: createGitExecutor({ env }),
+        coordinator,
+        limits: { maxFiles: 2 },
+      });
+      const state = await limited.workingTree(dir);
+      expect(state.truncated).toBe(true);
+      await expect(
+        limited.commit({
+          repositoryRoot: dir,
+          message: 'docs: hidden',
+          stage: ['c.txt'],
+          unstage: [],
+          expectedFingerprint: state.indexFingerprint,
+          push: false,
+        }),
+      ).rejects.toMatchObject({
+        code: 'VALIDATION_FAILED',
+        issues: [{ field: 'paths', message: expect.stringContaining('Too many') }],
+      });
+    });
+
+    it('explains that pre-commit steps need ATLAS Control when no step runner exists', async () => {
+      const dir = committed('safety-no-runner');
+      write(dir, 'new.txt', 'new\n');
+      const withoutRunner = new GitWorkspaceService({
+        exec: createGitExecutor({ env }),
+        coordinator,
+      });
+      await expect(
+        withoutRunner.commit(await selection(dir, ['new.txt']), {}, checks(dir)),
+      ).rejects.toMatchObject({
+        code: 'VALIDATION_FAILED',
+        issues: [{ field: 'preCommitSteps', message: expect.stringContaining('ATLAS Control') }],
+      });
+    });
+
+    it('lets a finishing commit complete on shutdown but does not start its push', async () => {
+      const { origin, clone } = withRemote('safety-shutdown-push');
+      write(clone, 'README.md', 'pushed?\n');
+      git(clone, 'add', 'README.md');
+      const remoteHead = git(origin, 'rev-parse', 'main');
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      let committing!: () => void;
+      const commitStarted = new Promise<void>((resolve) => (committing = resolve));
+      const engine = createEngine({
+        dataDir: path.join(temp.dir, 'engine-data-push'),
+        env,
+        component: 'test',
+        gitExecutor: wrapped(async (args) => {
+          if (isCommand(args, 'commit')) {
+            committing();
+            await gate;
+          }
+        }),
+      });
+      const commit = engine.gitWorkspace.commit({
+        repositoryRoot: clone,
+        message: 'docs: shutdown',
+        stage: [],
+        unstage: [],
+        expectedFingerprint: (await tree(clone)).indexFingerprint,
+        push: true,
+      });
+      await commitStarted;
+      const shutdown = engine.shutdown();
+      release();
+      const result = await commit;
+      await shutdown;
+      expect(result.commit.status).toBe('succeeded');
+      expect(result.hash).toBe(git(clone, 'rev-parse', 'HEAD').trim());
+      expect(result.push).toMatchObject({
+        status: 'cancelled',
+        summary: 'Cancelled because ATLAS is shutting down.',
+      });
+      expect(git(origin, 'rev-parse', 'main')).toBe(remoteHead);
+    });
+
+    it('cancels a running pre-commit step and closes cleanly on Engine shutdown', async () => {
+      const dir = committed('safety-shutdown');
+      write(dir, 'new.txt', 'new\n');
+      const head = git(dir, 'rev-parse', 'HEAD');
+      let started!: () => void;
+      const running = new Promise<void>((resolve) => (started = resolve));
+      let observed: AbortSignal | undefined;
+      const engine = createEngine({
+        dataDir: path.join(temp.dir, 'engine-data'),
+        env,
+        component: 'test',
+        gitExecutor: createGitExecutor({ env }),
+        preCommitRunner: {
+          run: (_step, { signal }) =>
+            new Promise((resolve) => {
+              observed = signal;
+              started();
+              signal.addEventListener('abort', () =>
+                resolve({ ...passed, status: 'cancelled', detail: 'cancelled' }),
+              );
+            }),
+        },
+      });
+      const project = await engine.projects.create({ name: 'Shutdown', workspacePath: dir });
+      await engine.projectGitSettings.set(project.id, {
+        enforceConventionalCommits: true,
+        preCommitSteps: [step],
+      });
+      const commit = engine.gitWorkspace.commit(
+        await selection(dir, ['new.txt']),
+        {},
+        await engine.gitCommitChecks(dir),
+      );
+      await running;
+      await engine.shutdown();
+      expect(observed?.aborted).toBe(true);
+      expect((await commit).commit.status).toBe('cancelled');
+      expect(git(dir, 'rev-parse', 'HEAD')).toBe(head);
+    });
+  });
+
   describe('remote operations', () => {
     it('commits and pushes, reporting each operation separately', async () => {
       const { clone, origin } = withRemote('push');
@@ -466,6 +1166,63 @@ describe.skipIf(!gitAvailable)('GitWorkspaceService with real repositories', () 
       expect(result.commit.status).toBe('succeeded');
       expect(result.push).toMatchObject({ status: 'failed', error: { code: 'rejected' } });
       expect(commitMessage(clone)).toBe('docs: local');
+    });
+
+    it('validates the push before committing', async () => {
+      const { clone } = withRemote('push-validation');
+      git(clone, 'switch', '-q', '-c', 'feature/y');
+      write(clone, 'y.txt', 'y\n');
+      git(clone, 'add', 'y.txt');
+      const head = git(clone, 'rev-parse', 'HEAD');
+      const input = {
+        repositoryRoot: clone,
+        message: 'feat: y',
+        stage: [],
+        unstage: [],
+        expectedFingerprint: (await tree(clone)).indexFingerprint,
+        push: true,
+      };
+      for (const setUpstream of [
+        { remote: 'nope', branch: 'feature/y' },
+        { remote: 'origin', branch: 'bad..name' },
+      ]) {
+        await expect(service.commit({ ...input, setUpstream })).rejects.toMatchObject({
+          code: 'VALIDATION_FAILED',
+        });
+      }
+      await expect(service.commit(input)).rejects.toMatchObject({ code: 'GIT_NO_UPSTREAM' });
+      git(clone, 'switch', '-q', '--detach');
+      await expect(
+        service.commit({
+          ...input,
+          expectedFingerprint: (await tree(clone)).indexFingerprint,
+          setUpstream: { remote: 'origin', branch: 'feature/y' },
+        }),
+      ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+      expect(git(clone, 'rev-parse', 'HEAD')).toBe(head);
+      expect(operations.some((op) => op.kind === 'commit')).toBe(false);
+    });
+
+    it('returns the commit hash and reports the push failure when the push fails', async () => {
+      const { clone } = withRemote('push-fails');
+      git(clone, 'remote', 'set-url', 'origin', path.join(temp.dir, 'missing-remote.git'));
+      write(clone, 'README.md', 'local\n');
+      git(clone, 'add', 'README.md');
+      const result = await service.commit({
+        repositoryRoot: clone,
+        message: 'docs: unpushed',
+        stage: [],
+        unstage: [],
+        expectedFingerprint: (await tree(clone)).indexFingerprint,
+        push: true,
+      });
+      expect(result.commit.status).toBe('succeeded');
+      expect(result.hash).toBe(git(clone, 'rev-parse', 'HEAD').trim());
+      expect(result.push).toMatchObject({
+        kind: 'push',
+        status: 'failed',
+        error: { code: 'network' },
+      });
     });
 
     it('requires an explicit destination for branches without upstream', async () => {
