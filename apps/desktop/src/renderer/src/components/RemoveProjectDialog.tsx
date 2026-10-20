@@ -48,10 +48,10 @@ export function RemoveProjectDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Remove project</AlertDialogTitle>
           <AlertDialogDescription>
-            Remove <strong className="text-foreground">{project.name}</strong> from the ATLAS
-            registry? Only the registry entry is removed. The directory, its files and any Git
-            repository are not modified or deleted. Its sessions keep the directory as a standalone
-            workspace.
+            Remove <strong className="text-foreground wrap-anywhere">{project.name}</strong> from
+            the ATLAS registry? Only the registry entry is removed. The directory, its files and any
+            Git repository are not modified or deleted. Its sessions keep the directory as a
+            standalone workspace.
           </AlertDialogDescription>
         </AlertDialogHeader>
         {runningTerminals > 0 && (

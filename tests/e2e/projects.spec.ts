@@ -40,6 +40,47 @@ test('shows the empty state and adds a project through the native picker', async
   await expect(details.getByRole('list', { name: 'Tags' })).toContainText('core');
 });
 
+test('keeps the project dialog within its bounds for long values', async ({ atlas }) => {
+  const dir = atlas.workspace(`${'nested-client-folder/'.repeat(8)}backend-internet_banking`);
+  atlas.cli('project', 'add', dir);
+  const { page } = await atlas.launch();
+
+  await page.getByTestId('project-card').click();
+  await page.getByTestId('project-details').getByRole('button', { name: 'Edit' }).click();
+  const dialog = page.getByTestId('project-form-dialog');
+  await dialog.getByLabel('Description').fill(`Long description ${'x'.repeat(200)}`);
+  await dialog.getByLabel(/Tags/).fill(Array.from({ length: 12 }, (_, i) => `tag-${i}`).join(', '));
+
+  const bounds = (await dialog.boundingBox())!;
+  const inside = async (name: string) => {
+    const box = (await dialog.getByRole('button', { name }).boundingBox())!;
+    expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width);
+  };
+  await inside('Change…');
+  await inside('Save changes');
+  const directory = dialog.getByTestId('selected-directory');
+  await expect(directory).toHaveAttribute('title', dir);
+  expect(await directory.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+});
+
+test('keeps confirmation dialogs within their bounds for long unbroken names', async ({
+  atlas,
+}) => {
+  atlas.cli('project', 'add', atlas.workspace(`backend_${'internet_banking_'.repeat(5)}service`));
+  const { page } = await atlas.launch();
+
+  await page.getByTestId('project-card').click();
+  await page.getByTestId('project-details').getByRole('button', { name: 'Remove' }).click();
+  const dialog = page.getByTestId('remove-dialog');
+  const bounds = (await dialog.boundingBox())!;
+  const button = (await dialog
+    .getByRole('button', { name: 'Remove from registry' })
+    .boundingBox())!;
+  expect(button.x + button.width).toBeLessThanOrEqual(bounds.x + bounds.width);
+  // The name wraps instead of overflowing the dialog.
+  expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+});
+
 test('rejects registering the same directory twice', async ({ atlas }) => {
   const dir = atlas.workspace('dup');
   atlas.cli('project', 'add', dir);

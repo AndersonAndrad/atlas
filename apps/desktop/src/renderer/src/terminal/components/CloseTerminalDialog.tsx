@@ -28,7 +28,9 @@ export function CloseTerminalDialog({
     <AlertDialog open onOpenChange={(open) => !open && onCancel()}>
       <AlertDialogContent data-testid="close-terminal-dialog">
         <AlertDialogHeader>
-          <AlertDialogTitle>Terminate “{session.title}”?</AlertDialogTitle>
+          <AlertDialogTitle className="wrap-anywhere">
+            Terminate “{session.title}”?
+          </AlertDialogTitle>
           <AlertDialogDescription>
             {processName ? (
               <>

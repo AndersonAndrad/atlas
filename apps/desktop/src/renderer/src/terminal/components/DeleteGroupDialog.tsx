@@ -31,7 +31,9 @@ export function DeleteGroupDialog(props: DeleteGroupDialogProps) {
     <AlertDialog open onOpenChange={(open) => !open && !busy && props.onClose()}>
       <AlertDialogContent data-testid="delete-group-dialog">
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete “{props.group.name}”?</AlertDialogTitle>
+          <AlertDialogTitle className="wrap-anywhere">
+            Delete “{props.group.name}”?
+          </AlertDialogTitle>
           <AlertDialogDescription>
             {props.terminalCount === 0
               ? 'The group is empty.'

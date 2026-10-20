@@ -4,7 +4,7 @@ Last updated: 2026-10-20 — SDD-003 Milestone B (PLAN-004 revision 1).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B
 (ATLAS Sessions) implemented and validated on macOS (arm64); awaiting the developer's
-approval. Version 0.4.1 (PLAN-005: sidebar logo, full window title, ahead/behind per project in the Terminals sidebar).
+approval. Version 0.4.2 (PLAN-005: sidebar logo, full window title, ahead/behind per project in the Terminals sidebar; PLAN-007: dialogs and confirmation dialogs stay within bounds with long values).
 
 ## SDD-003 Milestone B — ATLAS Sessions
 
