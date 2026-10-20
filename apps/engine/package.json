@@ -1,0 +1,23 @@
+{
+  "name": "@atlas/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "start": "node dist/bin.js status"
+  },
+  "dependencies": {
+    "@atlas/contracts": "workspace:*",
+    "@atlas/persistence": "workspace:*",
+    "@atlas/projects": "workspace:*",
+    "@atlas/shared": "workspace:*"
+  }
+}

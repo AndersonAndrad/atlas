@@ -1,0 +1,28 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"],
+    "paths": {
+      "@atlas/shared": ["./packages/shared/src/index.ts"],
+      "@atlas/contracts": ["./packages/contracts/src/index.ts"],
+      "@atlas/contracts/ipc": ["./packages/contracts/src/ipc.ts"],
+      "@atlas/projects": ["./packages/projects/src/index.ts"],
+      "@atlas/persistence": ["./packages/persistence/src/index.ts"],
+      "@atlas/engine": ["./apps/engine/src/index.ts"]
+    }
+  },
+  "include": [
+    "packages/*/tests",
+    "apps/*/tests",
+    "tests",
+    "vitest.config.ts",
+    "playwright.config.ts"
+  ]
+}

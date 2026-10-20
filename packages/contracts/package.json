@@ -1,0 +1,22 @@
+{
+  "name": "@atlas/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./ipc": {
+      "types": "./dist/ipc.d.ts",
+      "default": "./dist/ipc.js"
+    }
+  },
+  "dependencies": {
+    "@atlas/shared": "workspace:*",
+    "zod": "4.6.5"
+  }
+}

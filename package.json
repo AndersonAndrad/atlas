@@ -1,0 +1,37 @@
+{
+  "name": "atlas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ATLAS \u2014 Autonomous Task Leadership & Agent System",
+  "type": "module",
+  "packageManager": "pnpm@11.13.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "pnpm run build:packages && pnpm --filter @atlas/desktop build",
+    "build:packages": "tsc -b tsconfig.build.json",
+    "typecheck": "tsc -b tsconfig.build.json && tsc -p tsconfig.test.json && pnpm --filter @atlas/desktop typecheck",
+    "test": "pnpm run build:packages && vitest run",
+    "test:e2e": "pnpm build && playwright test",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "dev": "pnpm run build:packages && pnpm --filter @atlas/desktop dev",
+    "atlas": "node apps/cli/dist/index.js",
+    "engine": "node apps/engine/dist/bin.js",
+    "clean": "node scripts/clean.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.63.0",
+    "@types/node": "24.19.1",
+    "eslint": "10.12.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.12.0",
+    "prettier": "3.9.9",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.71.1",
+    "vitest": "4.1.12"
+  }
+}

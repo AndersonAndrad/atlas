@@ -1,0 +1,15 @@
+{
+  "name": "@atlas/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "atlas": "./dist/index.js"
+  },
+  "dependencies": {
+    "@atlas/contracts": "workspace:*",
+    "@atlas/engine": "workspace:*",
+    "@atlas/shared": "workspace:*",
+    "commander": "14.0.3"
+  }
+}
