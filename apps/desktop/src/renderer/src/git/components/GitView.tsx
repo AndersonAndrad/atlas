@@ -44,7 +44,7 @@ import { ChangesList } from './ChangesList';
 import { CommitDialog } from './CommitDialog';
 import { CommitSettingsDialog } from './CommitSettingsDialog';
 import { DiffViewer } from './DiffViewer';
-import { OperationsPanel } from './OperationsPanel';
+import { OperationsButton, OperationsSheet, useOperationsSheet } from './OperationsSheet';
 import { PullDialog, PushDialog } from './RemoteDialogs';
 
 /** Opens the Git view on the repository of a project or a terminal. */
@@ -80,7 +80,6 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
   const [loadedRemotes, setLoadedRemotes] = useState<{ root: string; remotes: GitRemote[] } | null>(
     null,
   );
-  const [dialog, setDialog] = useState<GitDialog>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // A request from a project or terminal: taken once, then resolved against the
@@ -119,6 +118,9 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
 
   const { tree, error: treeError, loading, refresh } = useGitWorkingTree(repositoryRoot);
   const operations = useGitOperations(repositoryRoot);
+  const [dialog, setDialog] = useState<GitDialog>(null);
+  // Results shown in a dialog (e.g. Commit & Push) do not also open the panel on top of it.
+  const operationsSheet = useOperationsSheet(operations, dialog === null);
   const selection = selected?.root === repositoryRoot ? selected.selection : null;
   const remotes = loadedRemotes?.root === repositoryRoot ? loadedRemotes.remotes : null;
   // A selection whose file no longer has changes in that area is dropped.
@@ -217,11 +219,11 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
     <main className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="git-view">
       <header className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-2">
         <h1 className="text-lg font-semibold">Git</h1>
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
           {repositories !== null && repositories.length > 0 && (
             <Select value={repositoryRoot ?? undefined} onValueChange={choose}>
               <SelectTrigger
-                className="w-64 max-w-[60vw]"
+                className="w-64 min-w-0 shrink"
                 aria-label="Repository"
                 data-testid="git-repository-select"
               >
@@ -237,6 +239,13 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
                 ))}
               </SelectContent>
             </Select>
+          )}
+          {repositoryRoot !== null && (
+            <OperationsButton
+              running={operationsSheet.running}
+              unseenFailure={operationsSheet.unseenFailure}
+              onClick={() => operationsSheet.setOpen(true)}
+            />
           )}
           <Button
             variant="ghost"
@@ -499,16 +508,6 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
                 />
               </section>
             </div>
-
-            <section aria-labelledby="git-operations-title" className="rounded-lg border p-3">
-              <h2
-                id="git-operations-title"
-                className="text-muted-foreground mb-2 text-[11px] font-semibold tracking-wider uppercase"
-              >
-                Operations
-              </h2>
-              <OperationsPanel operations={operations} />
-            </section>
           </>
         )}
       </div>
@@ -529,6 +528,14 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
       )}
       {tree && dialog === 'pull' && (
         <PullDialog tree={tree} onClose={() => setDialog(null)} onDone={() => setDialog(null)} />
+      )}
+      {tree && (
+        <OperationsSheet
+          repositoryName={tree.repositoryName}
+          operations={operations}
+          open={operationsSheet.open}
+          onOpenChange={operationsSheet.setOpen}
+        />
       )}
       {tree && dialog === 'checks' && (
         <CommitSettingsDialog

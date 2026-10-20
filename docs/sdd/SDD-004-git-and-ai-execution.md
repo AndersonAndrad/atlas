@@ -193,8 +193,14 @@ is where Milestone B can add an AI-assisted strategy. Suggestions can be turned 
 Pull takes both. Read-only inspection never waits for it. Each operation has an id, kind,
 repository, start/finish time, status (`queued`, `running`, `succeeded`, `failed`,
 `cancelled`), throttled progress parsed from `--progress`, a summary, and an error with a
-code and Git's own output. Operations are published as `git-operation` events; the Git
-view shows the last ten with "Git output" on demand. Queued operations are cancelled
+code and Git's own output. Operations are published as `git-operation` events and shown
+in an **Operations side panel** (PLAN-010), opened from the Git view header or from a
+terminal header's Git menu (and the terminal context menu) without leaving the Terminals
+view. It lists the last ten with "Git output" on demand. The header button shows running
+operations and a red dot for a failure not seen yet; in the Git view a failed fetch, pull
+or push opens the panel by itself, unless a dialog (e.g. Commit & Push) already shows the
+result. Only operations seen running while the view is open count, so failures from the
+history never pop up. Queued operations are cancelled
 immediately; running ones only when safe (fetch and pre-commit checks). Engine shutdown cancels queued and cancellable running operations, stops accepting new operations, and waits a bounded time (derived from the pre-commit step kill grace period) for operations that cannot be cancelled (commit, push) to finish. The desktop kills the Engine host only after a longer timeout derived from the same exported constants (`ENGINE_SHUTDOWN_TIMEOUT_MS`: Git wait plus terminal shutdown, plus a margin). Git runs in the Engine
 host process, so Electron's main and renderer processes never block. After every mutation
 the inspection cache is invalidated and a `git` event refreshes all views (terminal

@@ -7,8 +7,9 @@ Last updated: 2026-10-20 — SDD-004 Milestone A (PLAN-008 revision 1, PLAN-009 
 workflow, PLAN-008) and its improvements (PLAN-009: file review that approves by staging,
 per-project Conventional Commits enforcement, up to five pre-commit steps with durations,
 pending-action dots, changed-file counts in the Terminals sidebar) implemented and validated.
-Both await the developer's approval. SDD-004 Milestone B (Claude Code and Codex execution)
-not started — it needs its own plan. Version 0.6.0 (0.5.0 was PLAN-008).
+Both await the developer's approval. Version 0.6.1 moves Git operations into a side panel
+(PLAN-010). SDD-004 Milestone B (Claude Code and Codex execution) not started — it needs its
+own plan. Earlier: 0.6.0 (PLAN-009), 0.5.0 (PLAN-008).
 
 Earlier in this version line: 0.4.1 (PLAN-005: sidebar logo, full window title,
 ahead/behind per project in the Terminals sidebar) and 0.4.2 (PLAN-007: dialogs stay within
@@ -47,7 +48,10 @@ bounds with long values).
 
 ### Validation results (2026-10-20, macOS arm64, Node 24.18.0, Git 2.55.0)
 
-Current revision (PLAN-009, version 0.6.0):
+Current revision (PLAN-010, version 0.6.1): `pnpm test` 537/537, `pnpm test:e2e` 50/50 in two
+consecutive runs, renderer 1,115 kB; typecheck, lint, format and audit clean.
+
+PLAN-009 (version 0.6.0):
 
 | Check                                                        | Result                               |
 | ------------------------------------------------------------ | ------------------------------------ |

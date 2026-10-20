@@ -38,6 +38,14 @@ async function openGit(page: Page) {
   await expect(page.getByTestId('git-view')).toBeVisible();
 }
 
+/** Opens the operations side panel from the Git view and returns it. */
+async function openOperations(page: Page) {
+  await page.getByTestId('git-operations-button').click();
+  const sheet = page.getByTestId('git-operations-sheet');
+  await expect(sheet).toBeVisible();
+  return sheet;
+}
+
 const file = (page: Page, section: string, name: string) =>
   page.locator(`[data-testid="git-file"][data-section="${section}"][data-path="${name}"]`);
 
@@ -99,12 +107,17 @@ test('inspects, stages and commits with Conventional Commits, then pushes', asyn
   // The untracked file was not committed.
   expect(git('status', '--porcelain')).toContain('?? notes.txt');
 
+  // Operations live in a side panel instead of the bottom of the view.
+  await expect(page.getByRole('region', { name: 'Operations' })).toHaveCount(0);
+  const sheet = await openOperations(page);
   await expect(
-    page.locator('[data-testid="git-operation"][data-kind="commit"]').first(),
+    sheet.locator('[data-testid="git-operation"][data-kind="commit"]').first(),
   ).toHaveAttribute('data-status', 'succeeded');
   await expect(
-    page.locator('[data-testid="git-operation"][data-kind="push"]').first(),
+    sheet.locator('[data-testid="git-operation"][data-kind="push"]').first(),
   ).toHaveAttribute('data-status', 'succeeded');
+  await page.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
   await expect(page.getByTestId('git-ahead-behind')).toHaveAttribute('data-ahead', '0');
 });
 
@@ -162,12 +175,16 @@ test('fetches, pulls fast-forward only and manages branches', async ({ atlas }) 
   await expect(page.getByTestId('git-last-fetch')).toContainText('Fetched');
 
   await page.getByRole('button', { name: 'Fetch', exact: true }).click();
-  await expect(
-    page.locator('[data-testid="git-operation"][data-kind="fetch"]').first(),
-  ).toHaveAttribute('data-status', 'succeeded', { timeout: 15_000 });
   await expect(page.getByTestId('git-ahead-behind')).toHaveAttribute('data-behind', '1', {
-    timeout: 10_000,
+    timeout: 15_000,
   });
+  // A successful fetch does not open the panel; its record is there on demand.
+  await expect(page.getByTestId('git-operations-sheet')).toHaveCount(0);
+  const operations = await openOperations(page);
+  await expect(
+    operations.locator('[data-testid="git-operation"][data-kind="fetch"]').first(),
+  ).toHaveAttribute('data-status', 'succeeded');
+  await page.keyboard.press('Escape');
 
   await page.getByRole('button', { name: 'Pull…' }).click();
   const pull = page.getByTestId('pull-dialog');
@@ -213,7 +230,10 @@ test('opens the Git view from standalone terminals, the context menu and the sho
   await page.getByRole('button', { name: 'More ways to open a terminal' }).click();
   await page.getByRole('menuitem', { name: 'Open in folder…' }).click();
   const pane = page.getByTestId('terminal-pane').first();
-  await pane.getByRole('button', { name: 'Open Git panel' }).click({ timeout: 15_000 });
+  await pane.getByRole('button', { name: 'Git actions' }).click({ timeout: 15_000 });
+  const gitMenu = page.getByTestId('terminal-git-menu');
+  await expect(gitMenu.getByRole('menuitem', { name: /Operations/ })).toBeVisible();
+  await gitMenu.getByRole('menuitem', { name: 'Open Git panel' }).click();
   await expect(page.getByTestId('git-repository-name')).toHaveText('loose');
 
   await page
@@ -393,9 +413,14 @@ test('approves a file from its diff and moves on only once it is staged', async 
   const lock = path.join(dir, '.git', 'index.lock');
   writeFileSync(lock, '');
   await page.getByTestId('git-diff-review').click();
+  // A failed stage does not open the panel, but the button shows an unseen failure.
+  await expect(page.getByTestId('git-operations-failure-dot')).toBeVisible({ timeout: 15_000 });
+  const operations = await openOperations(page);
   await expect(
-    page.locator('[data-testid="git-operation"][data-kind="stage"]').first(),
-  ).toHaveAttribute('data-status', 'failed', { timeout: 15_000 });
+    operations.locator('[data-testid="git-operation"][data-kind="stage"]').first(),
+  ).toHaveAttribute('data-status', 'failed');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('git-operations-failure-dot')).toHaveCount(0);
   await expect(page.getByTestId('git-diff-path')).toHaveText('README.md');
   expect(git('diff', '--cached', '--name-only').trim()).toBe('');
 
@@ -628,4 +653,38 @@ test('refuses commits while the stored Git preferences are invalid', async ({ at
   await dialog.getByRole('button', { name: 'Commit', exact: true }).click();
   await expect(dialog).toBeHidden({ timeout: 15_000 });
   expect(git('log', '-1', '--format=%s').trim()).toBe('docs: update readme');
+});
+
+test('opens the operations panel from a terminal and on remote failures', async ({ atlas }) => {
+  const dir = atlas.workspace('ops');
+  const { git } = repositoryWithRemote(dir, path.join(atlas.root, 'home'));
+  atlas.cli('project', 'add', dir);
+  const { page } = await atlas.launch();
+
+  // From a terminal: the panel opens without leaving the Terminals view.
+  await page
+    .getByRole('navigation', { name: 'Main navigation' })
+    .getByRole('button', { name: 'Terminals' })
+    .click();
+  await page.getByRole('button', { name: 'New terminal in ops' }).click();
+  const pane = page.getByTestId('terminal-pane').first();
+  await pane.getByRole('button', { name: 'Git actions' }).click({ timeout: 15_000 });
+  await page
+    .getByTestId('terminal-git-menu')
+    .getByRole('menuitem', { name: /Operations/ })
+    .click();
+  const sheet = page.getByTestId('git-operations-sheet');
+  await expect(sheet).toContainText('ops');
+  await expect(sheet).toContainText('No Git operations yet.');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('terminal-pane')).toHaveCount(1);
+
+  // A failed fetch opens the panel by itself in the Git view.
+  git('remote', 'set-url', 'origin', path.join(atlas.root, 'missing-remote.git'));
+  await openGit(page);
+  await page.getByRole('button', { name: 'Fetch', exact: true }).click();
+  await expect(sheet).toBeVisible({ timeout: 15_000 });
+  await expect(
+    sheet.locator('[data-testid="git-operation"][data-kind="fetch"]').first(),
+  ).toHaveAttribute('data-status', 'failed');
 });

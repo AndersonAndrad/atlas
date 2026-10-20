@@ -4,6 +4,7 @@ import {
   type TerminalSession,
 } from '@atlas/contracts';
 import {
+  Activity,
   ChevronDown,
   ChevronUp,
   Eraser,
@@ -23,7 +24,15 @@ import {
   ContextMenuShortcut,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { OperationsSheet, useOperationsSheet } from '@/git/components/OperationsSheet';
+import { useGitOperations } from '@/git/hooks/useGit';
 import { cn } from '@/lib/utils';
 import { ActionDot } from '@/components/git/ActionDot';
 import { GitBadges } from '@/components/git/GitBadges';
@@ -76,6 +85,9 @@ export function TerminalPane({
 }: TerminalPaneProps) {
   const git = useTerminalGit(session.id, session.currentCwd, session.status === 'RUNNING');
   const snapshot = git.context?.git.state === 'repository' ? git.context.git.snapshot : null;
+  const operations = useGitOperations(snapshot?.repositoryRoot ?? null);
+  // Failures open the panel by themselves only in the Git view.
+  const operationsSheet = useOperationsSheet(operations, false);
   const directoryTip =
     session.cwdSource === 'detected'
       ? session.currentCwd
@@ -177,17 +189,46 @@ export function TerminalPane({
         {snapshot && <GitBadges snapshot={snapshot} />}
         <span className="ml-auto flex items-center gap-0.5">
           {snapshot && (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="relative"
-              aria-label="Open Git panel"
-              title={['Git panel', ...pendingGitActions(snapshot)].join(' · ')}
-              onClick={onOpenGit}
-            >
-              <GitBranch />
-              <ActionDot reasons={pendingGitActions(snapshot)} />
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="relative"
+                  aria-label="Git actions"
+                  title={['Git', ...pendingGitActions(snapshot)].join(' · ')}
+                >
+                  {operationsSheet.running > 0 ? (
+                    <Activity className="text-sky-400" />
+                  ) : (
+                    <GitBranch />
+                  )}
+                  <ActionDot reasons={pendingGitActions(snapshot)} />
+                  {operationsSheet.unseenFailure && (
+                    <span
+                      className="bg-destructive ring-background pointer-events-none absolute -bottom-0.5 -right-0.5 size-2 rounded-full ring-2"
+                      aria-hidden="true"
+                      data-testid="git-operations-failure-dot"
+                    />
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" data-testid="terminal-git-menu">
+                <DropdownMenuItem onSelect={onOpenGit}>
+                  <GitBranch />
+                  Open Git panel
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => operationsSheet.setOpen(true)}>
+                  <Activity />
+                  Operations
+                  {operationsSheet.running > 0 && (
+                    <span className="text-muted-foreground ml-auto text-xs tabular-nums">
+                      {operationsSheet.running} running
+                    </span>
+                  )}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
           <Button
             variant="ghost"
@@ -289,6 +330,13 @@ export function TerminalPane({
             Open Git panel
             <ContextMenuShortcut>⇧⌘G</ContextMenuShortcut>
           </ContextMenuItem>
+          <ContextMenuItem
+            disabled={snapshot === null}
+            onSelect={() => operationsSheet.setOpen(true)}
+          >
+            <Activity />
+            Git operations
+          </ContextMenuItem>
           <ContextMenuItem onSelect={onProjectInfo}>
             <Info />
             Project details
@@ -331,6 +379,16 @@ export function TerminalPane({
             </>
           )}
         </div>
+      )}
+      {snapshot && (
+        <OperationsSheet
+          repositoryName={snapshot.repositoryRoot.slice(
+            snapshot.repositoryRoot.lastIndexOf('/') + 1,
+          )}
+          operations={operations}
+          open={operationsSheet.open}
+          onOpenChange={operationsSheet.setOpen}
+        />
       )}
     </section>
   );
