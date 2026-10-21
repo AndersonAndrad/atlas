@@ -46,6 +46,22 @@ async function openOperations(page: Page) {
   return sheet;
 }
 
+/** Opens the Git view's Actions menu (PLAN-020). */
+async function openActions(page: Page) {
+  // A menu still closing (after Escape) would be matched instead of the new one.
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await page.getByTestId('git-actions-button').click();
+  await expect(page.getByRole('menu')).toBeVisible();
+}
+
+/** Runs an item of the Actions menu, e.g. "Pull…". */
+async function gitAction(page: Page, name: string) {
+  await openActions(page);
+  // Pull and Push also show how many commits they would transfer, e.g. "Pull… 1".
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  await page.getByRole('menuitem', { name: new RegExp(`^${escaped}(\\s+\\d+)?$`) }).click();
+}
+
 const file = (page: Page, section: string, name: string) =>
   page.locator(`[data-testid="git-file"][data-section="${section}"][data-path="${name}"]`);
 
@@ -272,7 +288,7 @@ test('fetches, pulls fast-forward only and manages branches', async ({ atlas }) 
   await openGit(page);
   await expect(page.getByTestId('git-last-fetch')).toContainText('Fetched');
 
-  await page.getByRole('button', { name: 'Fetch', exact: true }).click();
+  await gitAction(page, 'Fetch');
   await expect(page.getByTestId('git-ahead-behind')).toHaveAttribute('data-behind', '1', {
     timeout: 15_000,
   });
@@ -284,7 +300,7 @@ test('fetches, pulls fast-forward only and manages branches', async ({ atlas }) 
   ).toHaveAttribute('data-status', 'succeeded');
   await page.keyboard.press('Escape');
 
-  await page.getByRole('button', { name: 'Pull…' }).click();
+  await gitAction(page, 'Pull…');
   const pull = page.getByTestId('pull-dialog');
   await expect(pull.getByTestId('pull-behind')).toContainText('1 commit to pull');
   await expect(pull.getByRole('radio', { name: /Fast-forward only/ })).toBeChecked();
@@ -293,7 +309,7 @@ test('fetches, pulls fast-forward only and manages branches', async ({ atlas }) 
   expect(git('log', '-1', '--format=%s').trim()).toBe('feat: remote');
 
   // Branches: create and switch, then switch back.
-  await page.getByRole('button', { name: 'Branches…' }).click();
+  await gitAction(page, 'Branches…');
   const branches = page.getByTestId('branches-dialog');
   await branches.getByLabel('Branch name').fill('feature/login');
   await branches.getByRole('button', { name: 'Create branch' }).click();
@@ -393,7 +409,7 @@ test('persists commit checks and blocks a commit until they pass', async ({ atla
   atlas.cli('project', 'add', dir);
   const { app, page } = await atlas.launch();
   await openGit(page);
-  await page.getByRole('button', { name: 'Commit checks…' }).click();
+  await gitAction(page, 'Commit checks…');
   const settings = page.getByTestId('commit-settings');
   await settings.getByLabel('Enforce Conventional Commits').click();
   await settings.getByRole('button', { name: 'Add step' }).click();
@@ -427,7 +443,7 @@ test('persists commit checks and blocks a commit until they pass', async ({ atla
   expect(git('diff', '--cached', '--name-only').trim()).toBe('');
   await page.keyboard.press('Escape');
 
-  await page.getByRole('button', { name: 'Commit checks…' }).click();
+  await gitAction(page, 'Commit checks…');
   await expect(settings.getByLabel('Enforce Conventional Commits')).not.toBeChecked();
   await expect(settings.getByLabel('Command, step 1')).toHaveValue('echo check-failed >&2; exit 1');
   await settings.getByLabel('Command, step 1').fill('echo checks-passed');
@@ -448,7 +464,7 @@ test('adds, reorders and removes commit steps by their visible labels', async ({
   atlas.cli('project', 'add', dir);
   const { page } = await atlas.launch();
   await openGit(page);
-  await page.getByRole('button', { name: 'Commit checks…' }).click();
+  await gitAction(page, 'Commit checks…');
   const settings = page.getByTestId('commit-settings');
   const steps = settings.getByTestId('commit-step-editor');
 
@@ -489,7 +505,7 @@ test('adds, reorders and removes commit steps by their visible labels', async ({
   await expect(settings.getByRole('status')).toHaveText('Saved.');
 
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Commit checks…' }).click();
+  await gitAction(page, 'Commit checks…');
   await expect(steps).toHaveCount(1);
   await expect(settings.getByLabel('Name, step 1')).toHaveValue('Server');
   await expect(settings.getByLabel('Ready text (optional), step 1')).toHaveValue('listening on');
@@ -694,7 +710,7 @@ test('refuses commits while the stored commit checks are invalid', async ({ atla
   await expect(dialog.getByRole('button', { name: 'Commit', exact: true })).toBeDisabled();
   await page.keyboard.press('Escape');
 
-  await page.getByRole('button', { name: 'Commit checks…' }).click();
+  await gitAction(page, 'Commit checks…');
   const settings = page.getByTestId('commit-settings');
   await expect(settings.getByTestId('commit-settings-invalid')).toBeVisible();
   await settings.getByRole('button', { name: 'Save commit checks' }).click();
@@ -780,7 +796,7 @@ test('opens the operations panel from a terminal and on remote failures', async 
   // A failed fetch opens the panel by itself in the Git view.
   git('remote', 'set-url', 'origin', path.join(atlas.root, 'missing-remote.git'));
   await openGit(page);
-  await page.getByRole('button', { name: 'Fetch', exact: true }).click();
+  await gitAction(page, 'Fetch');
   await expect(sheet).toBeVisible({ timeout: 15_000 });
   await expect(
     sheet.locator('[data-testid="git-operation"][data-kind="fetch"]').first(),
@@ -803,10 +819,12 @@ test('shows commits to push and pull on the buttons and merges with a manual com
   await openGit(page);
 
   // One local commit to push, nothing to pull (as of the last fetch).
+  await openActions(page);
   await expect(page.getByTestId('git-push-count')).toHaveText('1');
   await expect(page.getByTestId('git-pull-count')).toHaveText('0');
+  await page.keyboard.press('Escape');
 
-  await page.getByRole('button', { name: 'Merge…' }).click();
+  await gitAction(page, 'Merge…');
   const dialog = page.getByTestId('merge-dialog');
   // Typing filters the branches; Enter chooses the highlighted one.
   const search = dialog.getByRole('combobox', { name: 'Branch to merge' });
@@ -830,7 +848,9 @@ test('shows commits to push and pull on the buttons and merges with a manual com
   expect(git('log', '-1', '--format=%P').trim().split(' ')).toHaveLength(2);
   expect(git('log', '-1', '--format=%s').trim()).toBe("Merge branch 'feature'");
   await expect(page.getByTestId('git-merge-banner')).toHaveCount(0);
+  await openActions(page);
   await expect(page.getByTestId('git-push-count')).toHaveText('3');
+  await page.keyboard.press('Escape');
 });
 
 test('shows merge conflicts with a copyable message and aborts on confirmation', async ({
@@ -849,7 +869,7 @@ test('shows merge conflicts with a copyable message and aborts on confirmation',
   const { app, page } = await atlas.launch();
   await openGit(page);
 
-  await page.getByRole('button', { name: 'Merge…' }).click();
+  await gitAction(page, 'Merge…');
   const dialog = page.getByTestId('merge-dialog');
   await dialog.getByRole('combobox', { name: 'Branch to merge' }).click();
   await page.getByRole('option', { name: 'feature', exact: true }).click();
@@ -867,7 +887,12 @@ test('shows merge conflicts with a copyable message and aborts on confirmation',
   await expect(dialog).toBeHidden();
   const banner = page.getByTestId('git-merge-banner');
   await expect(banner).toContainText('Resolve the conflicts');
-  await expect(page.getByRole('button', { name: 'Merge…', exact: true })).toBeDisabled();
+  await openActions(page);
+  await expect(page.getByRole('menuitem', { name: 'Merge…', exact: true })).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
+  await page.keyboard.press('Escape');
   await banner.getByRole('button', { name: 'Abort merge…' }).click();
   await page.getByTestId('abort-merge-dialog').getByRole('button', { name: 'Abort merge' }).click();
   await expect(banner).toHaveCount(0, { timeout: 15_000 });
@@ -884,7 +909,7 @@ test('searches long branch lists in the Branches dialog', async ({ atlas }) => {
   const { page } = await atlas.launch();
   await openGit(page);
 
-  await page.getByRole('button', { name: 'Branches…' }).click();
+  await gitAction(page, 'Branches…');
   const dialog = page.getByTestId('branches-dialog');
   const search = dialog.getByRole('searchbox', { name: 'Search branches' });
   await expect(search).toBeFocused();
@@ -944,7 +969,7 @@ test('cherry-picks commits of another branch, keeping them, and aborts a conflic
   const { page } = await atlas.launch();
   await openGit(page);
 
-  await page.getByRole('button', { name: 'Cherry-pick…' }).click();
+  await gitAction(page, 'Cherry-pick…');
   const dialog = page.getByTestId('cherry-pick-dialog');
   await dialog.getByRole('combobox', { name: 'Take commits from' }).click();
   // The current branch is never offered as a source.
@@ -971,7 +996,7 @@ test('cherry-picks commits of another branch, keeping them, and aborts a conflic
   await expect(dialog).toBeHidden();
 
   // A conflicting commit stops; the banner continues, skips or aborts.
-  await page.getByRole('button', { name: 'Cherry-pick…' }).click();
+  await gitAction(page, 'Cherry-pick…');
   await dialog.getByRole('combobox', { name: 'Take commits from' }).click();
   await page.getByRole('option', { name: 'feature', exact: true }).click();
   await expect(
@@ -993,4 +1018,42 @@ test('cherry-picks commits of another branch, keeping them, and aborts a conflic
   expect(git('status', '--porcelain').trim()).toBe('');
   expect(git('log', '--format=%s', '-1').trim()).toBe('feat: add two');
   expect(git('rev-parse', 'HEAD~2').trim()).toBe(before);
+});
+
+test('keeps the Git actions at the top right and truncates long names (PLAN-020)', async ({
+  atlas,
+}) => {
+  const dir = atlas.workspace(
+    'a-repository-with-a-very-long-name-that-would-push-everything-else-out-of-the-way',
+  );
+  repositoryWithRemote(dir, path.join(atlas.root, 'home'));
+  atlas.cli('project', 'add', dir);
+  const { app, page } = await atlas.launch();
+  await openGit(page);
+
+  for (const width of [1440, 900, 380]) {
+    await app.evaluate(({ BrowserWindow }, w) => {
+      BrowserWindow.getAllWindows()[0]!.setContentSize(w, 800);
+    }, width);
+    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(width);
+    const name = (await page.getByTestId('git-repository-name').boundingBox())!;
+    const actions = (await page.getByTestId('git-actions').boundingBox())!;
+    const summary = (await page.getByTestId('git-summary').boundingBox())!;
+    // Same row as the name, at the right edge of the summary.
+    expect(Math.abs(actions.y - name.y), `actions on the name's row at ${width}px`).toBeLessThan(8);
+    expect(summary.x + summary.width - (actions.x + actions.width)).toBeLessThan(24);
+    expect(actions.x).toBeGreaterThan(name.x + name.width - 1);
+    const truncated = await page
+      .getByTestId('git-repository-name')
+      .evaluate((element) => element.scrollWidth > element.clientWidth);
+    expect(truncated, `name truncated at ${width}px`).toBe(width < 1440 || truncated);
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(0);
+  }
+  await expect(page.getByTestId('git-repository-name')).toHaveAttribute(
+    'title',
+    'a-repository-with-a-very-long-name-that-would-push-everything-else-out-of-the-way',
+  );
 });

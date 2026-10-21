@@ -4,7 +4,9 @@ import {
   ArrowUp,
   ChevronDown,
   CloudDownload,
+  Ellipsis,
   ListChecks,
+  LoaderCircle,
   GitBranch,
   GitCommitHorizontal,
   GitMerge,
@@ -32,6 +34,10 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -342,11 +348,13 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
               aria-label="Repository"
               data-testid="git-summary"
             >
-              <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-                <div className="flex min-w-0 flex-col gap-1">
+              {/* The name truncates; actions always stay at the top right (PLAN-020). */}
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <h2
                     className="truncate text-base font-semibold"
                     data-testid="git-repository-name"
+                    title={tree.repositoryName}
                   >
                     {tree.repositoryName}
                   </h2>
@@ -357,110 +365,101 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
                     <span dir="ltr">{tree.repositoryRoot}</span>
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <div className="flex">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="rounded-r-none"
-                      disabled={fetching}
-                      onClick={() => fetch()}
-                    >
-                      <CloudDownload />
-                      {fetching ? 'Fetching…' : 'Fetch'}
-                    </Button>
-                    <DropdownMenu
-                      onOpenChange={(open) => {
-                        if (open && remotes === null) {
-                          const root = tree.repositoryRoot;
-                          void unwrap(api().git.remotes(root)).then(
-                            (list) => setLoadedRemotes({ root, remotes: list }),
-                            () => setLoadedRemotes({ root, remotes: [] }),
-                          );
-                        }
-                      }}
-                    >
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="rounded-l-none border-l-0 px-1.5"
-                          aria-label="Fetch from a remote"
-                          disabled={fetching}
-                        >
-                          <ChevronDown />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Fetch from</DropdownMenuLabel>
-                        {remotes === null && <DropdownMenuItem disabled>Loading…</DropdownMenuItem>}
-                        {remotes?.length === 0 && (
-                          <DropdownMenuItem disabled>No remotes</DropdownMenuItem>
-                        )}
-                        {remotes?.map((remote) => (
-                          <DropdownMenuItem key={remote.name} onSelect={() => fetch(remote.name)}>
-                            <span className="flex min-w-0 flex-col">
-                              <span>{remote.name}</span>
-                              <span className="text-muted-foreground truncate text-xs">
-                                {remote.fetchUrl}
+                <div className="flex shrink-0 gap-2" data-testid="git-actions">
+                  <DropdownMenu
+                    onOpenChange={(open) => {
+                      if (open && remotes === null) {
+                        const root = tree.repositoryRoot;
+                        void unwrap(api().git.remotes(root)).then(
+                          (list) => setLoadedRemotes({ root, remotes: list }),
+                          () => setLoadedRemotes({ root, remotes: [] }),
+                        );
+                      }
+                    }}
+                  >
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        data-testid="git-actions-button"
+                        aria-label={fetching ? 'Actions (fetching)' : 'Actions'}
+                      >
+                        {fetching ? <LoaderCircle className="animate-spin" /> : <Ellipsis />}
+                        Actions
+                        <ChevronDown />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-56">
+                      <DropdownMenuItem disabled={fetching} onSelect={() => fetch()}>
+                        <CloudDownload />
+                        {fetching ? 'Fetching…' : 'Fetch'}
+                      </DropdownMenuItem>
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger disabled={fetching}>
+                          <CloudDownload />
+                          Fetch from…
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="max-w-80">
+                          <DropdownMenuLabel>Fetch from</DropdownMenuLabel>
+                          {remotes === null && (
+                            <DropdownMenuItem disabled>Loading…</DropdownMenuItem>
+                          )}
+                          {remotes?.length === 0 && (
+                            <DropdownMenuItem disabled>No remotes</DropdownMenuItem>
+                          )}
+                          {remotes?.map((remote) => (
+                            <DropdownMenuItem key={remote.name} onSelect={() => fetch(remote.name)}>
+                              <span className="flex min-w-0 flex-col">
+                                <span>{remote.name}</span>
+                                <span className="text-muted-foreground truncate text-xs">
+                                  {remote.fetchUrl}
+                                </span>
                               </span>
-                            </span>
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => setDialog('pull')}
-                  >
-                    <ArrowDown />
-                    Pull…
-                    <SyncCount value={tree.behind} label="to pull" testId="git-pull-count" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => setDialog('push')}
-                  >
-                    <ArrowUp />
-                    Push…
-                    <SyncCount value={tree.ahead} label="to push" testId="git-push-count" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy || tree.inProgress !== null}
-                    onClick={() => setDialog('merge')}
-                  >
-                    <GitMerge />
-                    Merge…
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy || tree.inProgress !== null || tree.branch === null}
-                    onClick={() => setDialog('cherry-pick')}
-                  >
-                    <GitCommitHorizontal />
-                    Cherry-pick…
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => setDialog('branches')}
-                  >
-                    <GitBranch />
-                    Branches…
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => setDialog('checks')}>
-                    <ListChecks />
-                    Commit checks…
-                  </Button>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem disabled={busy} onSelect={() => setDialog('pull')}>
+                        <ArrowDown />
+                        Pull…
+                        <span className="ml-auto">
+                          <SyncCount value={tree.behind} label="to pull" testId="git-pull-count" />
+                        </span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem disabled={busy} onSelect={() => setDialog('push')}>
+                        <ArrowUp />
+                        Push…
+                        <span className="ml-auto">
+                          <SyncCount value={tree.ahead} label="to push" testId="git-push-count" />
+                        </span>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        disabled={busy || tree.inProgress !== null}
+                        onSelect={() => setDialog('merge')}
+                      >
+                        <GitMerge />
+                        Merge…
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={busy || tree.inProgress !== null || tree.branch === null}
+                        onSelect={() => setDialog('cherry-pick')}
+                      >
+                        <GitCommitHorizontal />
+                        Cherry-pick…
+                      </DropdownMenuItem>
+                      <DropdownMenuItem disabled={busy} onSelect={() => setDialog('branches')}>
+                        <GitBranch />
+                        Branches…
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={() => setDialog('checks')}>
+                        <ListChecks />
+                        Commit checks…
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <Button size="sm" disabled={busy} onClick={() => setDialog('commit')}>
                     <GitCommitHorizontal />
                     Commit…

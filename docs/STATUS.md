@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-21 — PLAN-019 (cherry-pick).
+Last updated: 2026-10-21 — PLAN-020 (Git view actions menu).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -15,7 +15,8 @@ and reflog) is implemented and validated and awaits approval. SDD-006 Milestone 
 Hub, PLAN-017) is implemented and validated and awaits approval. PLAN-018 (commits use a
 fresh shell environment; ATLAS's development NODE_ENV no longer leaks) is implemented and
 awaits approval. PLAN-019 (cherry-pick from another branch, keeping commits) is
-implemented and awaits approval. Version 0.13.0 (schema v8).
+implemented and awaits approval. PLAN-020 (Git actions in one menu at the top right; long
+names truncate) is implemented and awaits approval. Version 0.13.1 (schema v8).
 
 ## PLAN-019 — Cherry-pick
 

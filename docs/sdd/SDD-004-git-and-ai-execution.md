@@ -289,6 +289,14 @@ atlas git log-operation <id> [--json]
 atlas git reflog [--repo <path>] [-n <count>] [--json]
 ```
 
+## Git view header (PLAN-020)
+
+The repository name and path truncate (full values on hover); the actions always stay on
+the same row at the top right, at every width: an **Actions** menu (Fetch, Fetch from…,
+Pull… and Push… with their commit counts, Merge…, Cherry-pick…, Branches…, Commit
+checks…) and the **Commit…** button. A spinner on Actions shows a running fetch; ahead and
+behind counts stay visible in the summary line.
+
 ## Cherry-pick (PLAN-019)
 
 Git view → **Cherry-pick…** brings chosen commits of **another** branch (local or
