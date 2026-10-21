@@ -78,7 +78,8 @@ describe.skipIf(process.platform === 'win32')('ShellPreCommitRunner', () => {
       detail: 'kept running for 1 s and was stopped',
     });
     const child = Number(readFileSync(pidFile, 'utf8').trim());
-    expect(isAlive(child)).toBe(false);
+    // Signalled children exit (and are reaped) shortly after the root, not at the same instant.
+    await expect.poll(() => isAlive(child)).toBe(false);
   });
 
   it('passes a start step as soon as it prints the ready text', async () => {
@@ -123,7 +124,8 @@ describe.skipIf(process.platform === 'win32')('ShellPreCommitRunner', () => {
     const outcome = await run(step('sleep 30 & echo $! > child.pid'));
     expect(outcome.status).toBe('passed');
     expect(outcome.durationMs).toBeLessThan(5000);
-    expect(isAlive(Number(readFileSync(path.join(temp.dir, 'child.pid'), 'utf8')))).toBe(false);
+    const child = Number(readFileSync(path.join(temp.dir, 'child.pid'), 'utf8'));
+    await expect.poll(() => isAlive(child)).toBe(false);
   });
 
   it('reports a missing shell without leaving a pending step', async () => {

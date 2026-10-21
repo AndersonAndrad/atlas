@@ -23,7 +23,7 @@ awaits approval. PLAN-023 (quick commands, project action menus in Terminals, pr
 details in tabs; revision 2: commands enabled per project) is implemented and awaits
 approval. PLAN-024 (GitHub Actions: all checks on Linux and macOS, then Debian and macOS
 installers) is implemented; revision 2 pins pnpm 11.28.5 because 11.13.0 is a broken
-release the CI cannot install. Version 0.17.1 (schema v8).
+release the CI cannot install. Version 0.17.2 (schema v8).
 
 ## PLAN-024 — GitHub Actions and installers
 
