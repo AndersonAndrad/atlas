@@ -169,6 +169,19 @@ export interface SkillImportPreview {
   sameContent: boolean;
 }
 
+/** A folder of skills (e.g. a skills repository) reviewed before importing them all. */
+export interface SkillCollectionPreview {
+  path: string;
+  skills: SkillImportPreview[];
+}
+
+export interface SkillCollectionResult {
+  /** The folder is added as a source, so later changes show as updates. */
+  sourceId: string;
+  imported: Skill[];
+  failed: { path: string; name: string; message: string }[];
+}
+
 export interface SkillFileContent {
   path: string;
   /** Null for binary files. */
@@ -280,6 +293,20 @@ export const ImportSkillSchema = z.strictObject({
   note: z.string().trim().max(500).optional(),
 });
 export type ImportSkillInput = z.infer<typeof ImportSkillSchema>;
+
+export const ImportSkillCollectionSchema = z.strictObject({
+  /** The folder holding one skill per sub-folder. */
+  path: PathText,
+  confirm: z.literal(true),
+  /** Reviewed skills and their content when reviewed; changed ones are refused. */
+  items: z
+    .array(z.strictObject({ path: PathText, contentHash: z.string().regex(/^[0-9a-f]{64}$/) }))
+    .min(1)
+    .max(200),
+  /** Enable the imported skills for every project right away. */
+  enable: z.boolean(),
+});
+export type ImportSkillCollectionInput = z.infer<typeof ImportSkillCollectionSchema>;
 
 export const SkillAssignmentSchema = z
   .strictObject({

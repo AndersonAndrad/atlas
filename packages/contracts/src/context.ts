@@ -39,6 +39,8 @@ export const CONTEXT_CATEGORIES = [
   'next-action',
   'provider-reference',
   'summary',
+  /** Work in progress written by an LLM while it works (PLAN-021); unverified. */
+  'checkpoint',
   'note',
 ] as const;
 export type ContextCategory = (typeof CONTEXT_CATEGORIES)[number];

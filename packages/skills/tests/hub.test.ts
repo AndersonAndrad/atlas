@@ -133,6 +133,63 @@ describe('Skills Hub with real folders (SDD-006 Milestone B)', () => {
     expect(await hub.listSkills()).toEqual([]);
   });
 
+  it('imports a folder of skills at once, adding it as a source and enabling them', async () => {
+    const repo = path.join(temp.dir, 'skills-repo');
+    skillFolder(repo, 'code-review');
+    skillFolder(repo, 'testing', { 'scripts/run.sh': 'echo\n' });
+    skillFolder(repo, 'broken', { 'SKILL.md': '---\nname: [broken\n---\n' });
+    writeFileSync(path.join(repo, 'README.md'), '# skills\n');
+
+    // Single-skill inspection of the folder reports it has no SKILL.md…
+    expect((await hub.inspect(repo, true)).validation.issues.map((item) => item.code)).toContain(
+      'missing-skill-file',
+    );
+    // …and the collection lists each sub-folder.
+    await expect(hub.inspectCollection(repo, false)).rejects.toMatchObject({
+      code: 'SKILL_SOURCE_UNAUTHORIZED',
+    });
+    const collection = await hub.inspectCollection(repo, true);
+    expect(collection.skills.map((item) => [item.name, item.validation.valid])).toEqual([
+      ['broken', false],
+      ['code-review', true],
+      ['testing', true],
+    ]);
+
+    const result = await hub.importCollection(
+      {
+        path: repo,
+        confirm: true,
+        enable: true,
+        items: collection.skills.map((item) => ({
+          path: item.path,
+          contentHash: item.contentHash,
+        })),
+      },
+      true,
+    );
+    expect(result.imported.map((skill) => [skill.name, skill.enabled])).toEqual([
+      ['code-review', true],
+      ['testing', true],
+    ]);
+    expect(result.failed.map((item) => item.name)).toEqual(['broken']);
+    expect((await hub.listSources()).map((item) => item.id)).toContain(result.sourceId);
+    expect((await hub.discover()).filter((item) => item.status === 'imported')).toHaveLength(2);
+
+    // Items outside the chosen folder are refused.
+    const outside = skillFolder(path.join(temp.dir, 'elsewhere'), 'other');
+    const preview = await hub.inspect(outside, true);
+    const refused = await hub.importCollection(
+      {
+        path: repo,
+        confirm: true,
+        enable: false,
+        items: [{ path: outside, contentHash: preview.contentHash }],
+      },
+      true,
+    );
+    expect(refused).toMatchObject({ imported: [], failed: [{ name: 'other' }] });
+  });
+
   it('refuses unsafe folders and invalid skills', async () => {
     const root = path.join(temp.dir, 'chosen');
     const outside = path.join(temp.dir, 'secret.txt');

@@ -305,6 +305,13 @@ executable files, requested permissions and dependencies; when there are scripts
 permissions the user must tick "I reviewed …". The import is refused if the folder changed
 after the review (content hash) or validation reports an error. New skills are disabled.
 
+A folder that holds skills instead of being one (PLAN-021) opens a collection review: every
+skill with its status, scripts and permissions, all valid new ones ticked, one "I reviewed
+…" confirmation and an option (on by default) to enable the imported skills for every
+project. The folder becomes a source; each skill is imported with its reviewed hash and
+failures are listed per skill without undoing the others (at most 200 per import). The CLI
+does the same with `atlas skills import <folder> --yes [--enable]`.
+
 ## Validation and safety (FR-617, FR-620, FR-621)
 
 - No skill file is ever executed by ATLAS. Executable files are detected by permission

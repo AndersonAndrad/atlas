@@ -215,6 +215,44 @@ runs the user's shell as an interactive login shell with the project terminal en
 (`$SHELL -ilc`, 8 s timeout, cached for 60 s) and reports **wrapped**, **shadowed**,
 **missing** or **unknown**.
 
+## Automatic LLM sessions and checkpoints (PLAN-021)
+
+Projects keeping context no longer need the user to start or end AI sessions by hand.
+
+- **Wrapper first on `PATH`.** Shell start-up files cannot shadow the wrappers inside ATLAS
+  terminals: zsh starts with `ZDOTDIR=<data>/shell/zsh`, whose four start-up files source
+  the user's own ones (from `ATLAS_USER_ZDOTDIR`, defaulting to `$HOME`), restore
+  `ZDOTDIR` and add a `precmd` hook that keeps `<data>/bin` first; bash gets the same hook
+  as an exported function run from `PROMPT_COMMAND`. The user's files are never edited.
+  Other shells keep the PLAN-014 behaviour (the details panel still reports shadowing),
+  and a `.bashrc` that replaces `PROMPT_COMMAND` instead of extending it drops the bash
+  hook.
+- **Session events.** In a project terminal the wrapper writes
+  `<data>/context/events/<run>.start.json` before running the CLI and `<run>.end.json`
+  with the exit code afterwards (atomic rename; `<run>` is a timestamp plus the shell PID).
+  Ctrl+C reaches the CLI but not the wrapper, so the end event is still written. The Engine
+  watches the folder (plus a 5 s scan), validates every field strictly, ignores projects
+  that do not keep context, opens an attached AI session for the terminal (or reuses the
+  one started with "Start with context") and, at the end, ends it automatically.
+- **Automatic end.** An automatic end records what Git shows (commits since the session
+  started and changed files, `verified`) and a summary "Automatic record of <provider>
+  session"; when nothing changed the session just ends without entries. Closing the
+  terminal ends its session the same way, and sessions whose terminal is no longer running
+  are ended at Engine start (app restart or crash).
+- **Checkpoints.** The wrapper exports `ATLAS_CHECKPOINT_FILE` =
+  `<data>/projects/<id>/checkpoints/<run>.md`, and the instruction asks the LLM to rewrite
+  it at the start, after each step and at the end with the headings Objective, Done, In
+  progress, Next steps, Files changed, Tests run and Blockers. The Engine imports it every
+  3 s when its modification time changes (files over 256 KB are skipped; the stored text is
+  limited to 20,000 characters) as one `checkpoint` entry per run ("Work in progress
+  (<provider>): <objective>"), `observed`, never `verified`; each change is a new revision.
+  Bundles rank checkpoints in "task state" and include the two newest with up to 4,000
+  characters of body, so the next LLM can continue where the last one stopped. Checkpoint
+  files stay in the project folder until the project is removed.
+- The ATLAS skills repository asks for the same checkpoint in its always-read instructions
+  and in `development-workflow`; LLMs may still ignore it, so the Git record never depends
+  on it.
+
 ## Tests
 
 - `packages/context/tests/bundle.test.ts`: section priority, verification and STALE marks,

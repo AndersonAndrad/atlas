@@ -35,6 +35,8 @@ export interface ScoreContext {
  */
 const BASE_WEIGHTS: Record<ContextCategory, number> = {
   constraint: 15,
+  // The latest state of unfinished work: what the next LLM continues from.
+  checkpoint: 14,
   blocker: 12,
   'known-failure': 10,
   'next-action': 10,
@@ -91,6 +93,7 @@ export function sectionOf(
   if (isGlobal) return 'global';
   if (query.files.length > 0 && fileMatches(entry, query.files).exact > 0) return 'relevant-files';
   switch (entry.category) {
+    case 'checkpoint':
     case 'progress':
     case 'commit':
     case 'files-changed':

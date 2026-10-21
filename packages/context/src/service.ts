@@ -95,6 +95,9 @@ export interface SessionSummary {
 /** Commits listed as evidence when there is no task or session base commit. */
 const RECENT_COMMITS = 10;
 
+/** Checkpoint text kept per run (the database limit is 20,000 characters). */
+const CHECKPOINT_TEXT_LIMIT = 20_000;
+
 /** Bounds the number of Git processes a freshness check may start. */
 const MAX_FRESHNESS_CHECKS = 100;
 
@@ -833,10 +836,18 @@ export class SharedContextService {
     id: string,
     summary: SessionSummary,
     recordedBy: string,
+    options: { automatic?: boolean } = {},
   ): Promise<{ session: AiSession; entries: ContextEntry[] }> {
     const session = await this.ownSession(target, id);
     if (session.status === 'ended') throw invalid('id', 'This session has already ended.');
     const evidence = await this.gitEvidence(target, session.startCommit);
+    const changed = evidence.commits.length > 0 || evidence.changedFiles.length > 0;
+    if (options.automatic && !changed) {
+      // Nothing happened in the repository: the session ends without a record.
+      const ended: AiSession = { ...session, status: 'ended', endedAt: this.now() };
+      await this.repo.updateSession(ended);
+      return { session: ended, entries: [] };
+    }
     const now = this.now();
     const created: ContextEntry[] = [];
     const add = async (
@@ -880,13 +891,27 @@ export class SharedContextService {
     ]
       .filter((part) => part !== '')
       .join('\n\n');
-    await add({
-      scope,
-      category: 'summary',
-      title: `Summary of ${provider} (${session.startedAt.slice(0, 10)})`,
-      body: body || 'No summary written.',
-      verification: 'user',
-    });
+    await add(
+      options.automatic
+        ? {
+            // Only repository evidence: what changed, not why (PLAN-021).
+            scope,
+            category: 'summary',
+            title: `Automatic record of ${provider} (${session.startedAt.slice(0, 10)})`,
+            body:
+              `${evidence.commits.length} commit(s) and ${evidence.changedFiles.length} ` +
+              'changed file(s) recorded from Git when the session ended.',
+            verification: 'verified',
+            sourceKind: 'git',
+          }
+        : {
+            scope,
+            category: 'summary',
+            title: `Summary of ${provider} (${session.startedAt.slice(0, 10)})`,
+            body: body || 'No summary written.',
+            verification: 'user',
+          },
+    );
     for (const item of summary.completed)
       await add({ scope, category: 'progress', title: item, body: '', verification: 'user' });
     for (const item of [...summary.pending, ...summary.nextActions]) {
@@ -934,6 +959,75 @@ export class SharedContextService {
     const ended: AiSession = { ...session, status: 'ended', endedAt: now };
     await this.repo.updateSession(ended);
     return { session: ended, entries: created };
+  }
+
+  /**
+   * Stores the checkpoint an LLM keeps while it works (PLAN-021): one entry per run,
+   * updated with a new revision when the file changes. It is the LLM's own statement,
+   * so it stays unverified; credentials are removed like any stored text.
+   */
+  async recordCheckpoint(
+    target: ResolvedTarget,
+    input: { runId: string; provider: string; sessionId: string | null; text: string },
+  ): Promise<ContextEntry | null> {
+    const text = this.options.redact(input.text.trim()).slice(0, CHECKPOINT_TEXT_LIMIT);
+    if (text === '') return null;
+    const ref = `run:${input.runId}`;
+    const existing = (
+      await this.repo.listEntries({
+        owner: target.owner,
+        category: 'checkpoint',
+        includeObsolete: true,
+        limit: 2000,
+      })
+    ).find((entry) => entry.source.ref === ref);
+    const objective =
+      /##\s*Objective\s*\n+\s*(?:[-*]\s*)?(.+)/i.exec(text)?.[1]?.trim() ??
+      text
+        .split('\n')
+        .find((line) => line.trim() !== '' && !line.startsWith('#'))
+        ?.trim() ??
+      'work in progress';
+    const title = `Work in progress (${input.provider}): ${objective}`.slice(0, 200);
+    if (existing) {
+      if (existing.body === text && existing.title === title) return existing;
+      const next: ContextEntry = {
+        ...existing,
+        title,
+        body: text,
+        status: 'active',
+        revision: existing.revision + 1,
+        updatedAt: this.now(),
+      };
+      await this.repo.updateEntry(
+        next,
+        this.revisionOf(next, input.provider, 'Checkpoint updated'),
+      );
+      return next;
+    }
+    const sessionId =
+      input.sessionId === null ? null : ((await this.repo.getSession(input.sessionId))?.id ?? null);
+    const now = this.now();
+    const entry: ContextEntry = {
+      id: this.options.generateId(),
+      scope: sessionId === null ? (target.owner.projectId ? 'project' : 'workspace') : 'session',
+      ...target.owner,
+      taskId: null,
+      sessionId,
+      category: 'checkpoint',
+      title,
+      body: text,
+      status: 'active',
+      verification: 'observed',
+      source: { kind: 'agent', ref, recordedBy: input.provider },
+      refs: { files: [], commit: null },
+      required: false,
+      revision: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.repo.insertEntry(entry, this.revisionOf(entry, input.provider, null));
+    return entry;
   }
 
   listSessions(target: ResolvedTarget): Promise<AiSession[]> {

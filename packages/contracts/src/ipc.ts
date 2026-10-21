@@ -12,12 +12,15 @@ import type {
   CreateSkillFromTemplateInput,
   DiscoveredSkill,
   EditSkillInput,
+  ImportSkillCollectionInput,
   ImportSkillInput,
   RemoveSkillAssignmentInput,
   ResolveSkillsInput,
   ResolvedSkill,
   Skill,
   SkillAssignmentInput,
+  SkillCollectionPreview,
+  SkillCollectionResult,
   SkillDetails,
   SkillDiff,
   SkillFileContent,
@@ -250,6 +253,8 @@ export const IPC_CHANNELS = {
   skillsDiscover: 'atlas:skills:discover',
   skillsInspect: 'atlas:skills:inspect',
   skillsImport: 'atlas:skills:import',
+  skillsInspectCollection: 'atlas:skills:inspect-collection',
+  skillsImportCollection: 'atlas:skills:import-collection',
   skillsTemplates: 'atlas:skills:templates',
   skillsCreateFromTemplate: 'atlas:skills:create-from-template',
   skillsEdit: 'atlas:skills:edit',
@@ -567,6 +572,9 @@ export interface AtlasApi {
     discover(): Promise<IpcResult<DiscoveredSkill[]>>;
     inspect(path: string): Promise<IpcResult<SkillImportPreview>>;
     import(input: ImportSkillInput): Promise<IpcResult<Skill>>;
+    /** Skills in the sub-folders of a chosen folder (e.g. a skills repository). */
+    inspectCollection(path: string): Promise<IpcResult<SkillCollectionPreview>>;
+    importCollection(input: ImportSkillCollectionInput): Promise<IpcResult<SkillCollectionResult>>;
     templates(): Promise<IpcResult<SkillTemplate[]>>;
     createFromTemplate(input: CreateSkillFromTemplateInput): Promise<IpcResult<Skill>>;
     edit(input: EditSkillInput): Promise<IpcResult<Skill>>;

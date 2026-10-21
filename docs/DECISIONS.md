@@ -480,3 +480,34 @@ superseded decisions are marked, not deleted.
   commits and loses authorship; Git has no in-progress state to abort it safely).
 - **Consequences**: The project's commit checks and Conventional Commits rules do not run
   for picked commits; the dialog warns about non-conventional messages.
+
+## ADR-051 — Automatic LLM sessions from wrapper events (PLAN-021)
+
+- **Decision**: The `claude` / `codex` wrappers write start and end event files to
+  `<data>/context/events`; the Engine turns them into attached AI sessions and ends them
+  automatically with Git evidence, also when the terminal closes or after a restart.
+- **Alternatives**: Ask the user to end sessions (forgotten in practice); read the CLIs'
+  conversation logs (private, provider-specific, rejected); provider hooks (edit the
+  user's provider configuration).
+- **Consequences**: Sessions without changes leave no entries; the record says what changed,
+  not why. Events are validated strictly because a shell script writes them.
+
+## ADR-052 — LLM checkpoints as unverified context (PLAN-021)
+
+- **Decision**: LLMs keep a progress checkpoint in `ATLAS_CHECKPOINT_FILE`; ATLAS imports it
+  as an `observed` `checkpoint` entry per run, revised on every change, and puts the newest
+  ones first in bundles.
+- **Alternatives**: Only a summary at the end (lost when tokens run out); parse the
+  terminal output (unreliable and private).
+- **Consequences**: Depends on the LLM following the instruction; the content is never
+  treated as verified and is wrapped as untrusted data like every other entry.
+
+## ADR-053 — Wrappers stay first on PATH through shell start-up hooks (PLAN-021)
+
+- **Decision**: zsh terminals use an ATLAS `ZDOTDIR` that sources the user's files and adds
+  a `precmd` hook; bash gets an exported function in `PROMPT_COMMAND`. The hook moves
+  `<data>/bin` to the front before each prompt.
+- **Alternatives**: Edit the user's `.zshrc` (rejected: never touch the user's files);
+  only report shadowing (PLAN-014, left the problem to the user).
+- **Consequences**: Commands run from start-up files before the first prompt still see the
+  user's PATH order; other shells keep only the PLAN-014 report.

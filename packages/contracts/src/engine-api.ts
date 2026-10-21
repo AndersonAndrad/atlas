@@ -100,6 +100,7 @@ import {
   AddSkillSourceSchema,
   CreateSkillFromTemplateSchema,
   EditSkillSchema,
+  ImportSkillCollectionSchema,
   ImportSkillSchema,
   InspectSkillSchema,
   ReadSkillFileSchema,
@@ -112,6 +113,8 @@ import {
   type DiscoveredSkill,
   type ResolvedSkill,
   type Skill,
+  type SkillCollectionPreview,
+  type SkillCollectionResult,
   type SkillDetails,
   type SkillDiff,
   type SkillFileContent,
@@ -307,6 +310,8 @@ export const ENGINE_METHOD_PARAMS = {
   'skills.discover': z.tuple([]),
   'skills.inspect': z.tuple([InspectSkillSchema, z.boolean()]),
   'skills.import': z.tuple([ImportSkillSchema, z.boolean()]),
+  'skills.inspectCollection': z.tuple([InspectSkillSchema, z.boolean()]),
+  'skills.importCollection': z.tuple([ImportSkillCollectionSchema, z.boolean()]),
   'skills.templates': z.tuple([]),
   'skills.createFromTemplate': z.tuple([CreateSkillFromTemplateSchema]),
   'skills.edit': z.tuple([EditSkillSchema]),
@@ -473,6 +478,8 @@ export interface EngineMethodResults {
   'skills.discover': DiscoveredSkill[];
   'skills.inspect': SkillImportPreview;
   'skills.import': Skill;
+  'skills.inspectCollection': SkillCollectionPreview;
+  'skills.importCollection': SkillCollectionResult;
   'skills.templates': SkillTemplate[];
   'skills.createFromTemplate': Skill;
   'skills.edit': Skill;
@@ -522,6 +529,8 @@ export const CLI_ENGINE_METHODS: readonly EngineMethod[] = [
   'skills.discover',
   'skills.inspect',
   'skills.import',
+  'skills.inspectCollection',
+  'skills.importCollection',
   'skills.templates',
   'skills.readFile',
   'skills.diff',

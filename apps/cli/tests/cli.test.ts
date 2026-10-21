@@ -496,6 +496,22 @@ describe('atlas CLI', () => {
       expect(existsSync(path.join(dir, 'SKILL.md'))).toBe(true);
     });
 
+    it('imports a folder of skills and enables them', async () => {
+      const repo = path.join(temp.dir, 'skills-repo');
+      for (const name of ['review', 'tests']) {
+        mkdirSync(path.join(repo, name), { recursive: true });
+        writeFileSync(
+          path.join(repo, name, 'SKILL.md'),
+          `---\nname: ${name}\ndescription: ${name} skill.\n---\n`,
+        );
+      }
+      const result = await run(['skills', 'import', repo, '--yes', '--enable']);
+      expect(result.code).toBe(0);
+      expect(result.out).toContain('new       review');
+      expect(result.out).toContain('Imported 2 skill(s) and enabled them; 0 failed.');
+      expect((await run(['skills', 'list'])).out).toMatch(/on\s+review/);
+    });
+
     it('lists the Git operation log and validates its options', async () => {
       const empty = await run(['git', 'log-operations']);
       expect(empty.code).toBe(0);

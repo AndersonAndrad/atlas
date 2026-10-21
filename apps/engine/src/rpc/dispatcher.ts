@@ -4,6 +4,7 @@ import {
   type AiProvider,
   type CreateSkillFromTemplateInput,
   type EditSkillInput,
+  type ImportSkillCollectionInput,
   type ImportSkillInput,
   type RemoveSkillAssignmentInput,
   type ResolveSkillsInput,
@@ -407,6 +408,10 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
       skills.inspect(input.path, scope === 'cli' || explicit),
     'skills.import': ([input, explicit]: [ImportSkillInput, boolean], scope) =>
       skills.import(input, scope === 'cli' || explicit),
+    'skills.inspectCollection': ([input, explicit]: [{ path: string }, boolean], scope) =>
+      skills.inspectCollection(input.path, scope === 'cli' || explicit),
+    'skills.importCollection': ([input, explicit]: [ImportSkillCollectionInput, boolean], scope) =>
+      skills.importCollection(input, scope === 'cli' || explicit),
     'skills.templates': () => skills.templates(),
     'skills.createFromTemplate': ([input]: [CreateSkillFromTemplateInput]) =>
       skills.createFromTemplate(input),

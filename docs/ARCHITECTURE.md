@@ -347,6 +347,17 @@ Full description: `docs/sdd/SDD-005-multi-agent-and-shared-context.md`, Part I.
 
 Details and limitations: SDD-005 Part I, "Project configuration for LLMs"; ADR-042.
 
+Automatic sessions and checkpoints (PLAN-021):
+
+```text
+ wrapper ─► <data>/context/events/<run>.start|end.json ─► LlmSessionTracker (apps/engine)
+    │                                                         ├─ start/end attached AI session
+    └─► ATLAS_CHECKPOINT_FILE (written by the LLM) ──────────►├─ checkpoint entry (observed)
+ terminal exit / Engine start ───────────────────────────────►└─ automatic end with Git evidence
+```
+
+Details: SDD-005 Part I, "Automatic LLM sessions and checkpoints"; ADR-051–ADR-053.
+
 ### Context retrieval (SDD-006 Milestone A)
 
 Full description: `docs/sdd/SDD-006-context-intelligence-and-skills.md`, Part I.

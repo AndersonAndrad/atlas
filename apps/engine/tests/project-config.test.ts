@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -17,6 +18,7 @@ import {
 } from '../../../tests/support/fake-terminal.js';
 import { createTempDir } from '../../../tests/support/temp.js';
 import { ProjectConfigStore } from '../src/project-config.js';
+import { parseWrapperEvent } from '../src/llm-session-tracker.js';
 import { createEngine, createEngineDispatcher, type Engine } from '../src/index.js';
 
 const posix = process.platform !== 'win32';
@@ -247,8 +249,126 @@ describe.skipIf(!posix)('LLM wrappers', () => {
     expect(args[0]).toBe('-c');
     expect(args[1]).toMatch(/^developer_instructions=ATLAS project configuration/);
     expect(args[1]).toContain(variables.ATLAS_PROJECT_CONFIG);
-    expect(args.slice(2)).toEqual(['exec', 'hi']);
+    // The project folder (checkpoints) is writable for Codex too (PLAN-021).
+    expect(args.slice(2)).toEqual(['--add-dir', variables.ATLAS_PROJECT_DIR, 'exec', 'hi']);
   });
+
+  it('reports the start and end of a session and gives the LLM a checkpoint file (PLAN-021)', async () => {
+    const variables = await projectEnv();
+    const events = path.join(temp.dir, 'events');
+    mkdirSync(events);
+    writeFileSync(
+      path.join(realDir, 'claude'),
+      '#!/bin/sh\nprintf "%s\\n" "$ATLAS_CHECKPOINT_FILE"\nfor arg in "$@"; do printf "%s\\n" "$arg"; done\nexit 3\n',
+    );
+    chmodSync(path.join(realDir, 'claude'), 0o755);
+    const ids = {
+      ATLAS_TERMINAL_ID: '00000000-0000-4000-8000-0000000000aa',
+      ATLAS_PROJECT_ID: '00000000-0000-4000-8000-0000000000bb',
+    };
+    const result = run('claude', ['work'], { ...variables, ...ids, ATLAS_EVENTS_DIR: events });
+    // The CLI's exit code is kept.
+    expect(result.status).toBe(3);
+    const [checkpoint, , instruction] = result.stdout.split('\n');
+    expect(checkpoint).toMatch(
+      new RegExp(
+        `^${variables.ATLAS_PROJECT_DIR.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/checkpoints/\\d{8}T\\d{6}-\\d+\\.md$`,
+      ),
+    );
+    expect(instruction).toContain(checkpoint);
+    expect(instruction).toContain('## Next steps');
+    expect(existsSync(path.dirname(checkpoint!))).toBe(true);
+
+    const written = readdirSync(events).sort();
+    expect(written).toHaveLength(2);
+    const parsed = written.map((name) =>
+      parseWrapperEvent(JSON.parse(readFileSync(path.join(events, name), 'utf8'))),
+    );
+    expect(parsed.map((event) => [event?.event, event?.exitCode])).toEqual([
+      ['end', 3],
+      ['start', null],
+    ]);
+    expect(parsed[0]).toMatchObject({
+      provider: 'claude',
+      terminalId: ids.ATLAS_TERMINAL_ID,
+      projectId: ids.ATLAS_PROJECT_ID,
+    });
+    expect(checkpoint).toContain(parsed[0]!.run);
+
+    // Subcommands and version or help flags are not sessions.
+    rmSync(events, { recursive: true });
+    mkdirSync(events);
+    run('claude', ['mcp', 'list'], { ...variables, ...ids, ATLAS_EVENTS_DIR: events });
+    run('claude', ['--version'], { ...variables, ...ids, ATLAS_EVENTS_DIR: events });
+    expect(readdirSync(events)).toEqual([]);
+  });
+
+  it('rejects malformed session events', () => {
+    const valid = {
+      event: 'start',
+      provider: 'codex',
+      run: '20261021T101010-42',
+      terminalId: '',
+      projectId: '00000000-0000-4000-8000-0000000000bb',
+      exitCode: null,
+    };
+    expect(parseWrapperEvent(valid)).toEqual(valid);
+    for (const broken of [
+      { ...valid, provider: 'gpt' },
+      { ...valid, run: '../../etc' },
+      { ...valid, projectId: 'p1' },
+      { ...valid, exitCode: 'x' },
+      { ...valid, extra: 1 },
+      null,
+    ]) {
+      expect(parseWrapperEvent(broken)).toBeNull();
+    }
+  });
+
+  it.skipIf(!existsSync('/bin/zsh') || !existsSync('/bin/bash'))(
+    'keeps the wrappers first on PATH after the user shell start-up files (PLAN-021)',
+    async () => {
+      await projectEnv();
+      const home = path.join(temp.dir, 'home');
+      const other = path.join(temp.dir, 'other bin');
+      mkdirSync(other);
+      writeFileSync(path.join(other, 'claude'), '#!/bin/sh\necho other\n');
+      chmodSync(path.join(other, 'claude'), 0o755);
+      // As in a real .zshrc / .bashrc: another folder is put first on PATH.
+      writeFileSync(
+        path.join(home, '.zshrc'),
+        `export PATH="${other}:$PATH"\nexport FROM_ZSHRC=yes\n`,
+      );
+      writeFileSync(path.join(home, '.bashrc'), `export PATH="${other}:$PATH"\n`);
+      const base = { HOME: home, PATH: [realDir, '/usr/bin', '/bin'].join(':') };
+      const env = {
+        ...base,
+        ...store.terminalVariables(
+          { projectId: 'p1', cwd: temp.dir, terminalId: '00000000-0000-4000-8000-0000000000aa' },
+          base,
+        ),
+      };
+      const zsh = execFileSync(
+        '/bin/zsh',
+        ['-ilc', 'command -v claude; print -r -- "$FROM_ZSHRC|$ZDOTDIR"'],
+        { env, encoding: 'utf8' },
+      )
+        .trim()
+        .split('\n');
+      expect(zsh.at(-2)).toBe(path.join(store.binDir, 'claude'));
+      // The user's files ran and their ZDOTDIR is back once start-up is over.
+      expect(zsh.at(-1)).toBe(`yes|${home}`);
+      const bash = execFileSync('/bin/bash', ['-ic', 'eval "$PROMPT_COMMAND"; command -v claude'], {
+        env,
+        encoding: 'utf8',
+      })
+        .trim()
+        .split('\n');
+      expect(bash.at(-1)).toBe(path.join(store.binDir, 'claude'));
+      const checked = await store.checkWrappers('/bin/zsh', env, temp.dir);
+      expect(checked.claude).not.toBe('shadowed');
+    },
+  );
 
   it('runs the CLI unchanged outside a project terminal and fails like a missing command', () => {
     fakeCli('claude');

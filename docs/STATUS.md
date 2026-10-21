@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-21 — PLAN-020 (Git view actions menu).
+Last updated: 2026-10-21 — PLAN-021 (automatic LLM sessions, checkpoints, bulk skill import).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -16,7 +16,24 @@ Hub, PLAN-017) is implemented and validated and awaits approval. PLAN-018 (commi
 fresh shell environment; ATLAS's development NODE_ENV no longer leaks) is implemented and
 awaits approval. PLAN-019 (cherry-pick from another branch, keeping commits) is
 implemented and awaits approval. PLAN-020 (Git actions in one menu at the top right; long
-names truncate) is implemented and awaits approval. Version 0.13.1 (schema v8).
+names truncate) is implemented and awaits approval. PLAN-021 (automatic LLM sessions and
+checkpoints, wrappers first on PATH, import of a folder of skills) is implemented and awaits
+approval. Version 0.14.0 (schema v8).
+
+## PLAN-021 — Automatic LLM sessions, checkpoints and bulk skill import
+
+`claude` / `codex` typed in a project terminal that keeps context now start and end an AI
+session by themselves; the LLM's checkpoint is imported as unverified work in progress and
+the end records what Git shows. The wrappers stay first on PATH in zsh and bash without
+editing the user's files. Skills → import accepts a folder of skills. Details: SDD-005
+Part I, "Automatic LLM sessions and checkpoints"; SDD-006 Part I-B; ADR-051–ADR-053.
+
+Validation (2026-10-21, macOS arm64, Node 24.18.0): `pnpm test` 653/653 (50 files),
+including real zsh/bash PATH-first, wrapper events, checkpoint revisions, automatic end on
+exit, terminal close and restart, and folder import; `pnpm test:e2e` 66/66 in two
+consecutive runs; build, typecheck, lint, format and audit clean. Staff review: no Critical
+or High findings; two Medium/Low findings fixed (session recording can no longer block the
+Engine start; terminals closed during shutdown are left to the next start).
 
 ## PLAN-019 — Cherry-pick
 

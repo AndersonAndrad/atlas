@@ -43,10 +43,12 @@ import {
   UpdateProjectInputSchema,
   parseInput,
   AddSkillSourceSchema,
+  ImportSkillCollectionSchema,
   ImportSkillSchema,
   InspectSkillSchema,
   SkillSyncTargetsSchema,
   type AddSkillSourceInput,
+  type ImportSkillCollectionInput,
   type ImportSkillInput,
   type AppInfo,
   type DirectoryChoice,
@@ -434,6 +436,16 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
       }
     }
     return engine.call('skills.setSyncTargets', changes);
+  });
+  handle(
+    IPC_CHANNELS.skillsInspectCollection,
+    z.tuple([InspectSkillSchema.shape.path]),
+    ([folder]) =>
+      engine.call('skills.inspectCollection', { path: folder as string }, picked(folder as string)),
+  );
+  handle(IPC_CHANNELS.skillsImportCollection, z.tuple([ImportSkillCollectionSchema]), ([input]) => {
+    const value = input as ImportSkillCollectionInput;
+    return engine.call('skills.importCollection', value, picked(value.path));
   });
   handle(IPC_CHANNELS.skillsImport, z.tuple([ImportSkillSchema]), ([input]) => {
     const value = input as ImportSkillInput;

@@ -188,6 +188,8 @@ const api: AtlasApi = {
     discover: () => ipcRenderer.invoke(IPC_CHANNELS.skillsDiscover),
     inspect: (...args) => ipcRenderer.invoke(IPC_CHANNELS.skillsInspect, ...args),
     import: (...args) => ipcRenderer.invoke(IPC_CHANNELS.skillsImport, ...args),
+    inspectCollection: (path) => ipcRenderer.invoke(IPC_CHANNELS.skillsInspectCollection, path),
+    importCollection: (input) => ipcRenderer.invoke(IPC_CHANNELS.skillsImportCollection, input),
     templates: () => ipcRenderer.invoke(IPC_CHANNELS.skillsTemplates),
     createFromTemplate: (...args) =>
       ipcRenderer.invoke(IPC_CHANNELS.skillsCreateFromTemplate, ...args),

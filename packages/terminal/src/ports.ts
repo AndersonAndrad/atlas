@@ -111,6 +111,8 @@ export interface KeyValueStore {
 export interface ShellEnvironmentTarget {
   projectId: string | null;
   cwd: string;
+  /** The terminal's id, so tools in it can identify their terminal to ATLAS. */
+  terminalId?: string;
 }
 
 export interface EnvironmentProvider {

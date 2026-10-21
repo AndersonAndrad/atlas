@@ -544,41 +544,99 @@ export async function runCli(
     });
   skillsCommand
     .command('import')
-    .description('Review a skill folder and copy it into ATLAS')
-    .argument('<path>', 'skill folder (contains SKILL.md)')
+    .description('Review a skill folder (or a folder of skills) and copy it into ATLAS')
+    .argument('<path>', 'skill folder (contains SKILL.md) or a folder of skill folders')
     .option('-y, --yes', 'import after showing the review, without asking')
+    .option('--enable', 'enable the imported skills for every project')
     .option('--json', 'output JSON')
-    .action(async (folder: string, options: { yes?: boolean; json?: boolean }) => {
-      const absolute = path.resolve(io.cwd, folder);
-      const preview = await sessionCall('skills.inspect', { path: absolute }, true);
-      if (!options.json) io.stdout(formatSkillPreview(preview));
-      if (!preview.validation.valid) {
-        throw new CliUsageError('The skill cannot be imported; see the errors above.');
-      }
-      if (preview.sameContent) {
-        print(Boolean(options.json), preview, 'Already imported; nothing to do.\n');
-        return;
-      }
-      if (!options.yes) {
-        if (!io.isInteractive) {
-          throw new CliUsageError('Confirmation required. Re-run with --yes to import.');
+    .action(
+      async (folder: string, options: { yes?: boolean; enable?: boolean; json?: boolean }) => {
+        const absolute = path.resolve(io.cwd, folder);
+        const preview = await sessionCall('skills.inspect', { path: absolute }, true);
+        if (preview.validation.issues.some((issue) => issue.code === 'missing-skill-file')) {
+          const collection = await sessionCall(
+            'skills.inspectCollection',
+            { path: absolute },
+            true,
+          );
+          if (collection.skills.length > 0) {
+            const ready = collection.skills.filter(
+              (skill) => skill.validation.valid && !skill.sameContent,
+            );
+            if (!options.json) {
+              io.stdout(
+                `${collection.skills
+                  .map(
+                    (skill) =>
+                      `${!skill.validation.valid ? 'invalid ' : skill.sameContent ? 'imported' : 'new     '}  ${skill.name} (${skill.version})` +
+                      (skill.validation.scripts.length
+                        ? `  scripts: ${skill.validation.scripts.join(', ')}`
+                        : ''),
+                  )
+                  .join('\n')}\n`,
+              );
+            }
+            if (ready.length === 0) {
+              print(Boolean(options.json), collection, 'Nothing to import.\n');
+              return;
+            }
+            if (!options.yes) {
+              if (!io.isInteractive) {
+                throw new CliUsageError('Confirmation required. Re-run with --yes to import.');
+              }
+              if (!(await io.confirm(`Import ${ready.length} skill(s)?`))) {
+                io.stdout('Aborted.\n');
+                return;
+              }
+            }
+            const result = await sessionCall(
+              'skills.importCollection',
+              {
+                path: collection.path,
+                confirm: true,
+                enable: Boolean(options.enable),
+                items: ready.map((skill) => ({ path: skill.path, contentHash: skill.contentHash })),
+              },
+              true,
+            );
+            print(
+              Boolean(options.json),
+              result,
+              `Imported ${result.imported.length} skill(s)${options.enable ? ' and enabled them' : ''}; ${result.failed.length} failed.\n` +
+                result.failed.map((item) => `  ${item.name}: ${item.message}\n`).join(''),
+            );
+            return;
+          }
         }
-        if (!(await io.confirm('Import this skill?'))) {
-          io.stdout('Aborted.\n');
+        if (!options.json) io.stdout(formatSkillPreview(preview));
+        if (!preview.validation.valid) {
+          throw new CliUsageError('The skill cannot be imported; see the errors above.');
+        }
+        if (preview.sameContent) {
+          print(Boolean(options.json), preview, 'Already imported; nothing to do.\n');
           return;
         }
-      }
-      const skill = await sessionCall(
-        'skills.import',
-        { path: absolute, confirm: true, contentHash: preview.contentHash },
-        true,
-      );
-      print(
-        Boolean(options.json),
-        skill,
-        `Imported ${skill.name} (${skill.version}) as ${skill.id}; it is disabled until you enable it.\n`,
-      );
-    });
+        if (!options.yes) {
+          if (!io.isInteractive) {
+            throw new CliUsageError('Confirmation required. Re-run with --yes to import.');
+          }
+          if (!(await io.confirm('Import this skill?'))) {
+            io.stdout('Aborted.\n');
+            return;
+          }
+        }
+        const skill = await sessionCall(
+          'skills.import',
+          { path: absolute, confirm: true, contentHash: preview.contentHash },
+          true,
+        );
+        print(
+          Boolean(options.json),
+          skill,
+          `Imported ${skill.name} (${skill.version}) as ${skill.id}; it is disabled until you enable it.\n`,
+        );
+      },
+    );
   for (const [name, enabled] of [
     ['enable', true],
     ['disable', false],

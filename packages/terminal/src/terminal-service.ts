@@ -478,6 +478,7 @@ export class TerminalService {
         env: this.deps.environment.shellEnvironment({
           projectId: session.projectId,
           cwd: session.cwd,
+          terminalId: session.id,
         }),
         columns: session.columns,
         rows: session.rows,

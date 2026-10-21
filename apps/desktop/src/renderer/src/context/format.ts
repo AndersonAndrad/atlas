@@ -25,6 +25,7 @@ export const CATEGORY_LABELS: Record<ContextCategory, string> = {
   'next-action': 'Next action',
   'provider-reference': 'Provider reference',
   summary: 'Session summary',
+  checkpoint: 'Checkpoint (LLM)',
   note: 'Note',
 };
 

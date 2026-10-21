@@ -4,11 +4,14 @@ import type {
   CreateSkillFromTemplateInput,
   DiscoveredSkill,
   EditSkillInput,
+  ImportSkillCollectionInput,
   ImportSkillInput,
   RemoveSkillAssignmentInput,
   ResolvedSkill,
   Skill,
   SkillAssignmentInput,
+  SkillCollectionPreview,
+  SkillCollectionResult,
   SkillDetails,
   SkillDiff,
   SkillFileContent,
@@ -252,6 +255,59 @@ export class SkillsService {
       real,
       input.note ?? null,
     );
+  }
+
+  /** Every skill in the sub-folders of a folder (e.g. a skills repository). */
+  async inspectCollection(folder: string, explicit: boolean): Promise<SkillCollectionPreview> {
+    const root = await this.authorize(folder, explicit);
+    const skills: SkillImportPreview[] = [];
+    for (const child of await this.fs.skillFolders(root)) {
+      const real = await this.fs.realpath(child);
+      // A sub-folder linked to somewhere else is not part of the chosen folder.
+      if (!inside(root, real)) continue;
+      skills.push(await this.inspect(real, true));
+    }
+    return { path: root, skills };
+  }
+
+  /**
+   * Imports reviewed skills of a folder in one go: the folder becomes a source (so
+   * changes show as updates), each skill is copied as in `import`, and optionally
+   * enabled. A skill that fails is reported; the others are still imported.
+   */
+  async importCollection(
+    input: ImportSkillCollectionInput,
+    explicit: boolean,
+  ): Promise<SkillCollectionResult> {
+    const root = await this.authorize(input.path, explicit);
+    const source = await this.addSource({ path: root, kind: 'path' }, true);
+    const imported: Skill[] = [];
+    const failed: SkillCollectionResult['failed'] = [];
+    for (const item of input.items) {
+      const name = path.basename(item.path);
+      try {
+        const real = await this.fs.realpath(item.path);
+        if (real === root || !inside(root, real)) {
+          throw invalid('items', 'The skill is not inside the chosen folder.');
+        }
+        let skill = await this.import(
+          { path: real, confirm: true, contentHash: item.contentHash },
+          true,
+        );
+        if (input.enable && !skill.enabled) skill = await this.setEnabled(skill.id, true);
+        imported.push(skill);
+      } catch (error) {
+        failed.push({
+          path: item.path,
+          name,
+          message:
+            error instanceof AtlasError
+              ? error.issues.map((issue) => issue.message).join(' ') || error.userMessage
+              : 'The skill could not be imported.',
+        });
+      }
+    }
+    return { sourceId: source.id, imported, failed };
   }
 
   /** Whether the source folder now differs from the current version; null if unreadable. */

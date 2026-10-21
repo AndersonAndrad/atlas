@@ -23,6 +23,7 @@ import {
   type TerminalProjectContext,
   type TerminalSession,
   type UpdateProjectAiConfig,
+  isFinalTerminalStatus,
 } from '@atlas/contracts';
 import {
   SqliteProjectRepository,
@@ -89,6 +90,7 @@ import {
 import { NodeSkillFileSystem, SkillsHub } from '@atlas/skills';
 import { createGitExecutor, createGitRunner } from './git/git-runner.js';
 import { captureLoginShellEnvironment } from './adapters/login-shell-environment.js';
+import { LlmSessionTracker } from './llm-session-tracker.js';
 import { RepositoryWatcher } from './git/repository-watcher.js';
 import { GIT_SHUTDOWN_TIMEOUT_MS } from './shutdown-timing.js';
 
@@ -144,6 +146,8 @@ export interface Engine {
   readonly gitOperationLog: GitOperationLog;
   /** Skills Hub (SDD-006 Milestone B). */
   readonly skills: SkillsHub;
+  /** Automatic recording of LLM sessions in ATLAS terminals (PLAN-021). */
+  readonly llmSessions: LlmSessionTracker;
   readonly gitPreferences: GitPreferencesStore;
   /** Provider-independent shared context (SDD-005 Milestone A). */
   readonly context: SharedContextService;
@@ -677,6 +681,50 @@ export function createEngine(options: EngineOptions = {}): Engine {
     );
   };
 
+  // LLM sessions in ATLAS terminals are recorded automatically (PLAN-021).
+  const llmSessions = new LlmSessionTracker({
+    eventsDir: projectConfig.eventsDir,
+    projectDir: (projectId) => projectConfig.paths(projectId).dir,
+    keepsContext: async (projectId) => (await projectConfig.read(projectId))?.keepContext === true,
+    resolveProject: (projectId) => resolveContextTarget({ projectId }),
+    context,
+    changed: (target) => contextChanged(target),
+    logger,
+  });
+  /**
+   * Terminals do not survive a restart: sessions they hosted can no longer report their
+   * end, so they are closed with what Git shows changed.
+   */
+  const closeOrphanedLlmSessions = async () => {
+    const running = new Set(
+      (terminals?.list() ?? [])
+        .filter((terminal) => !isFinalTerminalStatus(terminal.status))
+        .map((terminal) => terminal.id),
+    );
+    for (const { project } of await projects.listDetails()) {
+      try {
+        const target = await resolveContextTarget({ projectId: project.id });
+        for (const session of await context.listSessions(target)) {
+          if (session.status !== 'active' || session.terminalId === null) continue;
+          if (running.has(session.terminalId)) continue;
+          await context.endSession(
+            target,
+            session.id,
+            { summary: '', completed: [], pending: [], decisions: [], nextActions: [] },
+            'atlas',
+            { automatic: true },
+          );
+          await contextChanged(target);
+        }
+      } catch (error) {
+        logger.warn('Orphaned AI sessions could not be closed', {
+          projectId: project.id,
+          error: describeError(error),
+        });
+      }
+    }
+  };
+
   const wrapperChecks = new Map<
     string,
     { at: number; wrappers: Record<(typeof WRAPPED_CLIS)[number], LlmWrapperStatus> }
@@ -752,6 +800,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
     gitOperations,
     gitOperationLog,
     skills,
+    llmSessions,
     gitPreferences,
     projectGitSettings,
     gitRepositories: discoverRepositories,
@@ -906,6 +955,24 @@ export function createEngine(options: EngineOptions = {}): Engine {
         } catch (error) {
           logger.warn('Failed to install the LLM wrappers', { error: describeError(error) });
         }
+        // Recording LLM sessions is a convenience: it never keeps the Engine from starting.
+        try {
+          await closeOrphanedLlmSessions().catch((error: unknown) =>
+            logger.warn('Orphaned AI sessions could not be closed', {
+              error: describeError(error),
+            }),
+          );
+          await llmSessions.start();
+        } catch (error) {
+          logger.warn('Automatic LLM session recording is unavailable', {
+            error: describeError(error),
+          });
+        }
+        terminals?.onEvent((event) => {
+          if (event.type === 'session' && isFinalTerminalStatus(event.session.status)) {
+            llmSessions.terminalClosed(event.session.id);
+          }
+        });
       }
     },
     removeProject: async (id) => {
@@ -969,6 +1036,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
         projects.resolveAvailableDirectory(directory),
       ),
     shutdown: async () => {
+      if (ownsExecution) await llmSessions.close();
       // New Git operations are refused (a push that would follow a finishing commit
       // settles as cancelled), queued ones and running pre-commit steps are cancelled;
       // commits and pushes that cannot be interrupted get a bounded time to finish.

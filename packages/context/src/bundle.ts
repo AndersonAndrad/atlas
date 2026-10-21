@@ -45,6 +45,10 @@ const VERIFICATION_LABELS = {
   observed: 'unverified',
 } as const;
 const ENTRY_BODY_LIMIT = 600;
+/** Checkpoints are the work in progress; they keep more of their text. */
+const CHECKPOINT_BODY_LIMIT = 4000;
+/** Checkpoints kept in a bundle; older ones are compacted away. */
+const RECENT_CHECKPOINTS = 2;
 /** Session summaries kept in a bundle; older ones are compacted away (FR-610). */
 const RECENT_SUMMARIES = 3;
 /** Room kept for the closing notes about left-out records. */
@@ -91,6 +95,14 @@ function entryLine(entry: ContextEntry, stale: boolean): string {
     ...(entry.required ? ['required'] : []),
     ...(stale ? ['STALE'] : []),
   ];
+  if (entry.category === 'checkpoint') {
+    // Kept as written (headings and lists), so the next LLM can continue from it.
+    const text = entry.body.trim().slice(0, CHECKPOINT_BODY_LIMIT);
+    return `- [${tags.join(', ')}] ${entry.title}\n${text
+      .split('\n')
+      .map((line) => `  ${line}`)
+      .join('\n')}`;
+  }
   const body = entry.body.trim() === '' ? '' : `: ${clip(entry.body, ENTRY_BODY_LIMIT)}`;
   return `- [${tags.join(', ')}] ${entry.title}${body}`;
 }
@@ -251,6 +263,10 @@ export function buildBundle(input: BundleInput): ContextBundle {
     .filter((entry) => entry.category === 'summary' && !entry.required)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   for (const summary of summaries.slice(RECENT_SUMMARIES)) exclude(summary.id, 'compacted');
+  const checkpoints = input.entries
+    .filter((entry) => entry.category === 'checkpoint' && !entry.required)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  for (const old of checkpoints.slice(RECENT_CHECKPOINTS)) exclude(old.id, 'compacted');
 
   const excludedByUser = new Set(input.excludeIds ?? []);
   const lockedIds: string[] = [];

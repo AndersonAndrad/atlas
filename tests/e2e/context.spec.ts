@@ -379,3 +379,70 @@ test('LLMs typed in a project terminal are told to read the ATLAS project config
   expect(received[1]).toContain(path.join(projectDir, id!, 'project-config.json'));
   expect(received.slice(2)).toEqual(['--add-dir', path.join(projectDir, id!), 'hello']);
 });
+
+test('records an LLM session typed in a terminal, with its checkpoint and Git changes (PLAN-021)', async ({
+  atlas,
+}) => {
+  const home = path.join(atlas.root, 'home');
+  // A fake LLM that keeps a checkpoint and commits, as a real one would.
+  writeFileSync(
+    path.join(atlas.binDir, 'claude'),
+    [
+      '#!/bin/sh',
+      'printf "## Objective\\nAdd the login form\\n\\n## Done\\n- form\\n\\n## Next steps\\n- tests\\n" > "$ATLAS_CHECKPOINT_FILE"',
+      'echo "export const login = 1;" > login.ts',
+      'git add login.ts && git -c user.name=Ana -c user.email=ana@example.com commit -qm "feat: login form"',
+      'echo "FAKE CLAUDE DONE"',
+    ].join('\n'),
+  );
+  chmodSync(path.join(atlas.binDir, 'claude'), 0o755);
+  const dir = atlas.workspace('auto-session');
+  repository(dir, home);
+  atlas.cli('project', 'add', dir);
+  const { page } = await atlas.launch();
+
+  await page.getByTestId('project-card').click();
+  await page
+    .getByTestId('project-ai-settings')
+    .getByRole('checkbox', { name: 'Keep shared context' })
+    .click();
+  await page.getByTestId('project-details').getByRole('button', { name: 'Open terminal' }).click();
+  const pane = page.getByTestId('terminal-pane').first();
+  await expect
+    .poll(() => pane.locator('.xterm-rows').innerText(), { timeout: 15_000 })
+    .toMatch(/\$\s*$/m);
+  await pane.locator('.xterm-screen').click();
+  await page.keyboard.type('claude');
+  await page.keyboard.press('Enter');
+  await expect
+    .poll(() => pane.locator('.xterm-rows').innerText(), { timeout: 15_000 })
+    .toContain('FAKE CLAUDE DONE');
+
+  // Nothing to remember: the session, its checkpoint and the commit are in the context.
+  const contextFile = () => {
+    const [id] = readdirSync(path.join(atlas.dataDir, 'projects'));
+    try {
+      return readFileSync(path.join(atlas.dataDir, 'projects', id!, 'context.md'), 'utf8');
+    } catch {
+      return '';
+    }
+  };
+  // The end of the session is recorded in the background; the Context view does not live-update.
+  await expect.poll(contextFile, { timeout: 20_000 }).toContain('feat: login form');
+  await openContext(page);
+  await page.getByRole('tab', { name: 'Memory' }).click();
+  const entries = page.getByTestId('context-entry');
+  await expect(
+    entries.filter({ hasText: 'Work in progress (claude): Add the login form' }),
+  ).toHaveCount(1, {
+    timeout: 20_000,
+  });
+  await expect(page.locator('[data-testid="context-entry"][data-category="commit"]')).toContainText(
+    'Verified',
+  );
+  await page.getByRole('tab', { name: 'Sessions' }).click();
+  await expect(page.locator('[data-testid="context-session"][data-status="ended"]')).toHaveCount(1);
+  const context = contextFile();
+  expect(context).toContain('Add the login form');
+  expect(context).toContain('## Next steps');
+});
