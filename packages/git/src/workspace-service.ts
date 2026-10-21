@@ -18,6 +18,7 @@ import type {
   GitOperation,
   GitPullInfo,
   GitPullInput,
+  GitCommitFiles,
   GitReflogEntry,
   GitRemote,
   GitRenameBranchInput,
@@ -25,6 +26,7 @@ import type {
   GitSwitchBranchInput,
   GitWorkingTree,
 } from '@atlas/contracts';
+import { GIT_COMMIT_FILES_LIMIT, GIT_REFLOG_SEARCH_DEPTH } from '@atlas/contracts';
 import {
   validateCommitMessage,
   type CommitMessageRules,
@@ -38,9 +40,10 @@ import {
   type GitOperationCoordinator,
   type GitOperationOutcome,
 } from './coordinator.js';
-import { REFLOG_FORMAT, parseReflog } from './operation-log.js';
+import { REFLOG_FORMAT, matchReflog, parseReflog } from './operation-log.js';
 import {
   REF_FORMAT,
+  parseNameStatus,
   parseNumstat,
   parseRefs,
   parseRemotes,
@@ -392,7 +395,9 @@ export class GitWorkspaceService {
   async reflog(
     repositoryRoot: string,
     limit: number,
+    query = '',
   ): Promise<Omit<GitReflogEntry, 'atlasOperationId'>[]> {
+    const searching = query.trim() !== '';
     const result = await this.read(
       repositoryRoot,
       [
@@ -401,13 +406,71 @@ export class GitWorkspaceService {
         '--date=iso-strict',
         `--format=${REFLOG_FORMAT}`,
         '-n',
-        String(limit),
+        String(searching ? GIT_REFLOG_SEARCH_DEPTH : limit),
         'HEAD',
         '--',
       ],
       [0, 128],
     );
-    return result.exitCode === 0 ? parseReflog(result.stdout) : [];
+    if (result.exitCode !== 0) return [];
+    const entries = parseReflog(result.stdout);
+    return searching ? matchReflog(entries, query).slice(0, limit) : entries;
+  }
+
+  /**
+   * The files a commit changed, compared with its first parent (or with nothing for a
+   * root commit), with its message. Null when the commit does not exist (e.g. a reflog
+   * entry whose commit was garbage-collected).
+   */
+  async commitFiles(repositoryRoot: string, hash: string): Promise<GitCommitFiles | null> {
+    const type = await this.read(repositoryRoot, ['cat-file', '-t', hash], [0, 1, 128]);
+    if (type.exitCode !== 0 || type.stdout.trim() !== 'commit') return null;
+    const header = await this.read(repositoryRoot, [
+      'show',
+      '-s',
+      '--format=%P%x00%an%x00%aI%x00%s%x00%b',
+      hash,
+      '--',
+    ]);
+    const [parents = '', author = '', date = '', subject = '', body = ''] = header.split('\0');
+    const parentList = parents.trim() === '' ? [] : parents.trim().split(' ');
+    const range = parentList.length === 0 ? ['--root', hash] : [parentList[0]!, hash];
+    const options = { maxOutputBytes: 8 * 1024 * 1024 };
+    const diffTree = (format: string) =>
+      this.read(
+        repositoryRoot,
+        [
+          'diff-tree',
+          '-r',
+          '-M',
+          '-z',
+          '--no-commit-id',
+          '--no-ext-diff',
+          '--no-textconv',
+          format,
+          ...range,
+          '--',
+        ],
+        [0],
+        options,
+      );
+    const [names, numbers] = await Promise.all([diffTree('--name-status'), diffTree('--numstat')]);
+    const stats = parseNumstat(numbers.stdout);
+    const files = parseNameStatus(names.stdout).map((file) => ({
+      ...file,
+      added: stats.get(file.path)?.added ?? null,
+      removed: stats.get(file.path)?.removed ?? null,
+    }));
+    return {
+      hash,
+      subject,
+      body: body.trim(),
+      author,
+      date: date !== '' && !Number.isNaN(Date.parse(date)) ? new Date(date).toISOString() : null,
+      parentCount: parentList.length,
+      files: files.slice(0, GIT_COMMIT_FILES_LIMIT),
+      truncated: files.length > GIT_COMMIT_FILES_LIMIT,
+    };
   }
 
   async stage(repositoryRoot: string, paths: readonly string[]): Promise<GitOperation> {

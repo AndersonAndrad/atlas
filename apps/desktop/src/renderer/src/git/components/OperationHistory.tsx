@@ -5,14 +5,24 @@ import {
   type GitOperationLogDetails,
   type GitOperationLogEntry,
   type GitOperationStatus,
+  type GitCommitFile,
+  type GitCommitFiles,
   type GitReflogEntry,
+  GIT_REFLOG_SEARCH_DEPTH,
 } from '@atlas/contracts';
-import { Ban, CircleCheck, CircleX, Copy } from 'lucide-react';
+import { Ban, CircleCheck, CircleX, Copy, Search } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { api, errorMessage, unwrap } from '@/api';
 import { relativeTime } from '@/components/git/git-format';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -260,7 +270,127 @@ export function OperationHistory({
   );
 }
 
-/** HEAD changes made by any tool (reflog), marking those that match an ATLAS operation. */
+/** Letters shown for each kind of file change, as in `git status --short`. */
+const CHANGE_LETTERS: Record<GitCommitFile['change'], string> = {
+  added: 'A',
+  modified: 'M',
+  deleted: 'D',
+  renamed: 'R',
+  copied: 'C',
+  'type-changed': 'T',
+  untracked: '?',
+  conflicted: 'U',
+};
+const SEARCH_DELAY_MS = 300;
+
+/** Message and changed files of the commit of a reflog entry, loaded when it is opened. */
+function CommitFilesPanel({
+  repositoryRoot,
+  hash,
+  cached,
+  onLoaded,
+}: {
+  repositoryRoot: string;
+  hash: string;
+  cached: GitCommitFiles | null | undefined;
+  onLoaded: (hash: string, value: GitCommitFiles | null) => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (cached !== undefined) return;
+    let cancelled = false;
+    unwrap(api().git.commitFiles({ repositoryRoot, hash })).then(
+      (value) => !cancelled && onLoaded(hash, value),
+      (caught: unknown) => !cancelled && setError(errorMessage(caught)),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [repositoryRoot, hash, cached, onLoaded]);
+
+  if (error) {
+    return (
+      <Alert variant="destructive" role="alert">
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    );
+  }
+  if (cached === undefined) {
+    return <p className="text-muted-foreground text-xs">Loading the commit…</p>;
+  }
+  if (cached === null) {
+    return (
+      <p className="text-muted-foreground text-xs" data-testid="git-commit-missing">
+        This commit no longer exists in the repository.
+      </p>
+    );
+  }
+  return (
+    <div className="flex min-w-0 flex-col gap-2 text-xs" data-testid="git-commit-files">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className="font-medium break-words">{cached.subject}</span>
+        {cached.body && (
+          <p className="text-muted-foreground break-words whitespace-pre-wrap">{cached.body}</p>
+        )}
+        <span className="text-muted-foreground">
+          {cached.author} · <span title={cached.date ?? ''}>{relativeTime(cached.date)}</span>
+        </span>
+      </div>
+      {cached.parentCount > 1 && (
+        <p className="text-muted-foreground">Merge commit: files compared with its first parent.</p>
+      )}
+      {cached.files.length === 0 ? (
+        <p className="text-muted-foreground">No file changes.</p>
+      ) : (
+        <ul
+          className="flex max-h-72 min-w-0 flex-col overflow-y-auto rounded-md border"
+          aria-label={`Files changed by ${cached.hash.slice(0, 8)}`}
+        >
+          {cached.files.map((file) => (
+            <li
+              key={`${file.originalPath ?? ''}:${file.path}`}
+              className="flex min-w-0 items-start gap-2 px-2 py-1"
+              data-testid="git-commit-file"
+              data-change={file.change}
+            >
+              <code
+                className="text-muted-foreground w-3 shrink-0 font-mono"
+                title={file.change}
+                aria-label={file.change}
+              >
+                {CHANGE_LETTERS[file.change]}
+              </code>
+              <span className="min-w-0 flex-1 font-mono break-all">
+                {file.originalPath ? `${file.originalPath} → ${file.path}` : file.path}
+              </span>
+              <span className="shrink-0 font-mono">
+                {file.added === null ? (
+                  <span className="text-muted-foreground">binary</span>
+                ) : (
+                  <>
+                    <span className="text-success">+{file.added}</span>{' '}
+                    <span className="text-destructive">−{file.removed ?? 0}</span>
+                  </>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {cached.truncated && (
+        <p className="text-muted-foreground">
+          Only the first {cached.files.length} files are listed.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * HEAD changes made by any tool (reflog), marking those that match an ATLAS operation.
+ * Entries can be searched and opened to see the commit's changed files (PLAN-022).
+ */
 export function ReflogList({
   repositoryRoot,
   refreshKey,
@@ -270,10 +400,19 @@ export function ReflogList({
 }) {
   const [entries, setEntries] = useState<GitReflogEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [query, setQuery] = useState('');
+  const [commits, setCommits] = useState<Record<string, GitCommitFiles | null>>({});
+
+  // Searches once typing pauses.
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(search.trim()), SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   useEffect(() => {
     let cancelled = false;
-    unwrap(api().git.reflog({ repositoryRoot, limit: 100 })).then(
+    unwrap(api().git.reflog({ repositoryRoot, limit: 100, ...(query ? { query } : {}) })).then(
       (value) => {
         if (cancelled) return;
         setEntries(value);
@@ -284,52 +423,95 @@ export function ReflogList({
     return () => {
       cancelled = true;
     };
-  }, [repositoryRoot, refreshKey]);
+  }, [repositoryRoot, refreshKey, query]);
+
+  const onLoaded = useCallback(
+    (hash: string, value: GitCommitFiles | null) =>
+      setCommits((current) => ({ ...current, [hash]: value })),
+    [],
+  );
 
   return (
     <div className="flex flex-col gap-2" data-testid="git-reflog">
       <p className="text-muted-foreground text-xs">
         Every change of HEAD recorded by Git, including <code>git</code> typed in a terminal.
-        “ATLAS” marks changes made while an ATLAS operation was running (matched by time).
+        “ATLAS” marks changes made while an ATLAS operation was running (matched by time). Open an
+        entry to see the files its commit changed.
       </p>
+      <div className="relative">
+        <Search
+          className="text-muted-foreground pointer-events-none absolute top-2.5 left-2.5 size-4"
+          aria-hidden="true"
+        />
+        <Input
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search by message or commit"
+          aria-label="Search the reflog by message or commit"
+          maxLength={200}
+          className="pl-8"
+          data-testid="git-reflog-search"
+        />
+      </div>
+      {query && entries && (
+        <p className="text-muted-foreground text-xs" role="status">
+          {entries.length === 0
+            ? 'No matches'
+            : `${entries.length}${entries.length === 100 ? '+' : ''} ${entries.length === 1 ? 'result' : 'results'}`}{' '}
+          in the latest {GIT_REFLOG_SEARCH_DEPTH.toLocaleString('en-US')} reflog entries.
+        </p>
+      )}
       {error && (
         <Alert variant="destructive" role="alert">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {entries?.length === 0 && (
+      {!query && entries?.length === 0 && (
         <p className="text-muted-foreground text-xs">The reflog is empty.</p>
       )}
-      <ol className="flex flex-col divide-y" aria-label="Reflog">
+      <Accordion type="multiple" aria-label="Reflog" className="flex flex-col">
         {entries?.map((entry) => (
-          <li
+          <AccordionItem
             key={`${entry.index}:${entry.hash}`}
-            className="flex min-w-0 flex-col gap-0.5 py-1.5 text-xs"
+            value={`${entry.index}:${entry.hash}`}
             data-testid="git-reflog-entry"
             data-source={entry.atlasOperationId ? 'atlas' : 'outside'}
           >
-            <span className="flex min-w-0 flex-wrap items-center gap-2">
-              <code className="text-muted-foreground">{entry.hash.slice(0, 8)}</code>
-              <span className="font-medium">{entry.action}</span>
-              <span
-                className={cn(
-                  'rounded px-1.5 py-0.5 text-[10px] font-medium',
-                  entry.atlasOperationId
-                    ? 'bg-success/15 text-success'
-                    : 'bg-muted text-muted-foreground',
-                )}
-              >
-                {entry.atlasOperationId ? 'ATLAS' : 'Outside ATLAS'}
+            <AccordionTrigger className="py-1.5 text-xs font-normal">
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="flex min-w-0 flex-wrap items-center gap-2">
+                  <code className="text-muted-foreground">{entry.hash.slice(0, 8)}</code>
+                  <span className="font-medium">{entry.action}</span>
+                  <span
+                    className={cn(
+                      'rounded px-1.5 py-0.5 text-[10px] font-medium',
+                      entry.atlasOperationId
+                        ? 'bg-success/15 text-success'
+                        : 'bg-muted text-muted-foreground',
+                    )}
+                  >
+                    {entry.atlasOperationId ? 'ATLAS' : 'Outside ATLAS'}
+                  </span>
+                  <span className="text-muted-foreground ml-auto shrink-0" title={entry.date ?? ''}>
+                    {relativeTime(entry.date)}
+                  </span>
+                </span>
+                {entry.message && <span className="min-w-0 break-words">{entry.message}</span>}
+                <span className="text-muted-foreground">{entry.identity}</span>
               </span>
-              <span className="text-muted-foreground ml-auto shrink-0" title={entry.date ?? ''}>
-                {relativeTime(entry.date)}
-              </span>
-            </span>
-            {entry.message && <span className="min-w-0 break-words">{entry.message}</span>}
-            <span className="text-muted-foreground">{entry.identity}</span>
-          </li>
+            </AccordionTrigger>
+            <AccordionContent className="pl-1">
+              <CommitFilesPanel
+                repositoryRoot={repositoryRoot}
+                hash={entry.hash}
+                cached={commits[entry.hash]}
+                onLoaded={onLoaded}
+              />
+            </AccordionContent>
+          </AccordionItem>
         ))}
-      </ol>
+      </Accordion>
     </div>
   );
 }

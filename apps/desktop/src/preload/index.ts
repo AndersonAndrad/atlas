@@ -104,6 +104,7 @@ const api: AtlasApi = {
     operationLog: (query) => ipcRenderer.invoke(IPC_CHANNELS.gitOperationLog, query),
     operationDetails: (id) => ipcRenderer.invoke(IPC_CHANNELS.gitOperationDetails, id),
     reflog: (input) => ipcRenderer.invoke(IPC_CHANNELS.gitReflog, input),
+    commitFiles: (input) => ipcRenderer.invoke(IPC_CHANNELS.gitCommitFiles, input),
     logSettings: () => ipcRenderer.invoke(IPC_CHANNELS.gitLogSettings),
     setLogSettings: (changes) => ipcRenderer.invoke(IPC_CHANNELS.gitSetLogSettings, changes),
     getPreferences: () => ipcRenderer.invoke(IPC_CHANNELS.gitGetPreferences),

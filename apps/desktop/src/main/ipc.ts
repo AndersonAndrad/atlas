@@ -16,6 +16,7 @@ import {
   GitOperationIdSchema,
   GitOperationLogQuerySchema,
   GitReflogInputSchema,
+  GitCommitFilesInputSchema,
   UpdateGitOperationLogSettingsSchema,
   GitPathsInputSchema,
   GitPullInputSchema,
@@ -512,6 +513,7 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     'git.operationDetails',
   );
   gitCall(IPC_CHANNELS.gitReflog, z.tuple([GitReflogInputSchema]), 'git.reflog');
+  gitCall(IPC_CHANNELS.gitCommitFiles, z.tuple([GitCommitFilesInputSchema]), 'git.commitFiles');
   gitCall(IPC_CHANNELS.gitLogSettings, NoArgs, 'git.logSettings');
   gitCall(
     IPC_CHANNELS.gitSetLogSettings,

@@ -34,6 +34,7 @@ import {
   GitOperationLogQuerySchema,
   GitPathsInputSchema,
   GitReflogInputSchema,
+  GitCommitFilesInputSchema,
   UpdateGitOperationLogSettingsSchema,
   GitPullInputSchema,
   GitPushInputSchema,
@@ -53,6 +54,7 @@ import {
   type GitOperationLogSettings,
   type GitPreferences,
   type GitReflogEntry,
+  type GitCommitFiles,
   type GitPullInfo,
   type GitRemote,
   type GitRepositoryEntry,
@@ -234,6 +236,7 @@ export const ENGINE_METHOD_PARAMS = {
   'git.operationLog': z.tuple([GitOperationLogQuerySchema]),
   'git.operationDetails': z.tuple([GitOperationIdSchema]),
   'git.reflog': z.tuple([GitReflogInputSchema]),
+  'git.commitFiles': z.tuple([GitCommitFilesInputSchema]),
   'git.logSettings': z.tuple([]),
   'git.setLogSettings': z.tuple([UpdateGitOperationLogSettingsSchema]),
   'git.getPreferences': z.tuple([]),
@@ -407,6 +410,7 @@ export interface EngineMethodResults {
   'git.operationLog': GitOperationLogPage;
   'git.operationDetails': GitOperationLogDetails;
   'git.reflog': GitReflogEntry[];
+  'git.commitFiles': GitCommitFiles | null;
   'git.logSettings': GitOperationLogSettings;
   'git.setLogSettings': GitOperationLogSettings;
   'git.getPreferences': StoredGitPreferences;
@@ -514,6 +518,7 @@ export const CLI_ENGINE_METHODS: readonly EngineMethod[] = [
   'git.operationLog',
   'git.operationDetails',
   'git.reflog',
+  'git.commitFiles',
   'context.prepareHandoff',
   'context.createHandoff',
   'context.handoffs',

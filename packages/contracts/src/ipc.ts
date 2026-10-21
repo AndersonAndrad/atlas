@@ -89,6 +89,8 @@ import type {
   GitPathsInput,
   GitReflogEntry,
   GitReflogInput,
+  GitCommitFiles,
+  GitCommitFilesInput,
   GitPreferences,
   GitPullInfo,
   GitPullInput,
@@ -196,6 +198,7 @@ export const IPC_CHANNELS = {
   gitOperationLog: 'atlas:git:operation-log',
   gitOperationDetails: 'atlas:git:operation-details',
   gitReflog: 'atlas:git:reflog',
+  gitCommitFiles: 'atlas:git:commit-files',
   gitLogSettings: 'atlas:git:log-settings',
   gitSetLogSettings: 'atlas:git:set-log-settings',
   gitGetPreferences: 'atlas:git:get-preferences',
@@ -451,6 +454,8 @@ export interface AtlasApi {
     operationDetails(id: string): Promise<IpcResult<GitOperationLogDetails>>;
     /** HEAD reflog: changes made by any tool, including `git` typed in a terminal. */
     reflog(input: GitReflogInput): Promise<IpcResult<GitReflogEntry[]>>;
+    /** Files a commit changed (compared with its first parent); null if it no longer exists. */
+    commitFiles(input: GitCommitFilesInput): Promise<IpcResult<GitCommitFiles | null>>;
     logSettings(): Promise<IpcResult<GitOperationLogSettings>>;
     setLogSettings(
       changes: UpdateGitOperationLogSettings,

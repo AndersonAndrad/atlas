@@ -511,3 +511,14 @@ superseded decisions are marked, not deleted.
   only report shadowing (PLAN-014, left the problem to the user).
 - **Consequences**: Commands run from start-up files before the first prompt still see the
   user's PATH order; other shells keep only the PLAN-014 report.
+
+## ADR-054 — Reflog search in the Engine and commit files on demand (PLAN-022)
+
+- **Decision**: `git.reflog` accepts a `query` matched in the Engine against the latest
+  1,000 entries (reflog message, the commit's subject, hash prefix); `git.commitFiles`
+  lists a commit's files against its first parent, loaded only when an entry is opened.
+- **Alternatives**: Filter only the 100 loaded entries (misses older ones); 5,000 entries
+  (reduced by the developer: 1,000 is enough); full per-file diffs (left to the hosting
+  platform).
+- **Consequences**: Older entries are not searched, and the panel says so; merge commits
+  show only first-parent changes.

@@ -646,6 +646,8 @@ export interface GitReflogEntry {
   date: string | null;
   /** Who made the change, as recorded by Git. */
   identity: string;
+  /** Subject of the commit HEAD pointed to after the change (PLAN-022). */
+  commitSubject: string;
   /**
    * A logged ATLAS operation on this repository that was running at that time; null when
    * the change probably came from outside ATLAS. Matched by time only.
@@ -653,8 +655,48 @@ export interface GitReflogEntry {
   atlasOperationId: string | null;
 }
 
+/** A search reads at most this many of the latest reflog entries (PLAN-022). */
+export const GIT_REFLOG_SEARCH_DEPTH = 1000;
+
 export const GitReflogInputSchema = z.strictObject({
   repositoryRoot: GitRepositoryRootSchema,
   limit: z.number().int().min(1).max(500).default(100),
+  /**
+   * Keeps entries whose reflog message or commit subject contains the text (any case),
+   * or whose hash starts with it; searches the latest GIT_REFLOG_SEARCH_DEPTH entries.
+   */
+  query: z.string().trim().max(200).optional(),
 });
 export type GitReflogInput = z.input<typeof GitReflogInputSchema>;
+
+/** A file changed by a commit, compared with its first parent (PLAN-022). */
+export interface GitCommitFile {
+  path: string;
+  /** Previous path of a renamed or copied file. */
+  originalPath: string | null;
+  change: GitFileChangeKind;
+  /** Null for binary files. */
+  added: number | null;
+  removed: number | null;
+}
+
+export interface GitCommitFiles {
+  hash: string;
+  subject: string;
+  body: string;
+  author: string;
+  date: string | null;
+  /** More than one for merge commits, whose files are compared with the first parent. */
+  parentCount: number;
+  files: GitCommitFile[];
+  /** Only the first GIT_COMMIT_FILES_LIMIT files are listed. */
+  truncated: boolean;
+}
+
+export const GIT_COMMIT_FILES_LIMIT = 500;
+
+export const GitCommitFilesInputSchema = z.strictObject({
+  repositoryRoot: GitRepositoryRootSchema,
+  hash: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, 'Invalid commit hash.'),
+});
+export type GitCommitFilesInput = z.infer<typeof GitCommitFilesInputSchema>;

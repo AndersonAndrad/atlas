@@ -271,6 +271,18 @@ that can produce it (commit → commit; checkout → switch or create branch; me
 reset → abort merge; branch rename) was running at that time (±1 s, reflog times have
 second precision); otherwise **Outside ATLAS**. Matching is by time and kind only.
 
+**Search and commit files (PLAN-022).** A search box filters the reflog in the Engine:
+an entry matches when its reflog message (`action: message`) or the subject of the commit
+it points to contains the text (any case), or its hash starts with it (4 or more hex
+characters). A search reads the latest 1,000 entries (`GIT_REFLOG_SEARCH_DEPTH`) and
+returns up to 100; the panel says so. Each entry is an accordion item: opening it loads
+the commit's subject, body, author and changed files (`git diff-tree -r -M` against the
+first parent, or against nothing for a root commit): change letter, path (`old → new` for
+renames), `+added −removed` or "binary". Merge commits say they are compared with their
+first parent; at most 500 files are listed; a commit that no longer exists (e.g. after
+`git gc`) says so. Loaded commits are kept while the panel is open. For full diffs, use
+the Git hosting platform.
+
 The Operations side panel has three tabs: **Recent** (live, as before), **History** (the
 log with kind and status filters, older pages, each operation's commands with output and
 **Copy log**) and **Reflog**.
@@ -280,13 +292,15 @@ log with kind and status filters, older pages, each operation's commands with ou
 | `git.operationLog`     | desktop, CLI | Logged operations, newest first, paginated |
 | `git.operationDetails` | desktop, CLI | One operation with its Git commands        |
 | `git.reflog`           | desktop, CLI | HEAD reflog of an authorized repository    |
+| `git.commitFiles`      | desktop, CLI | A commit's message and changed files       |
 | `git.logSettings`      | desktop      | Retention                                  |
 | `git.setLogSettings`   | desktop      | Change the retention (prunes immediately)  |
 
 ```bash
 atlas git log-operations [--repo <path>] [--kind <kind>] [--status <status>] [--before <time>] [-n <count>] [--json]
 atlas git log-operation <id> [--json]
-atlas git reflog [--repo <path>] [-n <count>] [--json]
+atlas git reflog [--repo <path>] [-n <count>] [--search <text>] [--json]
+atlas git show-files <hash> [--repo <path>] [--json]
 ```
 
 ## Git view header (PLAN-020)

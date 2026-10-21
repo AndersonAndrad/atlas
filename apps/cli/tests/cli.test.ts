@@ -528,6 +528,37 @@ describe('atlas CLI', () => {
       );
     });
 
+    it('searches the reflog and lists the files of a commit (PLAN-022)', async () => {
+      const repo = path.join(temp.dir, 'searchable');
+      mkdirSync(repo);
+      const git = (...args: string[]) =>
+        execFileSync('git', args, {
+          cwd: repo,
+          encoding: 'utf8',
+          env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', HOME: temp.dir },
+        }).trim();
+      git('init', '-q', '-b', 'main');
+      git('config', 'user.name', 'Ana');
+      git('config', 'user.email', 'ana@example.com');
+      writeFileSync(path.join(repo, 'login.ts'), 'export {};\n');
+      git('add', '.');
+      git('commit', '-qm', 'feat: login form');
+      await run(['project', 'add', repo]);
+
+      const found = await run(['git', 'reflog', '--repo', repo, '--search', 'LOGIN']);
+      expect(found.code).toBe(0);
+      expect(found.out).toContain('feat: login form');
+      expect((await run(['git', 'reflog', '--repo', repo, '--search', 'nothing'])).out).toBe(
+        'No reflog entries match "nothing".\n',
+      );
+      const files = await run(['git', 'show-files', git('rev-parse', 'HEAD'), '--repo', repo]);
+      expect(files.code).toBe(0);
+      expect(files.out).toMatch(/A\s+\+1 -0\s+login\.ts/);
+      expect((await run(['git', 'show-files', 'f'.repeat(40), '--repo', repo])).err).toContain(
+        'does not exist',
+      );
+    });
+
     it('retrieves ranked context and reports context health', async () => {
       const id = await projectId();
       const retrieved = await run([

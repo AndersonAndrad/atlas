@@ -188,6 +188,42 @@ test('keeps the operation log across restarts and shows terminal changes in the 
   );
 });
 
+test('searches the reflog and opens an entry to see its commit files (PLAN-022)', async ({
+  atlas,
+}) => {
+  const dir = atlas.workspace('searchable');
+  repositoryWithRemote(dir, path.join(atlas.root, 'home'));
+  atlas.cli('project', 'add', dir);
+  const { page } = await atlas.launch();
+  await openGit(page);
+  const sheet = await openOperations(page);
+  await sheet.getByRole('tab', { name: 'Reflog' }).click();
+  const entries = sheet.getByTestId('git-reflog-entry');
+  await expect(entries).toHaveCount(2);
+
+  const search = sheet.getByRole('searchbox', { name: 'Search the reflog by message or commit' });
+  await search.fill('AUTH');
+  await expect(entries).toHaveCount(1);
+  await expect(sheet.getByRole('status').filter({ hasText: '1 result' })).toBeVisible();
+  const entry = entries.first();
+  await expect(entry).toContainText('feat: auth');
+
+  await entry.getByRole('button').click();
+  await expect(entry.getByRole('button')).toHaveAttribute('aria-expanded', 'true');
+  const changed = entry.getByTestId('git-commit-file');
+  await expect(changed).toHaveCount(1);
+  await expect(changed).toHaveAttribute('data-change', 'added');
+  await expect(changed).toContainText('auth.ts');
+  await expect(changed).toContainText('+1');
+  await entry.getByRole('button').press('Enter');
+  await expect(entry.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
+
+  await search.fill('nothing like this');
+  await expect(sheet.getByText('No matches')).toBeVisible();
+  await expect(entries).toHaveCount(0);
+  await search.fill('');
+  await expect(entries).toHaveCount(2);
+});
 test('commit checks never inherit the NODE_ENV of ATLAS development builds', async ({ atlas }) => {
   const dir = atlas.workspace('fresh-env');
   const { git } = repositoryWithRemote(dir, path.join(atlas.root, 'home'));

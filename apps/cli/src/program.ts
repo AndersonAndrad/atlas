@@ -12,6 +12,7 @@ import {
   type EngineMethod,
   type GitCommandRecord,
   type GitOperationLogEntry,
+  type GitCommitFiles,
   type GitReflogEntry,
   type AgentRole,
   type ResolvedSkill,
@@ -830,14 +831,33 @@ export async function runCli(
     .description('Show HEAD changes by any tool, marking those made through ATLAS')
     .option('-r, --repo <path>', 'repository (any folder inside it)', '.')
     .option('-n, --limit <count>', 'maximum entries (1-500)', '50')
+    .option(
+      '-s, --search <text>',
+      'only entries whose message or commit subject contains the text, or whose hash starts with it',
+    )
     .option('--json', 'output JSON')
-    .action(async (options: { repo: string; limit: string; json?: boolean }) => {
+    .action(async (options: { repo: string; limit: string; search?: string; json?: boolean }) => {
       if (!/^\d+$/.test(options.limit)) throw new CliUsageError('--limit must be a number.');
       const entries = await sessionCall('git.reflog', {
         repositoryRoot: await repositoryRoot(options.repo),
         limit: Number(options.limit),
+        ...(options.search !== undefined ? { query: options.search } : {}),
       });
-      print(Boolean(options.json), entries, formatReflog(entries));
+      print(Boolean(options.json), entries, formatReflog(entries, options.search));
+    });
+  gitCommand
+    .command('show-files')
+    .description('List the files a commit changed, compared with its first parent')
+    .argument('<hash>', 'full commit hash')
+    .option('-r, --repo <path>', 'repository (any folder inside it)', '.')
+    .option('--json', 'output JSON')
+    .action(async (hash: string, options: { repo: string; json?: boolean }) => {
+      const details = await sessionCall('git.commitFiles', {
+        repositoryRoot: await repositoryRoot(options.repo),
+        hash: hash.toLowerCase(),
+      });
+      if (details === null) throw new CliUsageError(`Commit ${hash} does not exist.`);
+      print(Boolean(options.json), details, formatCommitFiles(details));
     });
 
   // Shared context (SDD-005): read, export and hand off; AI sessions open in ATLAS.
@@ -1213,8 +1233,10 @@ function formatOperationDetails(
   return `${lines.join('\n')}\n`;
 }
 
-function formatReflog(entries: GitReflogEntry[]): string {
-  if (entries.length === 0) return 'The reflog is empty.\n';
+function formatReflog(entries: GitReflogEntry[], search?: string): string {
+  if (entries.length === 0) {
+    return search ? `No reflog entries match "${search}".\n` : 'The reflog is empty.\n';
+  }
   return `${entries
     .map(
       (entry) =>
@@ -1222,6 +1244,34 @@ function formatReflog(entries: GitReflogEntry[]): string {
         `${entry.atlasOperationId ? 'ATLAS  ' : 'outside'}  ${entry.action}: ${entry.message}`,
     )
     .join('\n')}\n`;
+}
+
+const CHANGE_LETTERS: Record<GitCommitFiles['files'][number]['change'], string> = {
+  added: 'A',
+  modified: 'M',
+  deleted: 'D',
+  renamed: 'R',
+  copied: 'C',
+  'type-changed': 'T',
+  untracked: '?',
+  conflicted: 'U',
+};
+
+function formatCommitFiles(details: GitCommitFiles): string {
+  const lines = [
+    `${details.hash.slice(0, 12)}  ${details.subject}`,
+    `${details.author} · ${details.date ?? '—'}`,
+    ...(details.parentCount > 1 ? ['Merge commit: compared with its first parent.'] : []),
+    '',
+    ...details.files.map((file) => {
+      const counts = file.added === null ? 'binary' : `+${file.added} -${file.removed ?? 0}`;
+      const name = file.originalPath ? `${file.originalPath} → ${file.path}` : file.path;
+      return `${CHANGE_LETTERS[file.change]}  ${counts.padEnd(12)}  ${name}`;
+    }),
+  ];
+  if (details.files.length === 0) lines.push('No file changes.');
+  if (details.truncated) lines.push(`Only the first ${details.files.length} files are listed.`);
+  return `${lines.join('\n')}\n`;
 }
 
 function formatRetrieval(bundle: ContextBundle): string {

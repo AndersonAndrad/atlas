@@ -199,6 +199,34 @@ export function parseNumstat(output: string): Map<string, GitLineStats> {
   return stats;
 }
 
+/**
+ * Parses `git diff-tree --name-status -z`: "<status>\0<path>\0", or for renames and
+ * copies "<R|C><score>\0<old path>\0<new path>\0".
+ */
+export function parseNameStatus(
+  output: string,
+): { path: string; originalPath: string | null; change: GitFileChangeKind }[] {
+  const files: { path: string; originalPath: string | null; change: GitFileChangeKind }[] = [];
+  const fields = output.split('\0');
+  for (let index = 0; index < fields.length; index += 1) {
+    const code = fields[index]!;
+    if (code === '') continue;
+    const change = STATUS_CODES[code[0]!] ?? 'modified';
+    if (code[0] === 'R' || code[0] === 'C') {
+      files.push({
+        originalPath: fields[index + 1] ?? null,
+        path: fields[index + 2] ?? '',
+        change,
+      });
+      index += 2;
+    } else {
+      files.push({ path: fields[index + 1] ?? '', originalPath: null, change });
+      index += 1;
+    }
+  }
+  return files.filter((file) => file.path !== '');
+}
+
 export interface ParsedRef {
   /** Full ref name, e.g. `refs/heads/main`. */
   ref: string;

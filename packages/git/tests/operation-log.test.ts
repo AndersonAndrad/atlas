@@ -9,6 +9,8 @@ import {
   GitOperationCoordinator,
   GitOperationFailure,
   GitOperationLog,
+  matchReflog,
+  parseNameStatus,
   parseReflog,
   recordingExecutor,
   type GitExecutor,
@@ -266,6 +268,7 @@ describe('operation log (PLAN-016)', () => {
         message: 'x',
         date: '2026-10-20T12:02:01.000Z',
         identity: 'Ana',
+        commitSubject: '',
       },
       {
         index: 1,
@@ -274,8 +277,17 @@ describe('operation log (PLAN-016)', () => {
         message: 'y',
         date: '2026-10-20T12:05:00.000Z',
         identity: 'Ana',
+        commitSubject: '',
       },
-      { index: 2, hash: 'c', action: 'reset', message: 'z', date: null, identity: 'Ana' },
+      {
+        index: 2,
+        hash: 'c',
+        action: 'reset',
+        message: 'z',
+        date: null,
+        identity: 'Ana',
+        commitSubject: '',
+      },
     ]);
     expect(entries.map((entry) => entry.atlasOperationId)).toEqual(['op-2', null, null]);
 
@@ -295,6 +307,7 @@ describe('operation log (PLAN-016)', () => {
         message: 'from a terminal',
         date: '2026-10-20T12:10:01.000Z',
         identity: 'Ana',
+        commitSubject: '',
       },
     ]);
     expect(terminal!.atlasOperationId).toBeNull();
@@ -343,5 +356,58 @@ describe('operation log (PLAN-016)', () => {
     ]);
     expect(entries[0]!.message).toBe('moving from feat to main');
     expect(JSON.stringify(entries)).not.toContain('hunter2');
+  });
+
+  it('searches reflog entries by message, commit subject and hash prefix (PLAN-022)', () => {
+    const entry = (hash: string, action: string, message: string, commitSubject: string) => ({
+      index: 0,
+      hash,
+      action,
+      message,
+      date: null,
+      identity: 'Ana',
+      commitSubject,
+    });
+    const entries = [
+      entry('abcd1234'.repeat(5), 'commit', 'feat: Login form', 'feat: Login form'),
+      entry('ef015678'.repeat(5), 'checkout', 'moving from main to feat', 'fix: header'),
+      entry('99990000'.repeat(5), 'reset', 'moving to HEAD~1', 'chore: init'),
+    ];
+    expect(matchReflog(entries, 'LOGIN').map((e) => e.action)).toEqual(['commit']);
+    // A checkout is found by the subject of the commit it moved to.
+    expect(matchReflog(entries, 'header').map((e) => e.action)).toEqual(['checkout']);
+    expect(matchReflog(entries, 'ef01').map((e) => e.action)).toEqual(['checkout']);
+    // Short hex text is matched as text only.
+    expect(matchReflog(entries, 'abc')).toEqual([]);
+    expect(matchReflog(entries, 'reset: moving')).toHaveLength(1);
+    expect(matchReflog(entries, '  ')).toHaveLength(3);
+  });
+
+  it('parses name-status output with renames and spaces (PLAN-022)', () => {
+    expect(
+      parseNameStatus(
+        [
+          'M',
+          'src/a b.ts',
+          'R087',
+          'old.ts',
+          'new.ts',
+          'A',
+          'img.png',
+          'D',
+          'gone.ts',
+          'T',
+          'link',
+          '',
+        ].join('\0'),
+      ),
+    ).toEqual([
+      { path: 'src/a b.ts', originalPath: null, change: 'modified' },
+      { path: 'new.ts', originalPath: 'old.ts', change: 'renamed' },
+      { path: 'img.png', originalPath: null, change: 'added' },
+      { path: 'gone.ts', originalPath: null, change: 'deleted' },
+      { path: 'link', originalPath: null, change: 'type-changed' },
+    ]);
+    expect(parseNameStatus('')).toEqual([]);
   });
 });

@@ -132,6 +132,89 @@ describe.skipIf(!gitAvailable)('Git operation log and reflog (PLAN-016)', () => 
     ).rejects.toThrow();
   });
 
+  it("searches the reflog and lists the files of an entry's commit (PLAN-022)", async () => {
+    writeFileSync(path.join(root, 'login.ts'), 'export const a = 1;\nexport const b = 2;\n');
+    writeFileSync(path.join(root, 'logo.png'), Buffer.from([0, 1, 2, 3, 0, 255]));
+    git('add', '.');
+    git('commit', '-qm', 'feat: login form', '-m', 'With a body.');
+    const login = git('rev-parse', 'HEAD');
+    git('mv', 'login.ts', 'signin.ts');
+    writeFileSync(path.join(root, 'signin.ts'), 'export const a = 1;\nexport const b = 3;\n');
+    git('add', '.');
+    git('commit', '-qm', 'refactor: rename login');
+    git('checkout', '-q', login);
+
+    const byMessage = await call('git.reflog', { repositoryRoot: root, limit: 10, query: 'LOGIN' });
+    expect(byMessage.map((entry) => entry.action)).toEqual(['checkout', 'commit', 'commit']);
+    // The checkout is found through the subject of the commit it moved to.
+    expect(byMessage[0]).toMatchObject({ commitSubject: 'feat: login form', index: 0 });
+    const byHash = await call('git.reflog', {
+      repositoryRoot: root,
+      limit: 10,
+      query: login.slice(0, 7),
+    });
+    expect(byHash.every((entry) => entry.hash === login)).toBe(true);
+    expect(byHash).toHaveLength(2);
+    expect(await call('git.reflog', { repositoryRoot: root, limit: 10, query: 'nothing' })).toEqual(
+      [],
+    );
+
+    const first = await call('git.commitFiles', { repositoryRoot: root, hash: login });
+    expect(first).toMatchObject({
+      subject: 'feat: login form',
+      body: 'With a body.',
+      author: 'Ana',
+      parentCount: 1,
+      truncated: false,
+    });
+    expect(first!.files).toEqual([
+      { path: 'login.ts', originalPath: null, change: 'added', added: 2, removed: 0 },
+      { path: 'logo.png', originalPath: null, change: 'added', added: null, removed: null },
+    ]);
+    const renamed = await call('git.commitFiles', {
+      repositoryRoot: root,
+      hash: git('rev-parse', 'HEAD@{1}'),
+    });
+    expect(renamed!.files).toEqual([
+      { path: 'signin.ts', originalPath: 'login.ts', change: 'renamed', added: 1, removed: 1 },
+    ]);
+    const initial = await call('git.commitFiles', {
+      repositoryRoot: root,
+      hash: git('rev-list', '--max-parents=0', 'HEAD'),
+    });
+    expect(initial!.parentCount).toBe(0);
+    expect(initial!.files.length).toBeGreaterThan(0);
+
+    // A commit that does not exist (e.g. garbage-collected) and invalid hashes.
+    expect(
+      await call('git.commitFiles', { repositoryRoot: root, hash: 'f'.repeat(40) }),
+    ).toBeNull();
+    await expect(
+      call('git.commitFiles', { repositoryRoot: root, hash: 'HEAD' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await expect(
+      call('git.commitFiles', { repositoryRoot: root, hash: '--output=x'.padEnd(40, 'a') }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+  });
+
+  it("lists a merge commit's files against its first parent (PLAN-022)", async () => {
+    git('switch', '-qc', 'side');
+    writeFileSync(path.join(root, 'side.ts'), 'export {};\n');
+    git('add', 'side.ts');
+    git('commit', '-qm', 'feat: side');
+    git('switch', '-q', 'main');
+    writeFileSync(path.join(root, 'main.ts'), 'export {};\n');
+    git('add', 'main.ts');
+    git('commit', '-qm', 'feat: main');
+    git('merge', '-q', '--no-ff', '-m', 'merge side', 'side');
+    const merge = await call('git.commitFiles', {
+      repositoryRoot: root,
+      hash: git('rev-parse', 'HEAD'),
+    });
+    expect(merge!.parentCount).toBe(2);
+    expect(merge!.files.map((file) => file.path)).toEqual(['side.ts']);
+  });
+
   it('closes operations a previous run left unfinished and applies the retention', async () => {
     await engine.shutdown();
     const db = openDatabase({ filePath: path.join(dataDir, 'atlas.db') });

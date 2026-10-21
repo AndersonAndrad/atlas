@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-21 — PLAN-021 (automatic LLM sessions, checkpoints, bulk skill import).
+Last updated: 2026-10-21 — PLAN-022 (reflog search and commit files).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -18,7 +18,20 @@ awaits approval. PLAN-019 (cherry-pick from another branch, keeping commits) is
 implemented and awaits approval. PLAN-020 (Git actions in one menu at the top right; long
 names truncate) is implemented and awaits approval. PLAN-021 (automatic LLM sessions and
 checkpoints, wrappers first on PATH, import of a folder of skills) is implemented and awaits
-approval. Version 0.14.0 (schema v8).
+approval. PLAN-022 (reflog search and the files of each entry's commit) is implemented and
+awaits approval. Version 0.15.0 (schema v8).
+
+## PLAN-022 — Reflog search and commit files
+
+Operations → Reflog searches by reflog message, commit subject or hash prefix (latest 1,000
+entries) and each entry opens as an accordion with the commit's message and changed files
+(change, path, +/−; merges against the first parent). CLI: `atlas git reflog --search`,
+`atlas git show-files`. Details: SDD-004 Part I, "Operation log and reflog"; ADR-054.
+
+Validation (2026-10-21, macOS arm64, Node 24.18.0): `pnpm test` 658/658 (real-repository
+search by message, commit subject and hash prefix; added, renamed, binary, root, merge and
+missing commits; invalid hashes refused), `pnpm test:e2e` 67/67 in two consecutive runs;
+build, typecheck, lint, format and audit clean. Staff review: no material findings.
 
 ## PLAN-021 — Automatic LLM sessions, checkpoints and bulk skill import
 

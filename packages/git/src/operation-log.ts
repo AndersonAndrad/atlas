@@ -287,8 +287,8 @@ export function recordingExecutor(
 }
 
 const FIELD = '\x1f';
-/** `git reflog show` format: hash, selector with date, subject, identity. */
-export const REFLOG_FORMAT = ['%H', '%gd', '%gs', '%gn'].join('%x1f');
+/** `git reflog show` format: hash, selector with date, subject, identity, commit subject. */
+export const REFLOG_FORMAT = ['%H', '%gd', '%gs', '%gn', '%s'].join('%x1f');
 
 /** Parses `git reflog show --date=iso-strict --format=<REFLOG_FORMAT>`. */
 export function parseReflog(output: string): Omit<GitReflogEntry, 'atlasOperationId'>[] {
@@ -296,7 +296,8 @@ export function parseReflog(output: string): Omit<GitReflogEntry, 'atlasOperatio
     .split('\n')
     .filter((line) => line.includes(FIELD))
     .map((line, index) => {
-      const [hash = '', selector = '', subject = '', identity = ''] = line.split(FIELD);
+      const [hash = '', selector = '', subject = '', identity = '', commitSubject = ''] =
+        line.split(FIELD);
       const date = /@\{(.+)\}$/.exec(selector)?.[1] ?? null;
       // Subjects can contain remote URLs (e.g. "pull https://…"): credentials are removed.
       const clean = redactCredentials(subject);
@@ -309,6 +310,26 @@ export function parseReflog(output: string): Omit<GitReflogEntry, 'atlasOperatio
         date:
           date !== null && !Number.isNaN(Date.parse(date)) ? new Date(date).toISOString() : null,
         identity,
+        commitSubject: redactCredentials(commitSubject),
       };
     });
+}
+
+/**
+ * Reflog entries matching a search: the text (any case) in the action, message or commit
+ * subject, or a hash starting with it (4 or more hex characters).
+ */
+export function matchReflog<T extends Omit<GitReflogEntry, 'atlasOperationId'>>(
+  entries: T[],
+  query: string,
+): T[] {
+  const text = query.trim().toLowerCase();
+  if (text === '') return entries;
+  const hash = /^[0-9a-f]{4,64}$/.test(text);
+  return entries.filter(
+    (entry) =>
+      (hash && entry.hash.startsWith(text)) ||
+      `${entry.action}: ${entry.message}`.toLowerCase().includes(text) ||
+      entry.commitSubject.toLowerCase().includes(text),
+  );
 }

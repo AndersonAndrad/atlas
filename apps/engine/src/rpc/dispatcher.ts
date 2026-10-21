@@ -40,6 +40,7 @@ import {
   type GitPullInput,
   type GitPushInput,
   type GitReflogInput,
+  type GitCommitFilesInput,
   type UpdateGitOperationLogSettings,
   type GitRenameBranchInput,
   type GitSwitchBranchInput,
@@ -243,8 +244,13 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     'git.operationDetails': ([id]: [string]) => engine.gitOperationLog.details(id),
     'git.reflog': async ([input]: [Required<GitReflogInput>]) => {
       const root = await repo(input.repositoryRoot);
-      return engine.gitOperationLog.attribute(root, await gitService.reflog(root, input.limit));
+      return engine.gitOperationLog.attribute(
+        root,
+        await gitService.reflog(root, input.limit, input.query),
+      );
     },
+    'git.commitFiles': async ([input]: [GitCommitFilesInput]) =>
+      gitService.commitFiles(await repo(input.repositoryRoot), input.hash),
     'git.logSettings': () => engine.gitOperationLog.settings(),
     'git.setLogSettings': ([changes]: [UpdateGitOperationLogSettings]) =>
       engine.gitOperationLog.updateSettings(changes),
