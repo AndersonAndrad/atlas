@@ -35,7 +35,13 @@ describe.skipIf(!gitAvailable)('Automatic LLM sessions (PLAN-021)', () => {
     execFileSync('git', args, { cwd: dir, env: env(), encoding: 'utf8' }).trim();
   let runs = 0;
   /** Writes an event as the wrapper does. */
-  const event = (kind: 'start' | 'end', run: string, terminalId: string, project = projectId) => {
+  const event = (
+    kind: 'start' | 'end',
+    run: string,
+    terminalId: string,
+    project = projectId,
+    head = '',
+  ) => {
     const events = path.join(dataDir, 'context', 'events');
     writeFileSync(
       path.join(events, `${run}.${kind}.json`),
@@ -46,6 +52,7 @@ describe.skipIf(!gitAvailable)('Automatic LLM sessions (PLAN-021)', () => {
         terminalId,
         projectId: project,
         exitCode: kind === 'end' ? 0 : null,
+        head,
       }),
     );
   };
@@ -189,6 +196,35 @@ describe.skipIf(!gitAvailable)('Automatic LLM sessions (PLAN-021)', () => {
       'files-changed',
       'summary',
     ]);
+  });
+
+  it('starts from the commit the wrapper saw, even when the LLM committed first', async () => {
+    const terminal = await engine.terminals!.create({ projectId });
+    const run = newRun();
+    const before = git('rev-parse', 'HEAD');
+    // The LLM commits before ATLAS processes the start event.
+    writeFileSync(path.join(dir, 'fast.ts'), 'export {};\n');
+    git('add', 'fast.ts');
+    git('commit', '-qm', 'feat: fast change');
+    event('start', run, terminal.id, projectId, before);
+    await processEvents();
+    expect((await engine.context.listSessions(await target()))[0]?.startCommit).toBe(before);
+    event('end', run, terminal.id);
+    await processEvents();
+    const commit = (await engine.context.list(await target(), {})).find(
+      (entry) => entry.category === 'commit',
+    );
+    expect(commit?.body).toContain('feat: fast change');
+
+    // A commit that is not in the project's history is ignored: the session starts at HEAD.
+    const other = await engine.terminals!.create({ projectId });
+    const second = newRun();
+    event('start', second, other.id, projectId, 'f'.repeat(40));
+    await processEvents();
+    const sessions = await engine.context.listSessions(await target());
+    expect(sessions.find((session) => session.terminalId === other.id)?.startCommit).toBe(
+      git('rev-parse', 'HEAD'),
+    );
   });
 
   it('tracks nothing for projects that do not keep context, or for invalid events', async () => {

@@ -23,7 +23,7 @@ awaits approval. PLAN-023 (quick commands, project action menus in Terminals, pr
 details in tabs; revision 2: commands enabled per project) is implemented and awaits
 approval. PLAN-024 (GitHub Actions: all checks on Linux and macOS, then Debian and macOS
 installers) is implemented; revision 2 pins pnpm 11.28.5 because 11.13.0 is a broken
-release the CI cannot install. Version 0.17.2 (schema v8).
+release the CI cannot install. Version 0.17.3 (schema v8).
 
 ## PLAN-024 — GitHub Actions and installers
 
@@ -47,6 +47,15 @@ marks pnpm 11.13.0 as broken. With 11.28.5 (lockfile unchanged): macOS `pnpm tes
 `pnpm test:e2e` 70/70 twice, `.dmg`/`.zip` built; Debian x64 container with pnpm installed
 through npm like the action: all checks clean, unit 662 passed + 1 macOS-only skipped, E2E
 69 passed + 1 skipped, `.deb` built.
+
+First GitHub runs: a pre-commit runner test checked too early that stopped children had
+exited (now waits); on macOS runners long prompts wrap paths across rows (two E2E tests now
+compare text without row breaks); on Ubuntu the PLAN-021 E2E exposed a race — a session
+started at the HEAD seen when ATLAS processed the start event, missing commits made before —
+fixed by carrying the wrapper's HEAD in the start event. Revision 3 validation
+(2026-10-21): macOS `pnpm test` 664/664 and `pnpm test:e2e` 70/70 twice; Debian x64
+container: all checks clean, unit 663 passed + 1 skipped, E2E 69 passed + 1 skipped, `.deb`
+built.
 
 ## PLAN-023 — Quick commands, project actions and project tabs
 

@@ -294,6 +294,8 @@ describe.skipIf(!posix)('LLM wrappers', () => {
       projectId: ids.ATLAS_PROJECT_ID,
     });
     expect(checkpoint).toContain(parsed[0]!.run);
+    // The commit the session starts from: empty outside a repository.
+    expect(parsed[1]!.head).toMatch(/^(?:[0-9a-f]{40}|[0-9a-f]{64})?$/);
 
     // Subcommands and version or help flags are not sessions.
     rmSync(events, { recursive: true });
@@ -312,8 +314,14 @@ describe.skipIf(!posix)('LLM wrappers', () => {
       projectId: '00000000-0000-4000-8000-0000000000bb',
       exitCode: null,
     };
-    expect(parseWrapperEvent(valid)).toEqual(valid);
+    // Wrappers written before `head` existed are still accepted.
+    expect(parseWrapperEvent(valid)).toEqual({ ...valid, head: '' });
+    const head = 'a'.repeat(40);
+    expect(parseWrapperEvent({ ...valid, head })).toEqual({ ...valid, head });
     for (const broken of [
+      { ...valid, head: 'HEAD~1' },
+      { ...valid, head: '--output=x' },
+      { ...valid, head: 'A'.repeat(40) },
       { ...valid, provider: 'gpt' },
       { ...valid, run: '../../etc' },
       { ...valid, projectId: 'p1' },

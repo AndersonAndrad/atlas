@@ -13,24 +13,36 @@ interface WrapperEvent {
   terminalId: string;
   projectId: string;
   exitCode: number | null;
+  /** HEAD of the terminal's repository when the wrapper started; '' when unknown. */
+  head: string;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const RUN = /^\d{8}T\d{6}-\d{1,10}$/;
+const COMMIT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /** The event file is written by a shell script; every field is checked strictly. */
 export function parseWrapperEvent(value: unknown): WrapperEvent | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
   const event = value as Record<string, unknown>;
   const keys = Object.keys(event).sort().join(',');
-  if (keys !== 'event,exitCode,projectId,provider,run,terminalId') return null;
+  // Wrappers written before `head` existed may still be running.
+  const legacy = keys === 'event,exitCode,projectId,provider,run,terminalId';
+  if (!legacy && keys !== 'event,exitCode,head,projectId,provider,run,terminalId') return null;
+  if (
+    !legacy &&
+    event.head !== '' &&
+    !(typeof event.head === 'string' && COMMIT.test(event.head))
+  ) {
+    return null;
+  }
   const id = (field: unknown) => field === '' || (typeof field === 'string' && UUID.test(field));
   if (event.event !== 'start' && event.event !== 'end') return null;
   if (event.provider !== 'claude' && event.provider !== 'codex') return null;
   if (typeof event.run !== 'string' || !RUN.test(event.run)) return null;
   if (!id(event.terminalId) || !id(event.projectId)) return null;
   if (event.exitCode !== null && !Number.isInteger(event.exitCode)) return null;
-  return event as unknown as WrapperEvent;
+  return { ...(event as unknown as WrapperEvent), head: legacy ? '' : (event.head as string) };
 }
 
 /** Checkpoints are read this often (they are small files written by the LLM). */
@@ -182,6 +194,7 @@ export class LlmSessionTracker {
           provider: event.provider,
           captureMode: 'attached',
           terminalId,
+          ...(event.head !== '' ? { startCommit: event.head } : {}),
         }));
       this.runs.set(event.run, {
         projectId: event.projectId,

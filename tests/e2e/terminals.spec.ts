@@ -8,6 +8,8 @@ import { expect, test, openProjectTerminal } from './fixtures';
 const panes = (page: Page) => page.getByTestId('terminal-pane');
 const tabs = (page: Page) => page.getByTestId('terminal-tab');
 const screenText = (pane: Locator) => pane.locator('.xterm-rows').innerText();
+/** Screen text without line breaks: long paths wrap across rows (e.g. after a long prompt). */
+const unwrappedText = async (pane: Locator) => (await screenText(pane)).replace(/\n/g, '');
 
 /** Opens the Terminals view and selects a workspace (default: Ungrouped). */
 async function openTerminals(page: Page, workspace = 'Ungrouped') {
@@ -83,7 +85,7 @@ test('opens a real interactive shell in the project directory', async ({ atlas }
   await expect(pane.getByTestId('terminal-status')).toHaveAttribute('data-status', 'RUNNING');
   await run(page, pane, 'pwd; printf "\\033[31m%s\\033[0m\\n" "red-$((20 + 1))"');
   await expect.poll(() => screenText(pane)).toContain('red-21');
-  expect(await screenText(pane)).toContain(dir);
+  expect(await unwrappedText(pane)).toContain(dir);
   // ANSI colors are rendered, not printed as escape codes.
   await expect(pane.locator('.xterm-rows span', { hasText: 'red-21' })).toHaveClass(/xterm-fg-1/);
 

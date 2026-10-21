@@ -24,6 +24,8 @@ const engineVersion = (
 const panes = (page: Page) => page.getByTestId('terminal-pane');
 const tabs = (page: Page) => page.getByTestId('terminal-tab');
 const screenText = (pane: Locator) => pane.locator('.xterm-rows').innerText();
+/** Screen text without line breaks: long paths wrap across rows (e.g. after a long prompt). */
+const unwrappedText = async (pane: Locator) => (await screenText(pane)).replace(/\n/g, '');
 
 async function openTerminals(page: Page, workspace = 'Ungrouped') {
   await page
@@ -90,7 +92,7 @@ test('opens standalone terminals and keeps custom names', async ({ atlas }) => {
   // Default working directory: the (temporary) home directory.
   await expect(tabs(page).first()).toContainText('~');
   await run(page, pane, 'pwd');
-  await expect.poll(() => screenText(pane)).toContain(path.join(atlas.root, 'home'));
+  await expect.poll(() => unwrappedText(pane)).toContain(path.join(atlas.root, 'home'));
   expect(terminalList(atlas.cli)[0]).toMatchObject({ projectId: null });
 
   // The automatic name follows the shell's directory.

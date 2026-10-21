@@ -795,6 +795,11 @@ export class SharedContextService {
       taskId?: string;
       terminalId: string | null;
       handoffId?: string;
+      /**
+       * The commit the session really started from (e.g. read by a wrapper before the CLI
+       * ran); used only when it is HEAD or one of its ancestors in the target repository.
+       */
+      startCommit?: string;
     },
   ): Promise<AiSession> {
     const taskId = await this.ownTaskId(target.owner, input.taskId);
@@ -805,6 +810,16 @@ export class SharedContextService {
         throw invalid('terminalId', 'This terminal already has an active AI session.');
     }
     const state = await this.options.inspector.state(target.directory);
+    let startCommit = state.head;
+    if (
+      input.startCommit !== undefined &&
+      state.root !== null &&
+      state.head !== null &&
+      (input.startCommit === state.head ||
+        (await this.options.inspector.isAncestor(state.root, input.startCommit, state.head)))
+    ) {
+      startCommit = input.startCommit;
+    }
     const session: AiSession = {
       id: this.options.generateId(),
       provider: input.provider,
@@ -813,7 +828,7 @@ export class SharedContextService {
       taskId,
       terminalId: input.terminalId,
       handoffId: input.handoffId ?? null,
-      startCommit: state.head,
+      startCommit,
       status: 'active',
       startedAt: this.now(),
       endedAt: null,

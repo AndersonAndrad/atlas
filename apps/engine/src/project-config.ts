@@ -111,12 +111,15 @@ ${passthrough}if [ -n "\${ATLAS_PROJECT_CONFIG-}" ] && [ -r "$ATLAS_PROJECT_CONF
   mkdir -p "$ATLAS_PROJECT_DIR/checkpoints" 2>/dev/null
   ATLAS_CHECKPOINT_FILE="$ATLAS_PROJECT_DIR/checkpoints/$atlas_run.md"
   export ATLAS_CHECKPOINT_FILE
+  # The commit the session starts from, read before the CLI runs: ATLAS may process the
+  # start event after the LLM already committed.
+  atlas_head=$(git rev-parse --verify -q HEAD 2>/dev/null || true)
   # Start and end of the session for ATLAS; written atomically, never fails the CLI.
   atlas_event() {
     [ -n "\${ATLAS_EVENTS_DIR-}" ] && [ -d "$ATLAS_EVENTS_DIR" ] || return 0
     atlas_tmp="$ATLAS_EVENTS_DIR/.$atlas_run.$1.tmp"
-    printf '{"event":"%s","provider":"${cli}","run":"%s","terminalId":"%s","projectId":"%s","exitCode":%s}\\n' \\
-      "$1" "$atlas_run" "\${ATLAS_TERMINAL_ID-}" "\${ATLAS_PROJECT_ID-}" "\${2-null}" >"$atlas_tmp" 2>/dev/null &&
+    printf '{"event":"%s","provider":"${cli}","run":"%s","terminalId":"%s","projectId":"%s","exitCode":%s,"head":"%s"}\\n' \\
+      "$1" "$atlas_run" "\${ATLAS_TERMINAL_ID-}" "\${ATLAS_PROJECT_ID-}" "\${2-null}" "$atlas_head" >"$atlas_tmp" 2>/dev/null &&
       mv "$atlas_tmp" "$ATLAS_EVENTS_DIR/$atlas_run.$1.json" 2>/dev/null
     return 0
   }

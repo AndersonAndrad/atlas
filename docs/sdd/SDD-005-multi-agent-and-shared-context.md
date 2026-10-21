@@ -234,7 +234,11 @@ Projects keeping context no longer need the user to start or end AI sessions by 
   Ctrl+C reaches the CLI but not the wrapper, so the end event is still written. The Engine
   watches the folder (plus a 5 s scan), validates every field strictly, ignores projects
   that do not keep context, opens an attached AI session for the terminal (or reuses the
-  one started with "Start with context") and, at the end, ends it automatically.
+  one started with "Start with context") and, at the end, ends it automatically. The
+  start event carries the repository HEAD the wrapper read before the CLI ran; the session
+  starts from it when it is HEAD or an ancestor in the project's repository, so commits the
+  LLM makes before ATLAS processes the event are still recorded (events without it are
+  accepted).
 - **Automatic end.** An automatic end records what Git shows (commits since the session
   started and changed files, `verified`) and a summary "Automatic record of <provider>
   session"; when nothing changed the session just ends without entries. Closing the
