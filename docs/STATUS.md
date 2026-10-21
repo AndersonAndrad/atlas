@@ -22,7 +22,8 @@ approval. PLAN-022 (reflog search and the files of each entry's commit) is imple
 awaits approval. PLAN-023 (quick commands, project action menus in Terminals, project
 details in tabs; revision 2: commands enabled per project) is implemented and awaits
 approval. PLAN-024 (GitHub Actions: all checks on Linux and macOS, then Debian and macOS
-installers) is implemented and awaits its first run on GitHub. Version 0.17.0 (schema v8).
+installers) is implemented; revision 2 pins pnpm 11.28.5 because 11.13.0 is a broken
+release the CI cannot install. Version 0.17.1 (schema v8).
 
 ## PLAN-024 — GitHub Actions and installers
 
@@ -40,6 +41,12 @@ clean, E2E 69 passed and 1 macOS-only skipped, `.deb` built and inspected. That 
 and fixed a Linux bug (the LLM wrapper check used a login shell, whose `/etc/profile`
 replaces `PATH`, so wrappers showed as "Not installed") and two timing-sensitive tests.
 The workflow itself runs for the first time on GitHub after the push.
+
+Revision 2 (pnpm 11.28.5): the first GitHub run stopped at `pnpm/action-setup` because npm
+marks pnpm 11.13.0 as broken. With 11.28.5 (lockfile unchanged): macOS `pnpm test` 663/663,
+`pnpm test:e2e` 70/70 twice, `.dmg`/`.zip` built; Debian x64 container with pnpm installed
+through npm like the action: all checks clean, unit 662 passed + 1 macOS-only skipped, E2E
+69 passed + 1 skipped, `.deb` built.
 
 ## PLAN-023 — Quick commands, project actions and project tabs
 

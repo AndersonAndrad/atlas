@@ -15,7 +15,7 @@ Implemented: **SDD-001 — Project Registry**, **SDD-002 — Terminal Manager** 
 
 - macOS (verified), Linux/Windows (not yet verified)
 - Node.js 24 LTS (`>= 24`)
-- pnpm 11 (`corepack enable` or a global install)
+- pnpm 11.28.5, pinned in `package.json` (`corepack enable` picks it up)
 
 Linux needs a C/C++ toolchain and Python for `node-pty`, which compiles during installation
 (macOS and Windows use prebuilt binaries).
