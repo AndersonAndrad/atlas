@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-21 — PLAN-022 (reflog search and commit files).
+Last updated: 2026-10-21 — PLAN-023 (quick commands, project actions, project tabs).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -19,7 +19,31 @@ implemented and awaits approval. PLAN-020 (Git actions in one menu at the top ri
 names truncate) is implemented and awaits approval. PLAN-021 (automatic LLM sessions and
 checkpoints, wrappers first on PATH, import of a folder of skills) is implemented and awaits
 approval. PLAN-022 (reflog search and the files of each entry's commit) is implemented and
-awaits approval. Version 0.15.0 (schema v8).
+awaits approval. PLAN-023 (quick commands, project action menus in Terminals, project
+details in tabs; revision 2: commands enabled per project) is implemented and awaits
+approval. Version 0.16.2 (schema v8).
+
+## PLAN-023 — Quick commands, project actions and project tabs
+
+Navigation → Quick commands keeps named one-line commands; prioritized ones appear in each
+project's Actions menu in Terminals (a three-dot options button that replaces the `+`),
+after Open terminal, and run
+in a new project terminal. Each project can hide them in its new Quick commands tab, and
+enable there any other command for that project only (revision 2); project details are
+now in tabs. Details: SDD-003 Part I-C; ADR-055.
+
+Revision 2 validation (2026-10-21): `pnpm test` 663/663 (enabled per project, library
+order, revision-1 settings still read, unknown ids dropped); `pnpm test:e2e` 70/70 in two
+consecutive runs (a non-prioritized command enabled only in one project); build,
+typecheck, lint, format and audit clean. Staff review: no material findings.
+
+Validation (2026-10-21, macOS arm64, Node 24.18.0): `pnpm test` 662/662 (library order,
+limits, invalid single-line commands, unreadable stored values, concurrent writes, hidden
+per project, run by id with the terminal named after the command); `pnpm test:e2e` 70/70 in
+three consecutive runs (run from the menu with real shell output, hide per project, tabs by
+keyboard, the new terminal keeps the keyboard focus); build, typecheck, lint, format and
+audit clean. Staff review: findings fixed (focus taken back by the closing menu, stale
+hidden ids, overstated security rationale).
 
 ## PLAN-022 — Reflog search and commit files
 

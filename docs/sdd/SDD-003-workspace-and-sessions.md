@@ -125,6 +125,43 @@ size).
 
 ---
 
+# Part I-C — Quick commands, project actions and project tabs (PLAN-023)
+
+- **Quick commands** (navigation → Quick commands): name (≤ 60 characters) and a one-line
+  command (≤ 1,000 characters, no control characters), at most 100, in the user's order
+  (move up/down). **Prioritized** commands appear in every project's action menu; the
+  others only in projects that enable them (revision 2). Stored as
+  JSON in `application_settings` (`quickCommands.library`, version 1); an unreadable value
+  shows no commands and is logged, never shown as an error.
+- **Per project** (project details → Quick commands tab, listing every command, prioritized
+  ones marked "All projects"): prioritized commands appear unless hidden there; other
+  commands appear only when enabled there (`quickCommands.project.<id>`,
+  `{ hidden: [ids], enabled: [ids] }`; settings saved without `enabled` enable nothing; ids
+  of removed commands are dropped on save), removed with the project. A command enabled in
+  a project keeps that choice if it is prioritized and later unprioritized.
+- **Project actions**: `projects.actions` returns `open-terminal` followed by a
+  `run-command` action, in library order, for each prioritized command not hidden in the
+  project and each other command enabled in it. The
+  reusable `ProjectActionsMenu` reads them each time it opens; today it replaces the `+` (with a three-dot options icon,
+  revision 3)
+  of each project in the Terminals sidebar ("Project actions for <name>").
+- **Running**: `quickCommands.run({ projectId, commandId, groupId? })` creates a terminal in
+  the project titled with the command's name and types the stored command followed by
+  Enter. The renderer sends only ids; a command hidden or not prioritized for the project
+  is refused. The command runs in the user's shell exactly as if typed.
+- **Project details tabs**: Overview (details, Git), Commit checks (repositories only), AI &
+  context and Quick commands. The quick view opened from a terminal has no tabs.
+
+| Engine method                      | Clients | Purpose                                |
+| ---------------------------------- | ------- | -------------------------------------- |
+| `quickCommands.list`               | desktop | The library in order                   |
+| `quickCommands.create/update`      | desktop | Validated name, command, prioritized   |
+| `quickCommands.remove/move`        | desktop | Remove; move one place up or down      |
+| `quickCommands.projectSettings`    | desktop | Commands hidden in a project           |
+| `quickCommands.setProjectSettings` | desktop | Change them                            |
+| `quickCommands.run`                | desktop | New project terminal running a command |
+| `projects.actions`                 | desktop | The project's actions, in menu order   |
+
 # Part II — Specification as received
 
 ## 1. Mission

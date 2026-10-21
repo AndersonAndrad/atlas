@@ -379,6 +379,16 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     [IPC_CHANNELS.contextSetProjectConfig, 'context.setProjectConfig'],
     [IPC_CHANNELS.aiStart, 'ai.start'],
     [IPC_CHANNELS.aiAttach, 'ai.attach'],
+    // Quick commands and project actions (PLAN-023).
+    [IPC_CHANNELS.quickCommandsList, 'quickCommands.list'],
+    [IPC_CHANNELS.quickCommandsCreate, 'quickCommands.create'],
+    [IPC_CHANNELS.quickCommandsUpdate, 'quickCommands.update'],
+    [IPC_CHANNELS.quickCommandsRemove, 'quickCommands.remove'],
+    [IPC_CHANNELS.quickCommandsMove, 'quickCommands.move'],
+    [IPC_CHANNELS.quickCommandsProjectSettings, 'quickCommands.projectSettings'],
+    [IPC_CHANNELS.quickCommandsSetProjectSettings, 'quickCommands.setProjectSettings'],
+    [IPC_CHANNELS.quickCommandsRun, 'quickCommands.run'],
+    [IPC_CHANNELS.projectsActions, 'projects.actions'],
   ];
   for (const [channel, method] of contextChannels) {
     handle(channel, ENGINE_METHOD_PARAMS[method] as unknown as z.ZodType<unknown[]>, (args) =>

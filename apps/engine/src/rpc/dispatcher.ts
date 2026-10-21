@@ -41,6 +41,10 @@ import {
   type GitPushInput,
   type GitReflogInput,
   type GitCommitFilesInput,
+  type ProjectQuickCommandSettings,
+  type QuickCommandInput,
+  type QuickCommandMove,
+  type RunQuickCommandInput,
   type UpdateGitOperationLogSettings,
   type GitRenameBranchInput,
   type GitSwitchBranchInput,
@@ -389,6 +393,29 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     'context.sessionForTerminal': ([terminalId]: [string]) =>
       context.sessionForTerminal(terminalId),
     'ai.start': ([input]: [StartAiSessionInput]) => engine.startAiSession(input),
+    'quickCommands.list': () => engine.quickCommands.list(),
+    'quickCommands.create': ([input]: [QuickCommandInput]) => engine.quickCommands.create(input),
+    'quickCommands.update': ([id, input]: [string, QuickCommandInput]) =>
+      engine.quickCommands.update(id, input),
+    'quickCommands.remove': ([id]: [string]) => engine.quickCommands.remove(id),
+    'quickCommands.move': ([id, direction]: [string, QuickCommandMove]) =>
+      engine.quickCommands.move(id, direction),
+    'quickCommands.projectSettings': async ([projectId]: [string]) => {
+      await projects.getDetails(projectId);
+      return engine.quickCommands.projectSettings(projectId);
+    },
+    'quickCommands.setProjectSettings': async ([projectId, settings]: [
+      string,
+      ProjectQuickCommandSettings,
+    ]) => {
+      await projects.getDetails(projectId);
+      return engine.quickCommands.setProjectSettings(projectId, settings);
+    },
+    'quickCommands.run': ([input]: [RunQuickCommandInput]) => engine.runQuickCommand(input),
+    'projects.actions': async ([projectId]: [string]) => {
+      await projects.getDetails(projectId);
+      return engine.quickCommands.projectActions(projectId);
+    },
     'ai.attach': ([input]: [AttachTerminalInput]) => engine.attachTerminalSession(input),
     'context.projectConfig': ([projectId]: [string]) => engine.projectConfigView(projectId),
     'context.setProjectConfig': ([projectId, changes]: [string, UpdateProjectAiConfig]) =>

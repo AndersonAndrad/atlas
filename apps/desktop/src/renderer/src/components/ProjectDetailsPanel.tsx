@@ -7,6 +7,8 @@ import type { ProjectDetails } from '@/types';
 import { useProjectGit } from '@/terminal/hooks/useGitStatus';
 import { CommitSettingsForm } from '@/git/components/CommitSettingsForm';
 import { ProjectAiSettings } from '@/context/components/ProjectAiSettings';
+import { ProjectQuickCommands } from '@/quick-commands/components/ProjectQuickCommands';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ActionDot } from './git/ActionDot';
 import { GitDetails } from './git/GitDetails';
 import { pendingGitActions } from './git/git-format';
@@ -40,6 +42,67 @@ export function ProjectDetailsPanel({
   const projectGit = useProjectGit(project.id);
   const pendingActions =
     projectGit.status?.state === 'repository' ? pendingGitActions(projectGit.status.snapshot) : [];
+
+  // Description, details and Git status: the first tab, or the whole panel without tabs.
+  const overview = (
+    <>
+      {project.description && (
+        <p className="text-muted-foreground break-words whitespace-pre-wrap">
+          {project.description}
+        </p>
+      )}
+
+      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2.5 text-sm">
+        <dt className="text-muted-foreground">Directory</dt>
+        <dd className="font-mono text-xs break-all" data-testid="details-path">
+          {project.workspacePath}
+        </dd>
+
+        <dt className="text-muted-foreground">Git</dt>
+        <dd data-testid="details-git">{gitSummary(git, project.git.isRepository)}</dd>
+
+        {repositoryRoot && (
+          <>
+            <dt className="text-muted-foreground">Repository root</dt>
+            <dd className="font-mono text-xs break-all">{repositoryRoot}</dd>
+          </>
+        )}
+
+        <dt className="text-muted-foreground">Tags</dt>
+        <dd>
+          {project.tags.length > 0 ? (
+            <ul className="flex flex-wrap gap-1.5" aria-label="Tags">
+              {project.tags.map((tag) => (
+                <li key={tag}>
+                  <Badge variant="secondary">{tag}</Badge>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <span className="text-muted-foreground">None</span>
+          )}
+        </dd>
+
+        <dt className="text-muted-foreground">Last opened</dt>
+        <dd>{formatDate(project.lastOpenedAt)}</dd>
+
+        <dt className="text-muted-foreground">Registered</dt>
+        <dd>{formatDate(project.createdAt)}</dd>
+
+        <dt className="text-muted-foreground">Updated</dt>
+        <dd>{formatDate(project.updatedAt)}</dd>
+
+        <dt className="text-muted-foreground">Status checked</dt>
+        <dd>{formatDate(availability.checkedAt)}</dd>
+      </dl>
+
+      <GitDetails
+        status={projectGit.status}
+        loading={projectGit.loading}
+        onRefresh={projectGit.refresh}
+      />
+    </>
+  );
 
   return (
     <section
@@ -116,84 +179,58 @@ export function ProjectDetailsPanel({
         </Alert>
       )}
 
-      {project.description && (
-        <p className="text-muted-foreground break-words whitespace-pre-wrap">
-          {project.description}
-        </p>
-      )}
-
-      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2.5 text-sm">
-        <dt className="text-muted-foreground">Directory</dt>
-        <dd className="font-mono text-xs break-all" data-testid="details-path">
-          {project.workspacePath}
-        </dd>
-
-        <dt className="text-muted-foreground">Git</dt>
-        <dd data-testid="details-git">{gitSummary(git, project.git.isRepository)}</dd>
-
-        {repositoryRoot && (
-          <>
-            <dt className="text-muted-foreground">Repository root</dt>
-            <dd className="font-mono text-xs break-all">{repositoryRoot}</dd>
-          </>
-        )}
-
-        <dt className="text-muted-foreground">Tags</dt>
-        <dd>
-          {project.tags.length > 0 ? (
-            <ul className="flex flex-wrap gap-1.5" aria-label="Tags">
-              {project.tags.map((tag) => (
-                <li key={tag}>
-                  <Badge variant="secondary">{tag}</Badge>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <span className="text-muted-foreground">None</span>
+      {onEdit ? (
+        // Project settings keep growing: each kind has its own tab (PLAN-023).
+        <Tabs defaultValue="overview" className="min-w-0">
+          <TabsList className="h-auto max-w-full flex-wrap justify-start">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            {projectGit.status?.state === 'repository' && (
+              <TabsTrigger value="commit-checks">Commit checks</TabsTrigger>
+            )}
+            <TabsTrigger value="ai-context">AI &amp; context</TabsTrigger>
+            <TabsTrigger value="quick-commands">Quick commands</TabsTrigger>
+          </TabsList>
+          <TabsContent value="overview" className="flex min-w-0 flex-col gap-4 pt-2">
+            {overview}
+          </TabsContent>
+          {projectGit.status?.state === 'repository' && (
+            <TabsContent value="commit-checks" className="pt-2">
+              <section
+                className="flex flex-col gap-3 rounded-lg border p-4"
+                aria-labelledby="commit-checks-title"
+              >
+                <h3 id="commit-checks-title" className="font-semibold">
+                  Commit checks
+                </h3>
+                <CommitSettingsForm key={project.id} projectId={project.id} />
+              </section>
+            </TabsContent>
           )}
-        </dd>
-
-        <dt className="text-muted-foreground">Last opened</dt>
-        <dd>{formatDate(project.lastOpenedAt)}</dd>
-
-        <dt className="text-muted-foreground">Registered</dt>
-        <dd>{formatDate(project.createdAt)}</dd>
-
-        <dt className="text-muted-foreground">Updated</dt>
-        <dd>{formatDate(project.updatedAt)}</dd>
-
-        <dt className="text-muted-foreground">Status checked</dt>
-        <dd>{formatDate(availability.checkedAt)}</dd>
-      </dl>
-
-      <GitDetails
-        status={projectGit.status}
-        loading={projectGit.loading}
-        onRefresh={projectGit.refresh}
-      />
-
-      {onEdit && projectGit.status?.state === 'repository' && (
-        <section
-          className="flex flex-col gap-3 rounded-lg border p-4"
-          aria-labelledby="commit-checks-title"
-        >
-          <h3 id="commit-checks-title" className="font-semibold">
-            Commit checks
-          </h3>
-          <CommitSettingsForm key={project.id} projectId={project.id} />
-        </section>
-      )}
-
-      {onEdit && (
-        <section
-          className="flex flex-col gap-3 rounded-lg border p-4"
-          aria-labelledby="ai-context-title"
-        >
-          <h3 id="ai-context-title" className="font-semibold">
-            AI &amp; context
-          </h3>
-          <ProjectAiSettings key={project.id} projectId={project.id} />
-        </section>
+          <TabsContent value="ai-context" className="pt-2">
+            <section
+              className="flex flex-col gap-3 rounded-lg border p-4"
+              aria-labelledby="ai-context-title"
+            >
+              <h3 id="ai-context-title" className="font-semibold">
+                AI &amp; context
+              </h3>
+              <ProjectAiSettings key={project.id} projectId={project.id} />
+            </section>
+          </TabsContent>
+          <TabsContent value="quick-commands" className="pt-2">
+            <section
+              className="flex flex-col gap-3 rounded-lg border p-4"
+              aria-labelledby="project-quick-commands-title"
+            >
+              <h3 id="project-quick-commands-title" className="font-semibold">
+                Quick commands
+              </h3>
+              <ProjectQuickCommands key={project.id} projectId={project.id} />
+            </section>
+          </TabsContent>
+        </Tabs>
+      ) : (
+        overview
       )}
     </section>
   );

@@ -1,5 +1,15 @@
 import { z } from 'zod';
 import {
+  ProjectQuickCommandSettingsSchema,
+  QuickCommandIdSchema,
+  QuickCommandInputSchema,
+  QuickCommandMoveSchema,
+  RunQuickCommandSchema,
+  type ProjectAction,
+  type ProjectQuickCommandSettings,
+  type QuickCommand,
+} from './quick-commands.js';
+import {
   ProjectIdSchema,
   WorkspacePathSchema,
   type Project,
@@ -298,6 +308,15 @@ export const ENGINE_METHOD_PARAMS = {
   'context.endSession': z.tuple([Target, Uuid, SessionSummarySchema]),
   'context.sessionForTerminal': z.tuple([TerminalId]),
   'ai.start': z.tuple([StartAiSessionSchema]),
+  'quickCommands.list': z.tuple([]),
+  'quickCommands.create': z.tuple([QuickCommandInputSchema]),
+  'quickCommands.update': z.tuple([QuickCommandIdSchema, QuickCommandInputSchema]),
+  'quickCommands.remove': z.tuple([QuickCommandIdSchema]),
+  'quickCommands.move': z.tuple([QuickCommandIdSchema, QuickCommandMoveSchema]),
+  'quickCommands.projectSettings': z.tuple([Id]),
+  'quickCommands.setProjectSettings': z.tuple([Id, ProjectQuickCommandSettingsSchema]),
+  'quickCommands.run': z.tuple([RunQuickCommandSchema]),
+  'projects.actions': z.tuple([Id]),
   'ai.attach': z.tuple([AttachTerminalSchema]),
   'context.projectConfig': z.tuple([Id]),
   'context.setProjectConfig': z.tuple([Id, UpdateProjectAiConfigSchema]),
@@ -467,6 +486,15 @@ export interface EngineMethodResults {
   'context.endSession': { session: AiSession; entries: ContextEntry[] };
   'context.sessionForTerminal': AiSession | null;
   'ai.start': StartedAiSession;
+  'quickCommands.list': QuickCommand[];
+  'quickCommands.create': QuickCommand;
+  'quickCommands.update': QuickCommand;
+  'quickCommands.remove': null;
+  'quickCommands.move': QuickCommand[];
+  'quickCommands.projectSettings': ProjectQuickCommandSettings;
+  'quickCommands.setProjectSettings': ProjectQuickCommandSettings;
+  'quickCommands.run': TerminalSession;
+  'projects.actions': ProjectAction[];
   'ai.attach': AiSession;
   'context.projectConfig': ProjectConfigView;
   'context.setProjectConfig': ProjectConfigView;

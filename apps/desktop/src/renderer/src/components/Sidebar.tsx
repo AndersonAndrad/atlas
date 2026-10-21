@@ -9,13 +9,21 @@ import {
   Settings,
   Sparkles,
   SquareTerminal,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 import atlasLogo from '@/assets/atlas-logo.svg';
 import { cn } from '@/lib/utils';
 
 export type AppView =
-  'projects' | 'terminals' | 'git' | 'context' | 'sessions' | 'skills' | 'settings';
+  | 'projects'
+  | 'terminals'
+  | 'git'
+  | 'context'
+  | 'sessions'
+  | 'skills'
+  | 'quick-commands'
+  | 'settings';
 
 interface NavItem {
   id: string;
@@ -32,6 +40,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'sessions', label: 'Sessions', icon: ListChecks, view: 'sessions' },
   { id: 'agents', label: 'Agents', icon: Bot },
   { id: 'skills', label: 'Skills', icon: Sparkles, view: 'skills' },
+  { id: 'quick-commands', label: 'Quick commands', icon: Zap, view: 'quick-commands' },
   { id: 'accounts', label: 'Accounts', icon: KeyRound },
   { id: 'usage', label: 'Usage', icon: ChartColumn },
   { id: 'settings', label: 'Settings', icon: Settings, view: 'settings' },

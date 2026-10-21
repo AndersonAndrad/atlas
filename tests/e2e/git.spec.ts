@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Page } from '@playwright/test';
-import { expect, test } from './fixtures';
+import { expect, test, openProjectTerminal } from './fixtures';
 
 /**
  * A repository with one pushed commit and its bare "origin" (both inside the
@@ -816,7 +816,7 @@ test('opens the operations panel from a terminal and on remote failures', async 
     .getByRole('navigation', { name: 'Main navigation' })
     .getByRole('button', { name: 'Terminals' })
     .click();
-  await page.getByRole('button', { name: 'New terminal in ops' }).click();
+  await openProjectTerminal(page, 'ops');
   const pane = page.getByTestId('terminal-pane').first();
   await pane.getByRole('button', { name: 'Git actions' }).click({ timeout: 15_000 });
   await page

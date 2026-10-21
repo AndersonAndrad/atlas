@@ -23,6 +23,7 @@ export const ERROR_CODES = [
   'SKILL_SOURCE_UNAUTHORIZED',
   'SKILL_REJECTED',
   'SKILL_SYNC_CONFLICT',
+  'QUICK_COMMAND_NOT_FOUND',
   'ENGINE_UNAVAILABLE',
   'VALIDATION_FAILED',
   'INTERNAL_ERROR',
@@ -63,6 +64,7 @@ export const USER_MESSAGES: Record<ErrorCode, string> = {
   SKILL_REJECTED: 'The skill cannot be imported safely. Review the reported problems.',
   SKILL_SYNC_CONFLICT:
     'A folder with this name already exists and was not created by ATLAS. Nothing was changed.',
+  QUICK_COMMAND_NOT_FOUND: 'The quick command could not be found. It may have been removed.',
   ENGINE_UNAVAILABLE:
     'The ATLAS Engine is not running. Start (or restart) ATLAS Control and try again.',
   VALIDATION_FAILED: 'Some fields are invalid. Review them and try again.',

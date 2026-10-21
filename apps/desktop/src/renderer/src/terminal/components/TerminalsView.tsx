@@ -130,6 +130,25 @@ export function TerminalsView({
     [activeGroup, run, showTerminal, terminals],
   );
 
+  /** Opens a terminal in the project that runs the quick command (PLAN-023). */
+  const runQuickCommand = useCallback(
+    async (projectId: string, commandId: string) => {
+      const session = await run(() =>
+        unwrap(
+          api().quickCommands.run({
+            projectId,
+            commandId,
+            ...(activeGroup ? { groupId: activeGroup.id } : {}),
+          }),
+        ),
+      );
+      if (!session) return;
+      terminals.upsert(session);
+      showTerminal(session);
+    },
+    [activeGroup, run, showTerminal, terminals],
+  );
+
   // A request from the Projects view ("Open terminal").
   const handledRequest = useRef<number | null>(null);
   useEffect(() => {
@@ -217,6 +236,7 @@ export function TerminalsView({
           onCloseTerminal={(session) => void requestClose(session.id)}
           onProjectInfo={(projectId) => setSheet({ kind: 'project', projectId })}
           onNewTerminalInProject={(projectId) => void openInProject(projectId)}
+          onRunQuickCommand={(projectId, commandId) => void runQuickCommand(projectId, commandId)}
         />
       </aside>
 

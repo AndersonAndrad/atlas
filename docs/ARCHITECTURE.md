@@ -378,6 +378,16 @@ Full description: `docs/sdd/SDD-006-context-intelligence-and-skills.md`, Part I.
 Tokens are always an estimate (characters / 4). The retrieval code is pure and has no
 Node.js dependencies because the renderer bundles `@atlas/context`.
 
+### Quick commands and project actions (PLAN-023)
+
+```text
+ Quick commands view ─► quickCommands.* ─► QuickCommandStore (apps/engine) ─► application_settings
+ ProjectActionsMenu ─► projects.actions(projectId) ─► [open-terminal, run-command…]
+        └─ run-command ─► quickCommands.run(ids) ─► terminals.create(project) + write(command⏎)
+```
+
+Details: SDD-003 Part I-C; ADR-055.
+
 ### Skills Hub (SDD-006 Milestone B)
 
 Full description: `docs/sdd/SDD-006-context-intelligence-and-skills.md`, Part I-B.

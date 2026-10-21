@@ -8,6 +8,14 @@ import type {
 } from './project.js';
 import type { AppInfo } from './app-info.js';
 import type {
+  ProjectAction,
+  ProjectQuickCommandSettings,
+  QuickCommand,
+  QuickCommandInput,
+  QuickCommandMove,
+  RunQuickCommandInput,
+} from './quick-commands.js';
+import type {
   AddSkillSourceInput,
   CreateSkillFromTemplateInput,
   DiscoveredSkill,
@@ -276,6 +284,15 @@ export const IPC_CHANNELS = {
   skillsSyncHistory: 'atlas:skills:sync-history',
   skillsSyncRollback: 'atlas:skills:sync-rollback',
   aiStart: 'atlas:ai:start',
+  quickCommandsList: 'atlas:quick-commands:list',
+  quickCommandsCreate: 'atlas:quick-commands:create',
+  quickCommandsUpdate: 'atlas:quick-commands:update',
+  quickCommandsRemove: 'atlas:quick-commands:remove',
+  quickCommandsMove: 'atlas:quick-commands:move',
+  quickCommandsProjectSettings: 'atlas:quick-commands:project-settings',
+  quickCommandsSetProjectSettings: 'atlas:quick-commands:set-project-settings',
+  quickCommandsRun: 'atlas:quick-commands:run',
+  projectsActions: 'atlas:projects:actions',
   aiAttach: 'atlas:ai:attach',
 
   listSessions: 'atlas:sessions:list',
@@ -603,6 +620,23 @@ export interface AtlasApi {
     syncRollback(batchId: string): Promise<IpcResult<{ restored: string[]; skipped: string[] }>>;
   };
   /** Individual AI CLI sessions started or tracked by ATLAS. */
+  /** Named shell commands run in a new project terminal (PLAN-023). */
+  quickCommands: {
+    list(): Promise<IpcResult<QuickCommand[]>>;
+    create(input: QuickCommandInput): Promise<IpcResult<QuickCommand>>;
+    update(id: string, input: QuickCommandInput): Promise<IpcResult<QuickCommand>>;
+    remove(id: string): Promise<IpcResult<null>>;
+    move(id: string, direction: QuickCommandMove): Promise<IpcResult<QuickCommand[]>>;
+    projectSettings(projectId: string): Promise<IpcResult<ProjectQuickCommandSettings>>;
+    setProjectSettings(
+      projectId: string,
+      settings: ProjectQuickCommandSettings,
+    ): Promise<IpcResult<ProjectQuickCommandSettings>>;
+    /** Opens a terminal in the project and runs the command there. */
+    run(input: RunQuickCommandInput): Promise<IpcResult<TerminalSession>>;
+    /** What the project's action menus offer: open a terminal, then its commands. */
+    projectActions(projectId: string): Promise<IpcResult<ProjectAction[]>>;
+  };
   ai: {
     /** Opens Claude Code or Codex in a new terminal, with the reviewed context prompt. */
     start(input: StartAiSessionInput): Promise<IpcResult<StartedAiSession>>;

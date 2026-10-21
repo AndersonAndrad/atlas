@@ -522,3 +522,17 @@ superseded decisions are marked, not deleted.
   platform).
 - **Consequences**: Older entries are not searched, and the panel says so; merge commits
   show only first-parent changes.
+
+## ADR-055 — Quick commands as stored, id-addressed project actions (PLAN-023)
+
+- **Decision**: Quick commands live in the application settings; the renderer runs them
+  by id through `quickCommands.run`, which opens a project terminal and types the stored
+  command. Menus get a generic `ProjectAction` list from the Engine, so other places can
+  reuse it.
+- **Alternatives**: Renderer-sent command text (rejected: what runs must be what the user
+  saved and sees in the menu; this is not a security boundary, since the renderer can
+  already type into terminals); a database table (migration for a small list). Revision 2
+  (developer request): prioritized means "every project" (hide per project); other
+  commands are enabled per project.
+- **Consequences**: Commands run without per-use confirmation, as the user configured
+  them; they are typed into the shell before its start-up files finish, like AI sessions.

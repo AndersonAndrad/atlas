@@ -128,3 +128,9 @@ export const test = base.extend<{ atlas: AtlasHarness }>({
 });
 
 export { expect } from '@playwright/test';
+
+/** Opens a terminal in a project from its Actions menu in the Terminals sidebar (PLAN-023). */
+export async function openProjectTerminal(page: Page, projectName: string): Promise<void> {
+  await page.getByRole('button', { name: `Project actions for ${projectName}` }).click();
+  await page.getByRole('menuitem', { name: 'Open terminal' }).click();
+}

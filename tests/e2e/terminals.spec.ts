@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 import type { TerminalSession } from '@atlas/contracts';
-import { expect, test } from './fixtures';
+import { expect, test, openProjectTerminal } from './fixtures';
 
 // Only harmless commands run here (echo, printf, sleep, stty, read), always in
 // temporary workspaces with an empty HOME.
@@ -25,7 +25,7 @@ async function newTerminal(page: Page, projectName?: string) {
   if (projectName === undefined) {
     await page.getByRole('button', { name: 'New terminal', exact: true }).first().click();
   } else {
-    await page.getByRole('button', { name: `New terminal in ${projectName}` }).click();
+    await openProjectTerminal(page, projectName);
   }
   await expect(tabs(page)).toHaveCount(before + 1);
 }

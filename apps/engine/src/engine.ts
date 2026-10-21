@@ -22,6 +22,7 @@ import {
   type TerminalPreferences,
   type TerminalProjectContext,
   type TerminalSession,
+  type RunQuickCommandInput,
   type UpdateProjectAiConfig,
   isFinalTerminalStatus,
 } from '@atlas/contracts';
@@ -91,6 +92,7 @@ import { NodeSkillFileSystem, SkillsHub } from '@atlas/skills';
 import { createGitExecutor, createGitRunner } from './git/git-runner.js';
 import { captureLoginShellEnvironment } from './adapters/login-shell-environment.js';
 import { LlmSessionTracker } from './llm-session-tracker.js';
+import { QuickCommandStore } from './quick-commands.js';
 import { RepositoryWatcher } from './git/repository-watcher.js';
 import { GIT_SHUTDOWN_TIMEOUT_MS } from './shutdown-timing.js';
 
@@ -148,6 +150,10 @@ export interface Engine {
   readonly skills: SkillsHub;
   /** Automatic recording of LLM sessions in ATLAS terminals (PLAN-021). */
   readonly llmSessions: LlmSessionTracker;
+  /** The user's quick commands and each project's choice of them (PLAN-023). */
+  readonly quickCommands: QuickCommandStore;
+  /** Opens a terminal in the project and types the quick command there (PLAN-023). */
+  runQuickCommand(input: RunQuickCommandInput): Promise<TerminalSession>;
   readonly gitPreferences: GitPreferencesStore;
   /** Provider-independent shared context (SDD-005 Milestone A). */
   readonly context: SharedContextService;
@@ -515,6 +521,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
     logger,
   });
   const projectGitSettings = new ProjectGitSettingsStore(settings, logger);
+  const quickCommands = new QuickCommandStore({ store: settings, generateId: randomUUID, logger });
 
   // Roots resolved by the Engine itself; client-supplied paths are only accepted
   // when they match one of them.
@@ -801,6 +808,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
     gitOperationLog,
     skills,
     llmSessions,
+    quickCommands,
     gitPreferences,
     projectGitSettings,
     gitRepositories: discoverRepositories,
@@ -912,6 +920,19 @@ export function createEngine(options: EngineOptions = {}): Engine {
       service.write(terminal.id, `${promptCommand(input.provider, file, terminal.shell.name)}\r`);
       return { session, terminalId: terminal.id, prompt };
     },
+    runQuickCommand: async (input) => {
+      await projects.getDetails(input.projectId);
+      const command = await quickCommands.forProject(input.projectId, input.commandId);
+      const service = requireTerminals();
+      const terminal = await service.create({
+        projectId: input.projectId,
+        title: command.name,
+        ...(input.groupId ? { groupId: input.groupId } : {}),
+      });
+      // Typed as if the user typed it: the shell runs it once it has started.
+      service.write(terminal.id, `${command.command}\r`);
+      return terminal;
+    },
     attachTerminalSession: async (input) => {
       const terminal = requireTerminals().getById(input.terminalId);
       const status = await git.inspect(terminal.currentCwd);
@@ -987,6 +1008,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
       );
       await projects.remove(project.id);
       await projectGitSettings.remove(project.id);
+      await quickCommands.removeProject(project.id);
       await skills.projectRemoved(project.id);
       // A refresh that started before the removal finishes first, then the files go.
       await projectRefreshes.get(project.id)?.running;

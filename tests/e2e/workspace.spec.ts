@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Locator, Page } from '@playwright/test';
 import type { TerminalSession } from '@atlas/contracts';
-import { expect, test } from './fixtures';
+import { expect, test, openProjectTerminal } from './fixtures';
 
 // SDD-003 Milestone A: standalone terminals, names, groups, Git and version.
 // Repositories are created in temporary directories with a temporary HOME.
@@ -49,7 +49,7 @@ function sidebarTerminal(page: Page, name: string) {
 }
 
 async function terminalAction(page: Page, name: string, ...path: string[]) {
-  await page.getByRole('button', { name: `Actions for ${name}` }).click();
+  await page.getByRole('button', { name: `Actions for ${name}`, exact: true }).click();
   const menu = page.getByTestId('terminal-actions');
   for (const [index, label] of path.entries()) {
     const item = (index === 0 ? menu : page).getByRole('menuitem', { name: label, exact: true });
@@ -135,8 +135,8 @@ test('groups terminals from several projects without restarting them', async ({ 
     await page.getByRole('button', { name: 'Create group' }).click();
   }
   await openTerminals(page, 'Desenvolvimento');
-  await page.getByRole('button', { name: 'New terminal in nova' }).click();
-  await page.getByRole('button', { name: 'New terminal in wii' }).click();
+  await openProjectTerminal(page, 'nova');
+  await openProjectTerminal(page, 'wii');
   await expect(tabs(page)).toHaveCount(2);
   const group = page.getByTestId('terminal-group').filter({ hasText: 'Desenvolvimento' });
   await expect(group.getByTestId('sidebar-terminal')).toHaveCount(2);
@@ -229,7 +229,7 @@ test('shows Git details for projects and terminals, and plain folders without Gi
   ).toHaveCount(0);
 
   // Terminal header: branch, modified count, ahead/behind; nothing for plain folders.
-  await page.getByRole('button', { name: 'New terminal in nova' }).click();
+  await openProjectTerminal(page, 'nova');
   const header = panes(page).first();
   await expect(header.getByTestId('git-branch')).toContainText('main', { timeout: 10_000 });
   await expect(header.getByTestId('git-modified')).toHaveText('M:1');
@@ -242,7 +242,7 @@ test('shows Git details for projects and terminals, and plain folders without Gi
   await run(page, header, 'echo more >> README.md && git add README.md');
   await expect(header.getByTestId('git-staged')).toHaveText('S:1', { timeout: 10_000 });
 
-  await page.getByRole('button', { name: 'New terminal in plain' }).click();
+  await openProjectTerminal(page, 'plain');
   await expect(panes(page).first()).toHaveAttribute('data-active', 'true');
   await expect(panes(page).first().getByTestId('git-badges')).toHaveCount(0);
 });
@@ -253,7 +253,7 @@ test('opens project details from a terminal and registers a standalone directory
   atlas.cli('project', 'add', atlas.workspace('nova'));
   const { app, page } = await atlas.launch();
   await openTerminals(page);
-  await page.getByRole('button', { name: 'New terminal in nova' }).click();
+  await openProjectTerminal(page, 'nova');
   await panes(page).first().getByRole('button', { name: 'Project details' }).click();
   const sheet = page.getByTestId('project-sheet');
   await expect(sheet.getByTestId('project-details')).toContainText('nova');

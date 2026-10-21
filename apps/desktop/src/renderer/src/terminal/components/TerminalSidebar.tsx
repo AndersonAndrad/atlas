@@ -12,10 +12,10 @@ import {
   Info,
   Inbox,
   MoreHorizontal,
-  Plus,
 } from 'lucide-react';
 import { useState, type DragEvent, type ReactNode } from 'react';
 import { GitChangesBadge, GitSyncBadges } from '@/components/git/GitBadges';
+import { ProjectActionsMenu } from '@/components/ProjectActionsMenu';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -52,6 +52,8 @@ export interface TerminalSidebarActions {
   onCloseTerminal: (session: TerminalSession) => void;
   onProjectInfo: (projectId: string) => void;
   onNewTerminalInProject: (projectId: string) => void;
+  /** Opens a terminal in the project running a quick command (PLAN-023). */
+  onRunQuickCommand: (projectId: string, commandId: string) => void;
 }
 
 interface TerminalSidebarProps extends TerminalSidebarActions {
@@ -226,6 +228,7 @@ export function TerminalSidebar(props: TerminalSidebarProps) {
             item={item}
             onProjectInfo={props.onProjectInfo}
             onNewTerminalInProject={props.onNewTerminalInProject}
+            onRunQuickCommand={props.onRunQuickCommand}
           />
         ))}
       </ul>
@@ -237,6 +240,8 @@ interface SidebarProjectRowProps {
   item: ProjectDetails;
   onProjectInfo: (projectId: string) => void;
   onNewTerminalInProject: (projectId: string) => void;
+  /** Opens a terminal in the project running a quick command (PLAN-023). */
+  onRunQuickCommand: (projectId: string, commandId: string) => void;
 }
 
 /** A registered project with its commits to push and to pull, when it tracks an upstream. */
@@ -244,6 +249,7 @@ function SidebarProjectRow({
   item,
   onProjectInfo,
   onNewTerminalInProject,
+  onRunQuickCommand,
 }: SidebarProjectRowProps) {
   const { status } = useProjectGit(item.project.id);
   const snapshot = status?.state === 'repository' ? status.snapshot : null;
@@ -274,17 +280,15 @@ function SidebarProjectRow({
           {tracksUpstream && <GitSyncBadges snapshot={snapshot} />}
         </span>
       )}
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        className="mr-1"
-        aria-label={`New terminal in ${item.project.name}`}
-        title="New terminal in this project"
-        disabled={item.availability.status !== 'available'}
-        onClick={() => onNewTerminalInProject(item.project.id)}
-      >
-        <Plus />
-      </Button>
+      <span className="mr-1 shrink-0">
+        <ProjectActionsMenu
+          projectId={item.project.id}
+          projectName={item.project.name}
+          disabled={item.availability.status !== 'available'}
+          onOpenTerminal={() => onNewTerminalInProject(item.project.id)}
+          onRunCommand={(commandId) => onRunQuickCommand(item.project.id, commandId)}
+        />
+      </span>
     </li>
   );
 }

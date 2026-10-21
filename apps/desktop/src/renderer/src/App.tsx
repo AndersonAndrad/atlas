@@ -7,6 +7,7 @@ import { SettingsView } from './components/SettingsView';
 import { GitView, type GitOpenRequest } from './git/components/GitView';
 import { ContextView, type ContextOpenRequest } from './context/components/ContextView';
 import { SkillsView } from './skills/components/SkillsView';
+import { QuickCommandsView } from './quick-commands/components/QuickCommandsView';
 import { Sidebar, type AppView } from './components/Sidebar';
 import { TooltipProvider } from './components/ui/tooltip';
 import { useAppInfo, versionLabel } from './hooks/useAppInfo';
@@ -170,6 +171,7 @@ export function App() {
           />
         )}
         {view === 'skills' && <SkillsView projects={projects.items ?? []} />}
+        {view === 'quick-commands' && <QuickCommandsView />}
         {view === 'settings' && <SettingsView preferences={preferences} />}
       </div>
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}

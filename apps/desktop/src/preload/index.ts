@@ -210,6 +210,19 @@ const api: AtlasApi = {
     syncHistory: () => ipcRenderer.invoke(IPC_CHANNELS.skillsSyncHistory),
     syncRollback: (...args) => ipcRenderer.invoke(IPC_CHANNELS.skillsSyncRollback, ...args),
   },
+  quickCommands: {
+    list: () => ipcRenderer.invoke(IPC_CHANNELS.quickCommandsList),
+    create: (input) => ipcRenderer.invoke(IPC_CHANNELS.quickCommandsCreate, input),
+    update: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.quickCommandsUpdate, id, input),
+    remove: (id) => ipcRenderer.invoke(IPC_CHANNELS.quickCommandsRemove, id),
+    move: (id, direction) => ipcRenderer.invoke(IPC_CHANNELS.quickCommandsMove, id, direction),
+    projectSettings: (projectId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.quickCommandsProjectSettings, projectId),
+    setProjectSettings: (projectId, settings) =>
+      ipcRenderer.invoke(IPC_CHANNELS.quickCommandsSetProjectSettings, projectId, settings),
+    run: (input) => ipcRenderer.invoke(IPC_CHANNELS.quickCommandsRun, input),
+    projectActions: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.projectsActions, projectId),
+  },
   ai: {
     start: (input) => ipcRenderer.invoke(IPC_CHANNELS.aiStart, input),
     attach: (input) => ipcRenderer.invoke(IPC_CHANNELS.aiAttach, input),

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
-import { expect, test } from './fixtures';
+import { expect, test, openProjectTerminal } from './fixtures';
 
 /** A fake provider CLI: records its arguments, one per line, and prints a marker. */
 function fakeCli(binDir: string, name: string, home: string) {
@@ -293,11 +293,7 @@ test('tracks an existing terminal and keeps the context view responsive', async 
     .getByRole('navigation', { name: 'Main navigation' })
     .getByRole('button', { name: 'Terminals' })
     .click();
-  await page
-    .getByRole('button', {
-      name: 'New terminal in tracked-with-a-rather-long-repository-name-for-layout',
-    })
-    .click();
+  await openProjectTerminal(page, 'tracked-with-a-rather-long-repository-name-for-layout');
   const pane = page.getByTestId('terminal-pane').first();
   await expect(pane.getByRole('button', { name: 'Git actions' })).toBeVisible({ timeout: 15_000 });
   await pane.getByTestId('terminal-host').click({ button: 'right' });
@@ -342,6 +338,7 @@ test('LLMs typed in a project terminal are told to read the ATLAS project config
   const { page } = await atlas.launch();
 
   await page.getByTestId('project-card').click();
+  await page.getByRole('tab', { name: 'AI & context' }).click();
   const settings = page.getByTestId('project-ai-settings');
   const keep = settings.getByRole('checkbox', { name: 'Keep shared context' });
   await expect(keep).not.toBeChecked();
@@ -402,6 +399,7 @@ test('records an LLM session typed in a terminal, with its checkpoint and Git ch
   const { page } = await atlas.launch();
 
   await page.getByTestId('project-card').click();
+  await page.getByRole('tab', { name: 'AI & context' }).click();
   await page
     .getByTestId('project-ai-settings')
     .getByRole('checkbox', { name: 'Keep shared context' })
