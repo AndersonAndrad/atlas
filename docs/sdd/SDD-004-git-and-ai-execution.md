@@ -242,6 +242,69 @@ host process, so Electron's main and renderer processes never block. After every
 the inspection cache is invalidated and a `git` event refreshes all views (terminal
 headers, sidebar counters).
 
+## Operation log and reflog (PLAN-016)
+
+Every operation is also written to a persistent log (migration v7, tables
+`git_operation_log` and `git_command_log`) when it is queued, starts and finishes; the
+coordinator's journal hook never changes an operation's outcome (logging failures are only
+reported in the application log). Each Git command run **inside** an operation is recorded
+by a wrapper around the workspace executor (an `AsyncLocalStorage` scope set by the
+coordinator): arguments, start time, duration, exit code, outcome (`succeeded`, `failed`,
+`cancelled`) and the end of standard output and standard error (64 KB each, credentials
+removed with the Git sanitizer, NUL bytes turned into line breaks, `truncated` when cut).
+One operation stores at most about 256 KB of output; after that each further command keeps
+only the last 4 KB per stream, so large status listings cannot inflate the database.
+Standard input — commit messages — is never stored; pre-commit steps are kept with the
+operation as before. Read-only inspection outside operations (status polling, diffs) is
+not logged.
+
+When the Engine host starts, operations left queued or running by a previous run are
+closed as `cancelled` ("ATLAS stopped before the operation finished"). Retention: 90 days
+and 5,000 operations by default (Settings → Git operation log; `git.operationLog` in
+`application_settings`); pruning runs at start, after every 50 finished operations and
+when the settings change, and removes the commands with their operation.
+
+The **Reflog** shows `git reflog show HEAD` (latest 100; subjects sanitized, nothing
+stored), i.e. HEAD changes by any tool, including `git` typed in a terminal, which ATLAS
+never captures. An entry is marked **ATLAS** when a succeeded logged operation of a kind
+that can produce it (commit → commit; checkout → switch or create branch; merge; pull;
+reset → abort merge; branch rename) was running at that time (±1 s, reflog times have
+second precision); otherwise **Outside ATLAS**. Matching is by time and kind only.
+
+The Operations side panel has three tabs: **Recent** (live, as before), **History** (the
+log with kind and status filters, older pages, each operation's commands with output and
+**Copy log**) and **Reflog**.
+
+| Engine method          | Clients      | Purpose                                    |
+| ---------------------- | ------------ | ------------------------------------------ |
+| `git.operationLog`     | desktop, CLI | Logged operations, newest first, paginated |
+| `git.operationDetails` | desktop, CLI | One operation with its Git commands        |
+| `git.reflog`           | desktop, CLI | HEAD reflog of an authorized repository    |
+| `git.logSettings`      | desktop      | Retention                                  |
+| `git.setLogSettings`   | desktop      | Change the retention (prunes immediately)  |
+
+```bash
+atlas git log-operations [--repo <path>] [--kind <kind>] [--status <status>] [--before <time>] [-n <count>] [--json]
+atlas git log-operation <id> [--json]
+atlas git reflog [--repo <path>] [-n <count>] [--json]
+```
+
+## Commit environment (PLAN-018)
+
+Commit checks and Git hooks (pre-commit, commit-msg, pre-push) see what a new terminal
+would see **now**: before each commit (and each push, or once for Commit & Push) the
+Engine starts the user's `$SHELL -i -l` without a controlling terminal, in the repository,
+from the same base environment as a new ATLAS terminal, and reads its environment (`env
+-0` after a marker, so anything the start-up files print is ignored). Nothing is cached,
+so profile changes apply to the next commit. Git's safety settings (no inherited `GIT_*`,
+no prompts, `LC_ALL=C`) are applied on top for Git commands.
+
+`NODE_ENV` and `NODE_ENV_ELECTRON_VITE` set by ATLAS's own development tooling (`pnpm dev`)
+are never passed to terminals, checks or Git; a `NODE_ENV` set in the user's profile is
+kept. If the shell cannot be read within 8 s, ATLAS's environment (also without those
+variables) is used and the operation summary ends with "your shell's environment could not
+be read; ATLAS's was used". Variables are never logged.
+
 ## Errors and security log (FR-408–FR-412)
 
 Expected Git failures are reported on the operation, not thrown: `authentication`,
@@ -287,7 +350,9 @@ credentials.
 
 No migration: `application_settings` key `git.preferences` stores `commitTypes`,
 `requireScope`, `headerMaxLength`, `suggestions` (`deterministic` or `off`) and
-`lastRepositoryRoot`. Operation history is kept in memory (last 100) and never persisted.
+`lastRepositoryRoot`. The live operation list is kept in memory (last 100); since PLAN-016
+operations and their commands are also persisted (migration v7, see "Operation log and
+reflog"). A database migrated to v7 cannot be opened by ATLAS 0.10.0 or older.
 
 ## Tests
 
@@ -342,6 +407,23 @@ No migration: `application_settings` key `git.preferences` stores `commitTypes`,
   committing listed staged files; invalid stored commit checks and invalid stored global
   Git preferences refusing commits until saved again.
 
+Operation log (PLAN-016):
+
+- `packages/git/tests/operation-log.test.ts`: commands recorded only inside operations,
+  standard input never stored, NUL output, sanitized arguments and output, failed and
+  cancelled commands, truncation, journal on status changes only and journal failures not
+  failing operations, paging, details, reflog attribution by time and kind (a terminal
+  commit during staging stays "outside"), retention settings and pruning, reflog parsing.
+- `packages/persistence/tests/git-operation-log.test.ts`: upsert, filters, commands,
+  time windows, closing unfinished operations, pruning by age and count with commands.
+- `apps/engine/tests/git-operation-log.test.ts` (real Git): operations and commands kept
+  across restarts, reflog with terminal and ATLAS changes, unauthorized repository refused,
+  unfinished operations closed and old ones pruned at start, retention settings.
+- `apps/desktop/tests/ipc.test.ts` and `apps/cli/tests/cli.test.ts`: log, details, reflog
+  and settings validation; CLI listing and option errors.
+- `tests/e2e/git.spec.ts`: History after a restart with the commands and Copy log, Reflog
+  marking a terminal commit "Outside ATLAS", retention in Settings.
+
 ## Known limitations
 
 - File-level staging only; hunk-level staging is deferred (allowed by FR-405).
@@ -354,10 +436,20 @@ No migration: `application_settings` key `git.preferences` stores `commitTypes`,
   tests; network behavior was verified against local bare remotes and an unreachable URL.
 - Push uses the branch's upstream (`branch.<name>.remote` / `.merge`); `pushRemote` and
   `remote.pushDefault` are not applied.
-- Hooks run with the Engine host's environment; hooks that rely on tools only available in
-  a login shell's PATH may fail when ATLAS is launched from the Finder.
+- Commit environment (PLAN-018): checks and hooks get the environment of a new terminal,
+  read for every commit by starting the user's shell as an interactive login shell. Shells
+  whose start-up files take more than 8 s (or wait for input) fall back to ATLAS's own
+  environment, and the commit result says so. Windows uses ATLAS's environment.
+  Hooks of other operations (e.g. `post-merge` on pull, `post-checkout` on switching
+  branches) keep ATLAS's environment, without the development `NODE_ENV`.
 - Minimum Git version: 2.23 (`git restore`, `git switch`); verified with Git 2.55.
 - AI-assisted suggestions (FR-407 Strategy B) wait for Milestone B.
+- Operation log (PLAN-016): the log is stored unencrypted in the local database and holds
+  file names, branch names and Git output (credentials removed by pattern; a secret in an
+  unrecognized format could remain). Reflog attribution is a time-and-kind heuristic: a
+  terminal change of the same kind in the same second as an ATLAS operation is marked
+  ATLAS. Changes outside ATLAS that do not move HEAD (e.g. `git add` in a terminal) are
+  not visible anywhere.
 
 ---
 

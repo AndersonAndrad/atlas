@@ -19,6 +19,10 @@ export const ERROR_CODES = [
   'GIT_INDEX_CHANGED',
   'GIT_NO_UPSTREAM',
   'GIT_OPERATION_NOT_FOUND',
+  'SKILL_NOT_FOUND',
+  'SKILL_SOURCE_UNAUTHORIZED',
+  'SKILL_REJECTED',
+  'SKILL_SYNC_CONFLICT',
   'ENGINE_UNAVAILABLE',
   'VALIDATION_FAILED',
   'INTERNAL_ERROR',
@@ -53,6 +57,12 @@ export const USER_MESSAGES: Record<ErrorCode, string> = {
     'The staged changes or the current commit changed since you reviewed them. Review the changes again.',
   GIT_NO_UPSTREAM: 'This branch has no upstream branch. Choose where to push it.',
   GIT_OPERATION_NOT_FOUND: 'The Git operation could not be found. It may have finished.',
+  SKILL_NOT_FOUND: 'The skill could not be found. It may have been removed.',
+  SKILL_SOURCE_UNAUTHORIZED:
+    'This folder is not an authorized skill source. Choose it in the folder picker or add it as a source.',
+  SKILL_REJECTED: 'The skill cannot be imported safely. Review the reported problems.',
+  SKILL_SYNC_CONFLICT:
+    'A folder with this name already exists and was not created by ATLAS. Nothing was changed.',
   ENGINE_UNAVAILABLE:
     'The ATLAS Engine is not running. Start (or restart) ATLAS Control and try again.',
   VALIDATION_FAILED: 'Some fields are invalid. Review them and try again.',

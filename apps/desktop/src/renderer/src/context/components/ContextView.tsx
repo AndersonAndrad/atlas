@@ -16,13 +16,6 @@ import { api, errorMessage, unwrap } from '@/api';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -33,7 +26,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { ProjectDetails } from '@/types';
 import { targetKey } from '../format';
 import { useContextTargets, useKeyedLoad } from '../hooks/useContextData';
+import { ContextPreviewDialog } from './ContextPreview';
 import { DecisionsTab } from './DecisionsTab';
+import { HealthTab } from './HealthTab';
 import { HandoffDialog, HandoffsTab } from './HandoffsTab';
 import { MemoryTab } from './MemoryTab';
 import { SessionsTab, SummaryDialog } from './SessionsTab';
@@ -203,6 +198,9 @@ export function ContextView({
               <TabsTrigger value="handoffs" className="flex-none">
                 Handoffs
               </TabsTrigger>
+              <TabsTrigger value="health" className="flex-none">
+                Health
+              </TabsTrigger>
             </TabsList>
             <TabsContent value="overview">
               <Overview
@@ -253,6 +251,9 @@ export function ContextView({
                 }
               />
             </TabsContent>
+            <TabsContent value="health">
+              <HealthTab key={`${key}:${version}`} target={target} targetKey={key} />
+            </TabsContent>
           </Tabs>
         )}
       </div>
@@ -301,7 +302,7 @@ export function ContextView({
         />
       )}
       {target && key && dialog?.kind === 'bundle' && (
-        <BundleDialog target={target} targetKey={key} onClose={() => setDialog(null)} />
+        <ContextPreviewDialog target={target} targetKey={key} onClose={() => setDialog(null)} />
       )}
     </main>
   );
@@ -391,41 +392,5 @@ function Overview({
         </Button>
       </div>
     </section>
-  );
-}
-
-function BundleDialog({
-  target,
-  targetKey: key,
-  onClose,
-}: {
-  target: ContextTarget;
-  targetKey: string;
-  onClose: () => void;
-}) {
-  const bundle = useKeyedLoad(`${key}:preview`, () => api().context.bundle({ target }));
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent
-        className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"
-        data-testid="context-bundle-dialog"
-      >
-        <DialogHeader>
-          <DialogTitle>Context bundle</DialogTitle>
-          <DialogDescription>
-            {bundle.value
-              ? `~${bundle.value.tokenEstimate} tokens · ${bundle.value.freshness.stale.length} stale item(s)` +
-                (bundle.value.omitted ? ` · ${bundle.value.omitted} left out` : '')
-              : (bundle.error ?? 'Checking the repository…')}
-          </DialogDescription>
-        </DialogHeader>
-        <pre
-          className="bg-muted/50 max-h-[60vh] overflow-auto rounded border p-3 font-mono text-xs whitespace-pre-wrap"
-          data-testid="context-bundle"
-        >
-          {bundle.value?.markdown ?? ''}
-        </pre>
-      </DialogContent>
-    </Dialog>
   );
 }

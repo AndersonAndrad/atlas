@@ -13,8 +13,10 @@ import {
 } from '@/components/ui/select';
 import { useAppInfo } from '@/hooks/useAppInfo';
 import type { useTerminalPreferences } from '@/terminal/hooks/useTerminalPreferences';
+import { GitLogSettingsSection } from '@/git/components/GitLogSettingsSection';
 import { GitSettingsSection } from '@/git/components/GitSettingsSection';
 import { SessionSettingsSection } from '@/sessions/components/SessionSettingsSection';
+import { ContextBudgetSection } from '@/context/components/ContextBudgetSection';
 import { AppInfoList } from './AppInfoList';
 
 const SYSTEM_SHELL = '__system__';
@@ -121,7 +123,11 @@ export function SettingsView({ preferences }: SettingsViewProps) {
 
           <GitSettingsSection />
 
+          <GitLogSettingsSection />
+
           <SessionSettingsSection />
+
+          <ContextBudgetSection />
 
           <section
             className="bg-card flex flex-col gap-3 rounded-lg border p-4"

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type {
   GitFailureCode,
   GitOperation,
@@ -50,11 +51,24 @@ export interface GitOperationOutcome<T> {
   value: T | null;
 }
 
+/** Receives every status change of an operation, e.g. to keep a persistent log. */
+export interface GitOperationJournal {
+  operationChanged(operation: GitOperation): void;
+}
+
+/** The operation whose task is running in the current asynchronous context. */
+export interface GitOperationScope {
+  readonly operationId: string;
+  /** Commands run so far by the operation; used to number them. */
+  commands: number;
+}
+
 export interface GitOperationCoordinatorOptions {
   generateId: () => string;
   now?: () => Date;
   logger?: Logger;
   onChange?: (operation: GitOperation) => void;
+  journal?: GitOperationJournal;
   historyLimit?: number;
   progressIntervalMs?: number;
 }
@@ -91,11 +105,19 @@ export class GitOperationCoordinator {
   private readonly tracked = new Map<string, Tracked>();
   private readonly logger: Logger;
   private readonly now: () => Date;
+  private readonly scope = new AsyncLocalStorage<GitOperationScope>();
+  /** Last status passed to the journal per unfinished operation. */
+  private readonly journaled = new Map<string, GitOperation['status']>();
   private closed = false;
 
   constructor(private readonly options: GitOperationCoordinatorOptions) {
     this.logger = options.logger ?? noopLogger;
     this.now = options.now ?? (() => new Date());
+  }
+
+  /** The operation running the current task, so its Git commands can be attributed. */
+  currentScope(): GitOperationScope | undefined {
+    return this.scope.getStore();
   }
 
   /** Recent operations, oldest first. */
@@ -227,28 +249,31 @@ export class GitOperationCoordinator {
 
       let lastProgress = 0;
       const interval = this.options.progressIntervalMs ?? 200;
-      const result = await task({
-        signal: controller.signal,
-        progress: (line) => {
-          const parsed = parseProgress(line);
-          if (parsed === null) return;
-          operation.progress = parsed;
-          const now = Date.now();
-          if (now - lastProgress >= interval || parsed.percent === 100) {
-            lastProgress = now;
+      const scope: GitOperationScope = { operationId: operation.id, commands: 0 };
+      const result = await this.scope.run(scope, () =>
+        task({
+          signal: controller.signal,
+          progress: (line) => {
+            const parsed = parseProgress(line);
+            if (parsed === null) return;
+            operation.progress = parsed;
+            const now = Date.now();
+            if (now - lastProgress >= interval || parsed.percent === 100) {
+              lastProgress = now;
+              this.emit(operation);
+            }
+          },
+          setSteps: (steps) => {
+            operation.steps = steps.map((step) => ({ ...step }));
             this.emit(operation);
-          }
-        },
-        setSteps: (steps) => {
-          operation.steps = steps.map((step) => ({ ...step }));
-          this.emit(operation);
-        },
-        setCancellable: (cancellable) => {
-          if (operation.cancellable === cancellable) return;
-          operation.cancellable = cancellable;
-          this.emit(operation);
-        },
-      });
+          },
+          setCancellable: (cancellable) => {
+            if (operation.cancellable === cancellable) return;
+            operation.cancellable = cancellable;
+            this.emit(operation);
+          },
+        }),
+      );
       return {
         operation: this.finish(operation, 'succeeded', result.summary),
         value: result.value,
@@ -300,6 +325,19 @@ export class GitOperationCoordinator {
 
   private emit(operation: GitOperation): void {
     this.options.onChange?.(copy(operation));
+    const { journal } = this.options;
+    if (journal === undefined || this.journaled.get(operation.id) === operation.status) return;
+    if (operation.status === 'queued' || operation.status === 'running') {
+      this.journaled.set(operation.id, operation.status);
+    } else {
+      this.journaled.delete(operation.id);
+    }
+    try {
+      journal.operationChanged(copy(operation));
+    } catch (error) {
+      // The log never decides whether a Git operation succeeds.
+      this.logger.warn('Git operation could not be logged', { error: describeError(error) });
+    }
   }
 
   private track(entry: Tracked): void {

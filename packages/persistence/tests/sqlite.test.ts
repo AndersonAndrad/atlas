@@ -397,6 +397,42 @@ describe('SQLite persistence', () => {
     });
   });
 
+  describe('migration v6 from a v5 database', () => {
+    it('keeps shared context and adds retrieval columns with neutral defaults', () => {
+      db.close();
+      const v5Path = path.join(temp.dir, 'v5.db');
+      db = openDatabase({ filePath: v5Path, migrations: MIGRATIONS.slice(0, 5) });
+      db.prepare(
+        `INSERT INTO context_tasks (id, project_id, workspace_path, title, objective, status,
+           base_commit, created_at, updated_at)
+         VALUES ('00000000-0000-4000-8000-0000000000e1', NULL, '/repo', 'T', 'O', 'open', NULL, 'x', 'x')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO context_entries (id, scope, project_id, workspace_path, task_id, session_id,
+           category, title, body, status, verification, source_kind, source_ref, recorded_by,
+           created_at, updated_at)
+         VALUES ('00000000-0000-4000-8000-0000000000e2', 'workspace', NULL, '/repo', NULL, NULL,
+           'note', 'Kept', '', 'active', 'user', 'user', NULL, 'desktop', 'x', 'x')`,
+      ).run();
+      db.close();
+
+      db = openDatabase({ filePath: v5Path });
+      expect(getSchemaVersion(db)).toBe(8);
+      expect(db.prepare('SELECT title, required FROM context_entries').all()).toEqual([
+        { title: 'Kept', required: 0 },
+      ]);
+      expect(db.prepare('SELECT base_branch, budget_tokens FROM context_tasks').all()).toEqual([
+        { base_branch: null, budget_tokens: null },
+      ]);
+      expect(db.prepare('SELECT COUNT(*) AS n FROM context_reconciliations').get()).toEqual({
+        n: 0,
+      });
+      expect(() =>
+        db.prepare("UPDATE context_tasks SET budget_tokens = 10 WHERE title = 'T'").run(),
+      ).toThrow();
+    });
+  });
+
   describe('migration v3 from a v2 database', () => {
     it('keeps sessions, separates names and drops per-project layouts', () => {
       db.close();
@@ -419,7 +455,7 @@ describe('SQLite persistence', () => {
       db.close();
 
       db = openDatabase({ filePath: v2Path });
-      expect(getSchemaVersion(db)).toBe(5);
+      expect(getSchemaVersion(db)).toBe(8);
       const rows = db
         .prepare(
           'SELECT auto_title, custom_title, group_position, current_cwd FROM terminal_sessions ORDER BY created_at',

@@ -23,6 +23,12 @@
     },
     {
       "path": "../context"
+    },
+    {
+      "path": "../git"
+    },
+    {
+      "path": "../skills"
     }
   ]
 }

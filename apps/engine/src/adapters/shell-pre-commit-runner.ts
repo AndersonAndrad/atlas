@@ -41,7 +41,11 @@ const RAW_OUTPUT_CHARS = MAX_OUTPUT_CHARS + 4 * 1024;
 export class ShellPreCommitRunner implements PreCommitStepRunner {
   constructor(private readonly options: ShellPreCommitRunnerOptions) {}
 
-  run(step: PreCommitStep, { cwd, signal }: { cwd: string; signal: AbortSignal }) {
+  run(
+    step: PreCommitStep,
+    { cwd, signal, env }: { cwd: string; signal: AbortSignal; env?: Record<string, string> },
+  ) {
+    const stepEnv = env ?? this.options.env;
     if (signal.aborted) {
       return Promise.resolve<PreCommitStepOutcome>({
         status: 'cancelled',
@@ -57,7 +61,7 @@ export class ShellPreCommitRunner implements PreCommitStepRunner {
     // Verbatim arguments skip Node's quoting, so wrap the command the way Node does
     // for `shell: true`: cmd /s strips exactly these outer quotes.
     const [file, args] = windows
-      ? [this.options.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `"${step.command}"`]]
+      ? [stepEnv.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `"${step.command}"`]]
       : [this.options.shell, [...(platform === 'darwin' ? ['-l'] : []), '-c', step.command]];
     const started = Date.now();
 
@@ -65,7 +69,7 @@ export class ShellPreCommitRunner implements PreCommitStepRunner {
       const child = spawnProcess(file, args, {
         cwd,
         // CI=1 keeps tools non-interactive (no watch modes or prompts) unless set already.
-        env: { ...this.options.env, CI: this.options.env.CI ?? '1' },
+        env: { ...stepEnv, CI: stepEnv.CI ?? '1' },
         detached: !windows,
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,

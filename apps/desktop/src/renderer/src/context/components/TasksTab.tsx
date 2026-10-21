@@ -1,4 +1,10 @@
-import type { AiProvider, ContextTarget, ContextTask, ContextTaskStatus } from '@atlas/contracts';
+import type {
+  AiProvider,
+  ContextTarget,
+  ContextTask,
+  ContextTaskStatus,
+  UpdateContextTaskInput,
+} from '@atlas/contracts';
 import { Plus } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { ApiError, api, errorMessage, unwrap } from '@/api';
@@ -14,10 +20,19 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { formatDateTime } from '../format';
+import { BUDGET_OPTIONS, formatDateTime, formatTokens } from '../format';
 import { useKeyedLoad } from '../hooks/useContextData';
+
+const DEFAULT_BUDGET = '__default__';
 
 const STATUS_TONES: Record<ContextTaskStatus, string> = {
   open: 'bg-sky-500/15 text-sky-300',
@@ -39,16 +54,17 @@ export function TasksTab({ target, targetKey, onChanged, onContinue, onHandoff }
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function setStatus(task: ContextTask, status: ContextTaskStatus) {
+  async function change(task: ContextTask, input: UpdateContextTaskInput) {
     setError(null);
     try {
-      await unwrap(api().context.updateTask(target, task.id, { status }));
+      await unwrap(api().context.updateTask(target, task.id, input));
       await tasks.reload();
       onChanged();
     } catch (caught) {
       setError(errorMessage(caught));
     }
   }
+  const setStatus = (task: ContextTask, status: ContextTaskStatus) => change(task, { status });
 
   return (
     <div className="flex flex-col gap-3" data-testid="context-tasks">
@@ -93,6 +109,30 @@ export function TasksTab({ target, targetKey, onChanged, onContinue, onHandoff }
             <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
               <span>Created {formatDateTime(task.createdAt)}</span>
               {task.baseCommit && <span>from {task.baseCommit.slice(0, 8)}</span>}
+              <Select
+                value={task.budgetTokens === null ? DEFAULT_BUDGET : String(task.budgetTokens)}
+                onValueChange={(value) =>
+                  void change(task, {
+                    budgetTokens: value === DEFAULT_BUDGET ? null : Number(value),
+                  })
+                }
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="w-auto text-xs"
+                  aria-label={`Context budget for ${task.title}`}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={DEFAULT_BUDGET}>Default context budget</SelectItem>
+                  {BUDGET_OPTIONS.map((tokens) => (
+                    <SelectItem key={tokens} value={String(tokens)}>
+                      {formatTokens(tokens)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <span className="ml-auto flex flex-wrap gap-1.5">
                 {task.status === 'open' ? (
                   <>

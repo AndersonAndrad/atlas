@@ -5,6 +5,7 @@ import type {
   ContextHandoff,
   ContextOverview,
   ContextOwner,
+  ContextReconciliation,
   ContextRevision,
   ContextSnapshot,
   ContextTask,
@@ -22,6 +23,19 @@ export interface EntryFilter {
   limit?: number;
 }
 
+/** Record counts of an owner for the Context Health report. */
+export interface ContextCounts {
+  entries: number;
+  activeEntries: number;
+  obsoleteEntries: number;
+  requiredEntries: number;
+  decisions: number;
+  activeDecisions: number;
+  supersededDecisions: number;
+  tasks: number;
+  openTasks: number;
+}
+
 /** Persistence of shared context. Implemented with SQLite (`@atlas/persistence`). */
 export interface ContextRepository {
   insertEntry(entry: ContextEntry, revision: ContextRevision): Promise<void>;
@@ -31,6 +45,17 @@ export interface ContextRepository {
   /** Entries of an owner (global entries when the owner is empty), newest first. */
   listEntries(filter: EntryFilter): Promise<ContextEntry[]>;
   listRevisions(entryId: string): Promise<ContextRevision[]>;
+  /**
+   * Active entries of an owner matching any of the terms in the full-text index,
+   * best first (bm25). Terms are plain words; they are never parsed as FTS syntax.
+   */
+  rankEntries(owner: ContextOwner, terms: string[], limit: number): Promise<ContextEntry[]>;
+  /**
+   * Changes whenever an entry, task or decision of the owner (or a global entry)
+   * is added, changed or removed, also by another process. Used as cache key.
+   */
+  revision(owner: ContextOwner): Promise<string>;
+  counts(owner: ContextOwner): Promise<ContextCounts>;
 
   insertTask(task: ContextTask): Promise<void>;
   updateTask(task: ContextTask): Promise<void>;
@@ -54,6 +79,10 @@ export interface ContextRepository {
   listHandoffs(owner: ContextOwner): Promise<ContextHandoff[]>;
 
   insertSnapshot(snapshot: ContextSnapshot): Promise<void>;
+
+  /** Records a reconciliation run; only the latest runs per owner are kept. */
+  insertReconciliation(owner: ContextOwner, run: ContextReconciliation): Promise<void>;
+  lastReconciliation(owner: ContextOwner): Promise<ContextReconciliation | null>;
 
   overview(owner: ContextOwner): Promise<ContextOverview>;
   /** A removed project's records keep its directory as their workspace. */

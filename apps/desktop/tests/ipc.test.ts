@@ -548,6 +548,43 @@ describe('desktop IPC handlers', () => {
       const kinds = events.map(({ event }) => event.type);
       expect(kinds).toContain('git-operation');
       expect(kinds).toContain('git');
+
+      // The operation stays in the persistent log with the Git commands it ran.
+      const okStaged = staged as { ok: true; data: GitOperation };
+      const log = await invoke<{ operations: { id: string; commandCount: number }[] }>(
+        IPC_CHANNELS.gitOperationLog,
+        { repositoryRoot: workspace },
+      );
+      expect(log).toMatchObject({ ok: true, data: { operations: [{ id: okStaged.data.id }] } });
+      expect(await invoke(IPC_CHANNELS.gitOperationDetails, okStaged.data.id)).toMatchObject({
+        ok: true,
+        data: {
+          operation: { kind: 'stage' },
+          commands: expect.arrayContaining([expect.objectContaining({ outcome: 'succeeded' })]),
+        },
+      });
+      expect(await invoke(IPC_CHANNELS.gitOperationLog, { limit: 0 })).toMatchObject({
+        ok: false,
+        error: { code: 'VALIDATION_FAILED' },
+      });
+      expect(await invoke(IPC_CHANNELS.gitOperationDetails, 'not-an-id')).toMatchObject({
+        ok: false,
+        error: { code: 'VALIDATION_FAILED' },
+      });
+      expect(await invoke(IPC_CHANNELS.gitReflog, { repositoryRoot: workspace })).toMatchObject({
+        ok: true,
+      });
+      expect(
+        await invoke(IPC_CHANNELS.gitReflog, { repositoryRoot: path.join(temp.dir, 'outsider') }),
+      ).toMatchObject({ ok: false });
+      expect(await invoke(IPC_CHANNELS.gitSetLogSettings, { retentionDays: 0 })).toMatchObject({
+        ok: false,
+        error: { code: 'VALIDATION_FAILED' },
+      });
+      expect(await invoke(IPC_CHANNELS.gitLogSettings)).toMatchObject({
+        ok: true,
+        data: { retentionDays: 90, maxOperations: 5000 },
+      });
     });
   });
 
@@ -596,6 +633,43 @@ describe('desktop IPC handlers', () => {
       });
     });
 
+    it('reports health, reconciles and stores context budgets', async () => {
+      execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: workspace });
+      const project = await registerProject();
+      const target = { projectId: project.id };
+      expect(await invoke(IPC_CHANNELS.contextHealth, target)).toMatchObject({
+        ok: true,
+        data: { lastReconciliation: null, totals: { activeEntries: 0 } },
+      });
+      expect(await invoke(IPC_CHANNELS.contextReconcile, target)).toMatchObject({
+        ok: true,
+        data: { lastReconciliation: { stale: 0 } },
+      });
+      expect(
+        await invoke(IPC_CHANNELS.contextHealth, { workspacePath: path.join(temp.dir, 'nope') }),
+      ).toMatchObject({ ok: false });
+
+      expect(await invoke(IPC_CHANNELS.contextBudgets)).toMatchObject({
+        ok: true,
+        data: { defaultTokens: 6000 },
+      });
+      expect(await invoke(IPC_CHANNELS.contextSetBudgets, { defaultTokens: 100 })).toMatchObject({
+        ok: false,
+        error: { code: 'VALIDATION_FAILED' },
+      });
+      expect(await invoke(IPC_CHANNELS.contextSetBudgets, { roles: { qa: 2000 } })).toMatchObject({
+        ok: true,
+        data: { defaultTokens: 6000, roles: { qa: 2000 } },
+      });
+      expect(
+        await invoke(IPC_CHANNELS.contextBundle, { target, agentRole: 'qa', excludeIds: ['x'] }),
+      ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+      expect(await invoke(IPC_CHANNELS.contextBundle, { target, agentRole: 'qa' })).toMatchObject({
+        ok: true,
+        data: { budgetTokens: 2000, budgetSource: 'role' },
+      });
+    });
+
     it('validates project AI configuration changes', async () => {
       const project = await registerProject();
       expect(await invoke(IPC_CHANNELS.contextProjectConfig, project.id)).toMatchObject({
@@ -614,6 +688,89 @@ describe('desktop IPC handlers', () => {
       expect(
         await invoke(IPC_CHANNELS.contextSetProjectConfig, project.id, { atlasEnabled: true }),
       ).toMatchObject({ ok: true, data: { config: { atlasEnabled: true } } });
+    });
+  });
+
+  describe('skills', () => {
+    const skillDir = (name: string) => {
+      const dir = path.join(temp.dir, 'skills', name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: d\n---\n`);
+      return dir;
+    };
+
+    it('reads only folders chosen in the picker or inside an added source', async () => {
+      const dir = skillDir('helper');
+      expect(await invoke(IPC_CHANNELS.skillsInspect, dir)).toMatchObject({
+        ok: false,
+        error: { code: 'SKILL_SOURCE_UNAUTHORIZED' },
+      });
+      expect(
+        await invoke(IPC_CHANNELS.skillsAddSource, { path: path.dirname(dir), kind: 'path' }),
+      ).toMatchObject({ ok: false, error: { code: 'SKILL_SOURCE_UNAUTHORIZED' } });
+      // The renderer cannot claim the folder was picked.
+      expect(await invoke(IPC_CHANNELS.skillsInspect, dir, true)).toMatchObject({ ok: false });
+
+      pickedPath = path.dirname(dir);
+      await invoke(IPC_CHANNELS.chooseDirectory, 'skill');
+      expect(
+        await invoke(IPC_CHANNELS.skillsAddSource, { path: path.dirname(dir), kind: 'path' }),
+      ).toMatchObject({ ok: true });
+      const preview = await invoke<{ contentHash: string }>(IPC_CHANNELS.skillsInspect, dir);
+      expect(preview).toMatchObject({ ok: true, data: { name: 'helper' } });
+      const { contentHash } = (preview as { ok: true; data: { contentHash: string } }).data;
+      expect(
+        await invoke(IPC_CHANNELS.skillsImport, { path: dir, confirm: false, contentHash }),
+      ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+      expect(
+        await invoke(IPC_CHANNELS.skillsImport, { path: dir, confirm: true, contentHash }),
+      ).toMatchObject({ ok: true, data: { name: 'helper', enabled: false } });
+      expect(await invoke(IPC_CHANNELS.skillsList)).toMatchObject({
+        ok: true,
+        data: [{ name: 'helper' }],
+      });
+    });
+
+    it('accepts sync folders only when picked or suggested, and validates rules', async () => {
+      expect(
+        await invoke(IPC_CHANNELS.skillsSetSyncTargets, { codex: path.join(temp.dir, 'anywhere') }),
+      ).toMatchObject({ ok: false, error: { code: 'SKILL_SOURCE_UNAUTHORIZED' } });
+      const chosen = path.join(temp.dir, 'chosen');
+      mkdirSync(chosen);
+      pickedPath = chosen;
+      await invoke(IPC_CHANNELS.chooseDirectory, 'skill');
+      expect(await invoke(IPC_CHANNELS.skillsSetSyncTargets, { codex: chosen })).toMatchObject({
+        ok: true,
+        data: { codex: chosen, claude: null },
+      });
+      const skill = await invoke<{ id: string }>(IPC_CHANNELS.skillsCreateFromTemplate, {
+        templateId: 'code-review',
+        name: 'review',
+      });
+      const id = (skill as { ok: true; data: { id: string } }).data.id;
+      expect(
+        await invoke(IPC_CHANNELS.skillsAssign, {
+          skillId: id,
+          scope: 'role',
+          target: 'boss',
+          effect: 'enable',
+        }),
+      ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+      expect(
+        await invoke(IPC_CHANNELS.skillsAssign, {
+          skillId: id,
+          scope: 'provider',
+          target: 'codex',
+          effect: 'enable',
+        }),
+      ).toMatchObject({ ok: true });
+      expect(await invoke(IPC_CHANNELS.skillsResolve, { provider: 'codex' })).toMatchObject({
+        ok: true,
+        data: [{ active: true, layer: 'provider' }],
+      });
+      expect(
+        await invoke(IPC_CHANNELS.skillsReadFile, { skillId: id, sequence: 1, path: '../x' }),
+      ).toMatchObject({ ok: false, error: { code: 'SKILL_NOT_FOUND' } });
     });
   });
 

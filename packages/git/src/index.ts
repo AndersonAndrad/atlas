@@ -7,3 +7,4 @@ export * from './workspace-service.js';
 export * from './preferences.js';
 export * from './pre-commit.js';
 export * from './repository-evidence.js';
+export * from './operation-log.js';

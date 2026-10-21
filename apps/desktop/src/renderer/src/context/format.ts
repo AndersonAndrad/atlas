@@ -1,6 +1,9 @@
 import type {
+  AgentRole,
   AiSession,
+  BundleSection,
   ContextCategory,
+  ExclusionReason,
   ContextTarget,
   ContextVerification,
 } from '@atlas/contracts';
@@ -9,6 +12,7 @@ export const CATEGORY_LABELS: Record<ContextCategory, string> = {
   overview: 'Overview',
   architecture: 'Architecture',
   convention: 'Convention',
+  constraint: 'Constraint',
   command: 'Command',
   objective: 'Objective',
   progress: 'Progress',
@@ -23,6 +27,41 @@ export const CATEGORY_LABELS: Record<ContextCategory, string> = {
   summary: 'Session summary',
   note: 'Note',
 };
+
+export const SECTION_LABELS: Record<BundleSection, string> = {
+  constraints: 'Constraints',
+  decisions: 'Active decisions',
+  'relevant-files': 'Relevant files',
+  'task-state': 'Current task state',
+  validations: 'Validations',
+  blockers: 'Blockers and known failures',
+  knowledge: 'Project knowledge',
+  history: 'History and notes',
+  global: 'Shared conventions (global)',
+};
+
+export const EXCLUSION_LABELS: Record<ExclusionReason, string> = {
+  budget: 'Did not fit the budget',
+  user: 'Excluded by you',
+  duplicate: 'Duplicate of an included record',
+  compacted: 'Older session summary',
+  'not-relevant': 'No match with the objective',
+  progressive: 'Available on request',
+};
+
+export const ROLE_LABELS: Record<AgentRole, string> = {
+  generic: 'Ordinary session',
+  architect: 'Architect',
+  developer: 'Developer',
+  qa: 'QA',
+  security: 'Security',
+  reviewer: 'Reviewer',
+};
+
+/** Budget choices in estimated tokens (500–32,000 are accepted). */
+export const BUDGET_OPTIONS = [1000, 2000, 4000, 6000, 8000, 12000, 16000, 24000, 32000];
+
+export const formatTokens = (tokens: number) => `~${tokens.toLocaleString('en-US')} tokens`;
 
 export const VERIFICATION_LABELS: Record<ContextVerification, string> = {
   verified: 'Verified',

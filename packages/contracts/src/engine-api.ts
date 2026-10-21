@@ -30,7 +30,10 @@ import {
   GitFetchInputSchema,
   GitMergeInputSchema,
   GitOperationIdSchema,
+  GitOperationLogQuerySchema,
   GitPathsInputSchema,
+  GitReflogInputSchema,
+  UpdateGitOperationLogSettingsSchema,
   GitPullInputSchema,
   GitPushInputSchema,
   GitRenameBranchInputSchema,
@@ -43,7 +46,11 @@ import {
   type GitFileDiff,
   type GitMergePreview,
   type GitOperation,
+  type GitOperationLogDetails,
+  type GitOperationLogPage,
+  type GitOperationLogSettings,
   type GitPreferences,
+  type GitReflogEntry,
   type GitPullInfo,
   type GitRemote,
   type GitRepositoryEntry,
@@ -56,6 +63,7 @@ import {
   type TerminalProjectContext,
 } from './git.js';
 import {
+  AI_PROVIDERS,
   AttachTerminalSchema,
   ContextBundleRequestSchema,
   ContextQuerySchema,
@@ -69,8 +77,11 @@ import {
   UpdateContextEntrySchema,
   UpdateContextTaskSchema,
   UpdateProjectAiConfigSchema,
+  UpdateContextBudgetSettingsSchema,
   type AiSession,
+  type ContextBudgetSettings,
   type ContextBundle,
+  type ContextHealthReport,
   type ContextEntry,
   type ContextHandoff,
   type ContextHandoffDraft,
@@ -83,6 +94,34 @@ import {
   type ProjectConfigView,
   type StartedAiSession,
 } from './context.js';
+import {
+  AddSkillSourceSchema,
+  CreateSkillFromTemplateSchema,
+  EditSkillSchema,
+  ImportSkillSchema,
+  InspectSkillSchema,
+  ReadSkillFileSchema,
+  RemoveSkillAssignmentSchema,
+  ResolveSkillsSchema,
+  SkillAssignmentSchema,
+  SkillDiffSchema,
+  SkillIdSchema,
+  SkillSyncTargetsSchema,
+  type DiscoveredSkill,
+  type ResolvedSkill,
+  type Skill,
+  type SkillDetails,
+  type SkillDiff,
+  type SkillFileContent,
+  type SkillImportPreview,
+  type SkillSource,
+  type SkillSourceSuggestion,
+  type SkillSyncBatch,
+  type SkillSyncPlan,
+  type SkillSyncResult,
+  type SkillSyncTargets,
+  type SkillTemplate,
+} from './skills.js';
 import {
   AtlasSessionIdSchema,
   ListSessionsInputSchema,
@@ -187,6 +226,11 @@ export const ENGINE_METHOD_PARAMS = {
   'git.suggestMessage': z.tuple([GitPathsInputSchema]),
   'git.operations': z.tuple([]),
   'git.cancelOperation': z.tuple([GitOperationIdSchema]),
+  'git.operationLog': z.tuple([GitOperationLogQuerySchema]),
+  'git.operationDetails': z.tuple([GitOperationIdSchema]),
+  'git.reflog': z.tuple([GitReflogInputSchema]),
+  'git.logSettings': z.tuple([]),
+  'git.setLogSettings': z.tuple([UpdateGitOperationLogSettingsSchema]),
   'git.getPreferences': z.tuple([]),
   'git.setPreferences': z.tuple([Unknown]),
   'git.commitContext': z.tuple([GitRepositoryRootSchema]),
@@ -224,6 +268,10 @@ export const ENGINE_METHOD_PARAMS = {
   'context.setDecisionStatus': z.tuple([Target, Uuid, z.enum(['ACTIVE', 'REJECTED'])]),
   'context.bundle': z.tuple([ContextBundleRequestSchema]),
   'context.snapshot': z.tuple([Target, Uuid.nullable()]),
+  'context.health': z.tuple([Target]),
+  'context.reconcile': z.tuple([Target]),
+  'context.budgets': z.tuple([]),
+  'context.setBudgets': z.tuple([UpdateContextBudgetSettingsSchema]),
   'context.prepareHandoff': z.tuple([
     Target,
     z.strictObject({ taskId: Uuid.optional(), sourceSessionId: Uuid.optional() }),
@@ -241,6 +289,33 @@ export const ENGINE_METHOD_PARAMS = {
   'context.setProjectConfig': z.tuple([Id, UpdateProjectAiConfigSchema]),
   'sessions.getSettings': z.tuple([]),
   'sessions.setSettings': z.tuple([Unknown]),
+  'skills.list': z.tuple([]),
+  'skills.details': z.tuple([SkillIdSchema]),
+  'skills.suggestions': z.tuple([]),
+  'skills.sources': z.tuple([]),
+  'skills.addSource': z.tuple([AddSkillSourceSchema, z.boolean()]),
+  'skills.setSourceEnabled': z.tuple([SkillIdSchema, z.boolean()]),
+  'skills.removeSource': z.tuple([SkillIdSchema]),
+  'skills.discover': z.tuple([]),
+  'skills.inspect': z.tuple([InspectSkillSchema, z.boolean()]),
+  'skills.import': z.tuple([ImportSkillSchema, z.boolean()]),
+  'skills.templates': z.tuple([]),
+  'skills.createFromTemplate': z.tuple([CreateSkillFromTemplateSchema]),
+  'skills.edit': z.tuple([EditSkillSchema]),
+  'skills.readFile': z.tuple([ReadSkillFileSchema]),
+  'skills.diff': z.tuple([SkillDiffSchema]),
+  'skills.validate': z.tuple([SkillIdSchema]),
+  'skills.setEnabled': z.tuple([SkillIdSchema, z.boolean()]),
+  'skills.assign': z.tuple([SkillAssignmentSchema]),
+  'skills.unassign': z.tuple([RemoveSkillAssignmentSchema]),
+  'skills.remove': z.tuple([SkillIdSchema]),
+  'skills.resolve': z.tuple([ResolveSkillsSchema]),
+  'skills.syncTargets': z.tuple([]),
+  'skills.setSyncTargets': z.tuple([SkillSyncTargetsSchema]),
+  'skills.syncPreview': z.tuple([z.enum(AI_PROVIDERS)]),
+  'skills.syncApply': z.tuple([z.enum(AI_PROVIDERS)]),
+  'skills.syncHistory': z.tuple([]),
+  'skills.syncRollback': z.tuple([SkillIdSchema]),
 } as const;
 
 export type EngineMethod = keyof typeof ENGINE_METHOD_PARAMS;
@@ -316,6 +391,11 @@ export interface EngineMethodResults {
   'git.suggestMessage': GitCommitSuggestion | null;
   'git.operations': GitOperation[];
   'git.cancelOperation': GitOperation;
+  'git.operationLog': GitOperationLogPage;
+  'git.operationDetails': GitOperationLogDetails;
+  'git.reflog': GitReflogEntry[];
+  'git.logSettings': GitOperationLogSettings;
+  'git.setLogSettings': GitOperationLogSettings;
   'git.getPreferences': StoredGitPreferences;
   'git.setPreferences': GitPreferences;
   'git.commitContext': GitCommitContext;
@@ -352,6 +432,10 @@ export interface EngineMethodResults {
   'context.setDecisionStatus': DecisionRecord;
   'context.bundle': ContextBundle;
   'context.snapshot': ContextSnapshot;
+  'context.health': ContextHealthReport;
+  'context.reconcile': ContextHealthReport;
+  'context.budgets': ContextBudgetSettings;
+  'context.setBudgets': ContextBudgetSettings;
   'context.prepareHandoff': ContextHandoffDraft;
   'context.createHandoff': ContextHandoff;
   'context.handoffs': ContextHandoff[];
@@ -366,6 +450,33 @@ export interface EngineMethodResults {
   'context.setProjectConfig': ProjectConfigView;
   'sessions.getSettings': SessionSettings;
   'sessions.setSettings': SessionSettings;
+  'skills.list': Skill[];
+  'skills.details': SkillDetails;
+  'skills.suggestions': SkillSourceSuggestion[];
+  'skills.sources': SkillSource[];
+  'skills.addSource': SkillSource;
+  'skills.setSourceEnabled': null;
+  'skills.removeSource': null;
+  'skills.discover': DiscoveredSkill[];
+  'skills.inspect': SkillImportPreview;
+  'skills.import': Skill;
+  'skills.templates': SkillTemplate[];
+  'skills.createFromTemplate': Skill;
+  'skills.edit': Skill;
+  'skills.readFile': SkillFileContent;
+  'skills.diff': SkillDiff;
+  'skills.validate': Skill;
+  'skills.setEnabled': Skill;
+  'skills.assign': Skill;
+  'skills.unassign': Skill;
+  'skills.remove': null;
+  'skills.resolve': ResolvedSkill[];
+  'skills.syncTargets': SkillSyncTargets;
+  'skills.setSyncTargets': SkillSyncTargets;
+  'skills.syncPreview': SkillSyncPlan;
+  'skills.syncApply': SkillSyncResult;
+  'skills.syncHistory': SkillSyncBatch[];
+  'skills.syncRollback': { restored: string[]; skipped: string[] };
 }
 
 export type EngineMethodParams<M extends EngineMethod> = z.input<(typeof ENGINE_METHOD_PARAMS)[M]>;
@@ -378,12 +489,40 @@ export const CLI_ENGINE_METHODS: readonly EngineMethod[] = [
   'context.tasks',
   'context.decisions',
   'context.bundle',
+  'context.health',
+  // Git history: operations ATLAS ran and the repository reflog (read-only).
+  'git.operationLog',
+  'git.operationDetails',
+  'git.reflog',
   'context.prepareHandoff',
   'context.createHandoff',
   'context.handoffs',
   'context.handoff',
   'context.sessions',
   'ai.start',
+  // Skills Hub: the CLI acts on explicit user commands (paths are command arguments).
+  'skills.list',
+  'skills.details',
+  'skills.sources',
+  'skills.addSource',
+  'skills.removeSource',
+  'skills.discover',
+  'skills.inspect',
+  'skills.import',
+  'skills.templates',
+  'skills.readFile',
+  'skills.diff',
+  'skills.validate',
+  'skills.setEnabled',
+  'skills.assign',
+  'skills.unassign',
+  'skills.remove',
+  'skills.resolve',
+  'skills.syncTargets',
+  'skills.syncPreview',
+  'skills.syncApply',
+  'skills.syncHistory',
+  'skills.syncRollback',
   'engine.status',
   'terminals.list',
   'terminals.get',

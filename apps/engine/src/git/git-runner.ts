@@ -1,5 +1,6 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { GitCommandError, type GitExecutor, type GitRunner } from '@atlas/git';
+import { withoutDevToolingVariables } from '../adapters/shell-environment.js';
 
 /**
  * Options applied to every invocation:
@@ -15,7 +16,7 @@ const MAX_STDERR_BYTES = 256 * 1024;
 /** Environment for git: no inherited GIT_* overrides, no prompts, stable output. */
 export function gitEnvironment(source: Record<string, string | undefined>): Record<string, string> {
   const env: Record<string, string> = {};
-  for (const [name, value] of Object.entries(source)) {
+  for (const [name, value] of Object.entries(withoutDevToolingVariables(source))) {
     if (value !== undefined && !name.startsWith('GIT_')) env[name] = value;
   }
   env.GIT_TERMINAL_PROMPT = '0';
@@ -127,12 +128,17 @@ export function createGitExecutor(
   const executable = options.executable ?? 'git';
   const env = gitEnvironment(options.env ?? process.env);
   const hardLimit = options.outputLimitBytes ?? MAX_OUTPUT_BYTES;
-  return (args, { cwd, timeoutMs, signal, input, okExitCodes = [0], maxOutputBytes, onProgress }) =>
+  return (
+    args,
+    { cwd, timeoutMs, signal, input, okExitCodes = [0], maxOutputBytes, onProgress, env: callEnv },
+  ) =>
     new Promise((resolve, reject) => {
       const limit = Math.min(maxOutputBytes ?? hardLimit, hardLimit);
       const child = spawn(executable, [...SAFE_PREFIX, ...args], {
         cwd,
-        env,
+        // A command-specific environment (e.g. a commit's fresh shell environment) gets
+        // the same Git safety rules.
+        env: callEnv === undefined ? env : gitEnvironment(callEnv),
         windowsHide: true,
         // Own process group on POSIX, so hooks are stopped with git (see killTree).
         detached: process.platform !== 'win32',

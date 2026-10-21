@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Page } from '@playwright/test';
@@ -119,6 +119,104 @@ test('inspects, stages and commits with Conventional Commits, then pushes', asyn
   await page.keyboard.press('Escape');
   await expect(sheet).toBeHidden();
   await expect(page.getByTestId('git-ahead-behind')).toHaveAttribute('data-ahead', '0');
+});
+
+test('keeps the operation log across restarts and shows terminal changes in the reflog', async ({
+  atlas,
+}) => {
+  const dir = atlas.workspace('logged');
+  const { git } = repositoryWithRemote(dir, path.join(atlas.root, 'home'));
+  atlas.cli('project', 'add', dir);
+  const first = await atlas.launch();
+  await openGit(first.page);
+  await first.page.getByRole('button', { name: 'Approve README.md' }).click();
+  await expect(file(first.page, 'staged', 'README.md')).toBeVisible();
+  await first.app.close();
+
+  // A change made outside ATLAS, e.g. `git commit` typed in a terminal.
+  git('commit', '-qm', 'docs: from the terminal');
+
+  const { page } = await atlas.launch();
+  await openGit(page);
+  const sheet = await openOperations(page);
+  await sheet.getByRole('tab', { name: 'History' }).click();
+  const logged = sheet.getByTestId('git-logged-operation');
+  await expect(logged).toHaveCount(1);
+  await expect(logged.locator('[data-testid="git-operation"]')).toHaveAttribute(
+    'data-kind',
+    'stage',
+  );
+  await logged.getByRole('button', { name: /Show \d+ Git commands?/ }).click();
+  await expect(sheet.getByTestId('git-command').first()).toBeVisible();
+  await expect(sheet.getByTestId('git-operation-details')).toContainText('git ');
+  await expect(sheet.getByTestId('git-operation-details')).toContainText('README.md');
+  await sheet.getByRole('button', { name: 'Copy log' }).click();
+  await expect(sheet.getByRole('button', { name: 'Copied' })).toBeVisible();
+
+  await sheet.getByRole('tab', { name: 'Reflog' }).click();
+  const latest = sheet.getByTestId('git-reflog-entry').first();
+  await expect(latest).toContainText('docs: from the terminal');
+  await expect(latest).toHaveAttribute('data-source', 'outside');
+  await expect(latest).toContainText('Outside ATLAS');
+
+  await page.keyboard.press('Escape');
+  await page
+    .getByRole('navigation', { name: 'Main navigation' })
+    .getByRole('button', { name: 'Settings' })
+    .click();
+  const retention = page.getByTestId('git-log-settings');
+  await retention.getByRole('combobox', { name: 'Keep operations for' }).click();
+  await page.getByRole('option', { name: '30 days' }).click();
+  await expect(retention.getByRole('combobox', { name: 'Keep operations for' })).toContainText(
+    '30 days',
+  );
+});
+
+test('commit checks never inherit the NODE_ENV of ATLAS development builds', async ({ atlas }) => {
+  const dir = atlas.workspace('fresh-env');
+  const { git } = repositoryWithRemote(dir, path.join(atlas.root, 'home'));
+  const out = path.join(atlas.root, 'step-env.txt');
+  const project = JSON.parse(atlas.cli('project', 'add', dir, '--json')) as {
+    project: { id: string };
+  };
+  // As when ATLAS is started with `pnpm dev`.
+  const { page } = await atlas.launch({
+    env: { NODE_ENV: 'development', NODE_ENV_ELECTRON_VITE: 'development' },
+  });
+  // The check is stored through the app's own API, as Settings does.
+  await page.evaluate(
+    async ({ id, file }) => {
+      const api = (
+        window as unknown as {
+          atlas: { git: { setProjectSettings: (id: string, s: unknown) => Promise<unknown> } };
+        }
+      ).atlas;
+      await api.git.setProjectSettings(id, {
+        enforceConventionalCommits: true,
+        preCommitSteps: [
+          {
+            name: 'env',
+            command: `printf '%s' "\${NODE_ENV:-unset}" > '${file}'`,
+            mode: 'complete',
+            timeoutSeconds: 30,
+            readyAfterSeconds: 2,
+            readyText: null,
+          },
+        ],
+      });
+    },
+    { id: project.project.id, file: out },
+  );
+  await openGit(page);
+  await page.getByRole('button', { name: 'Approve README.md' }).click();
+  await expect(file(page, 'staged', 'README.md')).toBeVisible();
+  await page.getByRole('button', { name: 'Commit…' }).click();
+  const dialog = page.getByTestId('commit-dialog');
+  await dialog.getByLabel('Commit message').fill('docs(readme): fresh environment');
+  await dialog.getByRole('button', { name: 'Commit', exact: true }).click();
+  await expect(dialog).toBeHidden({ timeout: 20_000 });
+  expect(git('log', '-1', '--format=%s').trim()).toBe('docs(readme): fresh environment');
+  expect(readFileSync(out, 'utf8')).toBe('unset');
 });
 
 test('includes unstaged files only when chosen and reports hook failures', async ({ atlas }) => {

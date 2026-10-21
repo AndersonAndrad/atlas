@@ -157,6 +157,90 @@ test('starts Claude with reviewed context and saves the session summary with Git
   ).toContainText('Add auth routes');
 });
 
+test('previews ranked context with exclusions, reports health and applies budgets (SDD-006)', async ({
+  atlas,
+}) => {
+  const dir = atlas.workspace('ranked');
+  repository(dir, path.join(atlas.root, 'home'));
+  atlas.cli('project', 'add', dir);
+  const { app, page } = await atlas.launch();
+  await openContext(page);
+
+  await page.getByRole('tab', { name: 'Memory' }).click();
+  const entryDialog = page.getByTestId('context-entry-dialog');
+  for (const [title, required] of [
+    ['Never edit generated files', true],
+    ['Refresh tokens rotate on login', false],
+    ['Styled the settings page', false],
+  ] as const) {
+    await page.getByRole('button', { name: 'Add entry' }).click();
+    await entryDialog.getByLabel('Title').fill(title);
+    if (required) await entryDialog.getByTestId('entry-required').click();
+    await entryDialog.getByRole('button', { name: 'Save' }).click();
+    await expect(entryDialog).toBeHidden();
+  }
+  await expect(page.getByTestId('context-entry').filter({ hasText: 'Never edit' })).toContainText(
+    'Required',
+  );
+
+  await page.getByRole('tab', { name: 'Overview' }).click();
+  await page.getByRole('button', { name: 'Preview context' }).click();
+  const preview = page.getByTestId('context-bundle-dialog');
+  await expect(preview.getByTestId('context-bundle-summary')).toContainText('3 record(s) included');
+  await preview.getByTestId('context-objective').fill('Rotate refresh tokens');
+  await preview.getByTestId('context-objective').press('Tab');
+  await expect(preview.getByTestId('context-bundle-summary')).toContainText('2 record(s) included');
+  const excluded = preview.getByTestId('context-excluded');
+  await excluded.locator('summary').click();
+  await expect(excluded).toContainText('Styled the settings page');
+  await expect(excluded).toContainText('No match with the objective');
+
+  // Optional records can be excluded; required ones are locked.
+  await expect(
+    preview.getByRole('checkbox', { name: 'Exclude “Never edit generated files”' }),
+  ).toBeDisabled();
+  await preview.getByRole('checkbox', { name: 'Exclude “Refresh tokens rotate on login”' }).click();
+  await expect(excluded).toContainText('Excluded by you');
+  await expect(preview.getByTestId('context-skills')).toContainText('Applicable skills');
+  await preview.getByRole('tab', { name: 'Text' }).click();
+  await expect(preview.getByTestId('context-bundle')).toContainText('Never edit generated files');
+  await expect(preview.getByTestId('context-bundle')).not.toContainText('Refresh tokens rotate');
+
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]!.setContentSize(380, 700);
+  });
+  await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(380);
+  const dialogOverflow = await preview.evaluate(
+    (element) => element.scrollWidth - element.clientWidth,
+  );
+  expect(dialogOverflow, 'preview dialog overflow at 380px').toBeLessThanOrEqual(0);
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]!.setContentSize(1280, 800);
+  });
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('tab', { name: 'Health' }).click();
+  await expect(page.getByTestId('context-last-reconciliation')).toContainText('never');
+  await page.getByRole('button', { name: 'Run reconciliation' }).click();
+  await expect(page.getByTestId('context-last-reconciliation')).not.toContainText('never');
+  await expect(page.getByTestId('health-stale')).toContainText('No references');
+
+  await page
+    .getByRole('navigation', { name: 'Main navigation' })
+    .getByRole('button', { name: 'Settings' })
+    .click();
+  const budgets = page.getByTestId('context-budget-settings');
+  await budgets.getByRole('combobox', { name: 'Default' }).click();
+  await page.getByRole('option', { name: '~8,000 tokens' }).click();
+  await expect(budgets.getByRole('combobox', { name: 'Default' })).toContainText('8,000');
+  await openContext(page);
+  await page.getByRole('tab', { name: 'Overview' }).click();
+  await page.getByRole('button', { name: 'Preview context' }).click();
+  await expect(page.getByTestId('context-bundle-summary')).toContainText(
+    'of 8,000 (default budget)',
+  );
+});
+
 test('hands work from Claude to Codex without the original conversation', async ({ atlas }) => {
   const home = path.join(atlas.root, 'home');
   const prompt = fakeCli(atlas.binDir, 'codex', home);

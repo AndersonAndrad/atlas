@@ -442,6 +442,7 @@ export function TerminalPane({
           repositoryName={snapshot.repositoryRoot.slice(
             snapshot.repositoryRoot.lastIndexOf('/') + 1,
           )}
+          repositoryRoot={snapshot.repositoryRoot}
           operations={operations}
           open={operationsSheet.open}
           onOpenChange={operationsSheet.setOpen}

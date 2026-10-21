@@ -28,7 +28,10 @@ export interface AtlasHarness {
   workspace(name: string, options?: { git?: string }): string;
   /** Runs the real CLI against the same isolated data directory. */
   cli(...args: string[]): string;
-  launch(): Promise<{ app: ElectronApplication; page: Page }>;
+  /** `env` adds variables to the app's environment, e.g. those `pnpm dev` sets. */
+  launch(options?: {
+    env?: Record<string, string>;
+  }): Promise<{ app: ElectronApplication; page: Page }>;
   /** Makes the next native directory picker return `directory` (or cancel when undefined). */
   stubDirectoryPicker(app: ElectronApplication, directory: string | undefined): Promise<void>;
   /** Answers native message boxes (the quit confirmation) with the given button index. */
@@ -79,11 +82,11 @@ export const test = base.extend<{ atlas: AtlasHarness }>({
         return dir;
       },
       cli: (...args) => execFileSync(process.execPath, [cliEntry, ...args], { env }).toString(),
-      async launch() {
+      async launch(options = {}) {
         const app = await electron.launch({
           executablePath: electronPath,
           args: [desktopDir],
-          env,
+          env: { ...env, ...options.env },
         });
         apps.push(app);
         // Quitting with running terminals asks first; tests confirm unless they override it.

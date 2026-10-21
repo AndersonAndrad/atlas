@@ -72,6 +72,14 @@ export function EntryBadges({ entry }: { entry: ContextEntry }) {
       <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[10px]">
         {CATEGORY_LABELS[entry.category]}
       </span>
+      {entry.required && (
+        <span
+          className="bg-sidebar-primary/15 text-sidebar-primary rounded px-1.5 py-0.5 text-[10px] font-medium"
+          title="Always sent in context bundles"
+        >
+          Required
+        </span>
+      )}
       {entry.scope === 'global' && (
         <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[10px]">
           Global
@@ -345,6 +353,7 @@ function EntryDialog({ target, tasks, state, onClose, onSaved }: EntryDialogProp
   const [title, setTitle] = useState(editing?.title ?? '');
   const [body, setBody] = useState(editing?.body ?? '');
   const [files, setFiles] = useState('');
+  const [required, setRequired] = useState(editing?.required ?? false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -360,6 +369,7 @@ function EntryDialog({ target, tasks, state, onClose, onSaved }: EntryDialogProp
             title,
             body,
             category,
+            required,
             ...(reason.trim() ? { reason } : {}),
           }),
         );
@@ -372,6 +382,7 @@ function EntryDialog({ target, tasks, state, onClose, onSaved }: EntryDialogProp
             category,
             title,
             body,
+            required,
             ...(toLines(files).length ? { files: toLines(files) } : {}),
           }),
         );
@@ -496,6 +507,21 @@ function EntryDialog({ target, tasks, state, onClose, onSaved }: EntryDialogProp
               </span>
             </div>
           )}
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox
+              className="mt-0.5"
+              checked={required}
+              onCheckedChange={(value) => setRequired(value === true)}
+              data-testid="entry-required"
+            />
+            <span className="flex flex-col">
+              <span>Always include in context</span>
+              <span className="text-muted-foreground text-xs">
+                Required entries are never left out for the budget nor excluded in a preview. Keep
+                them short: rules the AI must respect.
+              </span>
+            </span>
+          </label>
           {editing && (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="entry-reason">Reason for the change (optional)</Label>

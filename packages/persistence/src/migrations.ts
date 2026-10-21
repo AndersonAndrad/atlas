@@ -356,4 +356,149 @@ export const MIGRATIONS: readonly Migration[] = [
       ) STRICT;
     `,
   },
+  {
+    version: 6,
+    name: 'context_retrieval',
+    // Context retrieval (SDD-006 Milestone A). Additive: new columns with defaults and
+    // a table of reconciliation runs. Existing rows keep their meaning.
+    sql: `
+      ALTER TABLE context_entries
+        ADD COLUMN required INTEGER NOT NULL DEFAULT 0 CHECK (required IN (0, 1));
+      ALTER TABLE context_tasks ADD COLUMN base_branch TEXT;
+      ALTER TABLE context_tasks ADD COLUMN budget_tokens INTEGER
+        CHECK (budget_tokens IS NULL OR budget_tokens BETWEEN 500 AND 32000);
+
+      CREATE TABLE context_reconciliations (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        project_id TEXT REFERENCES projects (id) ON DELETE SET NULL,
+        workspace_path TEXT CHECK (workspace_path IS NULL OR length(workspace_path) > 0),
+        at TEXT NOT NULL,
+        head TEXT,
+        branch TEXT,
+        stale INTEGER NOT NULL CHECK (stale >= 0),
+        conflicts INTEGER NOT NULL CHECK (conflicts >= 0),
+        duplicates INTEGER NOT NULL CHECK (duplicates >= 0),
+        CHECK (project_id IS NULL OR workspace_path IS NULL)
+      ) STRICT;
+      CREATE INDEX context_reconciliations_owner
+        ON context_reconciliations (project_id, workspace_path, at);
+    `,
+  },
+  {
+    version: 7,
+    name: 'git_operation_log',
+    // Persistent Git operation log (PLAN-016). Additive. Repository roots are stored
+    // as text (not projects): the log outlives project registrations.
+    sql: `
+      CREATE TABLE git_operation_log (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        repository_root TEXT NOT NULL CHECK (length(repository_root) > 0),
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL
+          CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        summary TEXT,
+        error TEXT CHECK (error IS NULL OR json_valid(error)),
+        steps TEXT CHECK (steps IS NULL OR json_valid(steps))
+      ) STRICT;
+      CREATE INDEX git_operation_log_started ON git_operation_log (started_at);
+      CREATE INDEX git_operation_log_repository
+        ON git_operation_log (repository_root, started_at);
+
+      CREATE TABLE git_command_log (
+        operation_id TEXT NOT NULL REFERENCES git_operation_log (id) ON DELETE CASCADE,
+        sequence INTEGER NOT NULL CHECK (sequence >= 1),
+        args TEXT NOT NULL CHECK (json_valid(args)),
+        started_at TEXT NOT NULL,
+        duration_ms INTEGER NOT NULL CHECK (duration_ms >= 0),
+        exit_code INTEGER,
+        outcome TEXT NOT NULL CHECK (outcome IN ('succeeded', 'failed', 'cancelled')),
+        stdout TEXT,
+        stderr TEXT,
+        truncated INTEGER NOT NULL DEFAULT 0 CHECK (truncated IN (0, 1)),
+        PRIMARY KEY (operation_id, sequence)
+      ) STRICT;
+    `,
+  },
+  {
+    version: 8,
+    name: 'skills_hub',
+    // Skills Hub (SDD-006 Milestone B). Additive. Skills are not tied to projects:
+    // project ids appear only as assignment targets and are removed with the project.
+    sql: `
+      CREATE TABLE skills (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 200),
+        description TEXT NOT NULL DEFAULT '',
+        dir_name TEXT NOT NULL UNIQUE CHECK (length(dir_name) BETWEEN 1 AND 64),
+        version TEXT NOT NULL,
+        current_sequence INTEGER NOT NULL CHECK (current_sequence >= 1),
+        source_kind TEXT NOT NULL
+          CHECK (source_kind IN ('claude', 'codex', 'path', 'template', 'atlas')),
+        source_path TEXT,
+        template_id TEXT,
+        enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+        validation TEXT NOT NULL CHECK (json_valid(validation)),
+        storage_path TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) STRICT;
+
+      CREATE TABLE skill_versions (
+        skill_id TEXT NOT NULL REFERENCES skills (id) ON DELETE CASCADE,
+        sequence INTEGER NOT NULL CHECK (sequence >= 1),
+        version TEXT NOT NULL,
+        content_hash TEXT NOT NULL CHECK (length(content_hash) = 64),
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        files TEXT NOT NULL CHECK (json_valid(files)),
+        validation TEXT NOT NULL CHECK (json_valid(validation)),
+        skill_md TEXT NOT NULL,
+        storage_path TEXT NOT NULL,
+        note TEXT,
+        imported_at TEXT NOT NULL,
+        PRIMARY KEY (skill_id, sequence)
+      ) STRICT;
+
+      CREATE TABLE skill_assignments (
+        skill_id TEXT NOT NULL REFERENCES skills (id) ON DELETE CASCADE,
+        scope TEXT NOT NULL CHECK (scope IN ('project', 'provider', 'role', 'session')),
+        target TEXT NOT NULL CHECK (length(target) BETWEEN 1 AND 200),
+        effect TEXT NOT NULL CHECK (effect IN ('enable', 'disable')),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (skill_id, scope, target)
+      ) STRICT;
+      CREATE INDEX skill_assignments_target ON skill_assignments (scope, target);
+
+      CREATE TABLE skill_sources (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        path TEXT NOT NULL UNIQUE CHECK (length(path) > 0),
+        kind TEXT NOT NULL CHECK (kind IN ('claude', 'codex', 'path')),
+        enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+        added_at TEXT NOT NULL
+      ) STRICT;
+
+      CREATE TABLE skill_sync_batches (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        provider TEXT NOT NULL CHECK (provider IN ('claude', 'codex')),
+        target_path TEXT NOT NULL,
+        applied_at TEXT NOT NULL,
+        rolled_back_at TEXT,
+        changes INTEGER NOT NULL CHECK (changes >= 0)
+      ) STRICT;
+      CREATE INDEX skill_sync_batches_provider ON skill_sync_batches (provider, applied_at);
+
+      CREATE TABLE skill_sync_changes (
+        batch_id TEXT NOT NULL REFERENCES skill_sync_batches (id) ON DELETE CASCADE,
+        position INTEGER NOT NULL CHECK (position >= 0),
+        skill_id TEXT,
+        dir_name TEXT NOT NULL,
+        action TEXT NOT NULL CHECK (action IN ('create', 'update', 'remove')),
+        target_path TEXT NOT NULL,
+        backup_path TEXT,
+        PRIMARY KEY (batch_id, position)
+      ) STRICT;
+    `,
+  },
 ];

@@ -10,6 +10,9 @@
 | M4b       | SDD-004 B     | Claude Code and Codex execution through ATLAS Sessions                                         | Not started (needs its own plan)      |
 | M5a       | SDD-005 A1    | Shared Context: memory, tasks, decisions, handoffs, managed Claude/Codex sessions in terminals | Implemented — awaiting approval       |
 | M5b       | SDD-005 A2–C  | Automatic capture (after SDD-004 B), multi-agent teams, continuity and recovery                | Not started                           |
+| M6a       | SDD-006 A     | Context retrieval: ranking, budgets, freshness, deduplication, cache, health, preview          | Implemented — awaiting approval       |
+| M6b       | SDD-006 B     | Skills Hub: registry, discovery, compatibility, activation, versioning, UI                     | Implemented — awaiting approval       |
+| M6c       | SDD-006 C     | Execution packages, role-specific preparation, provider switching (after SDD-004 B, SDD-005 B) | Not started (blocked)                 |
 | M3c       | TBD           | Provider accounts (Claude, Codex) and usage tracking                                           | Not started                           |
 | M4        | TBD           | Agents and multi-agent orchestration                                                           | Not started                           |
 | M5        | TBD           | Skills Hub and Context Engine                                                                  | Not started                           |

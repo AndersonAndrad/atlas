@@ -1,11 +1,15 @@
 import {
+  TOKEN_ESTIMATE_METHOD,
+  type AgentRole,
   type AiProvider,
   type AiSession,
+  type BundleSkill,
   type ContextBundle,
   type ContextEntry,
   type ContextFreshness,
   type ContextHandoffDraft,
   type ContextHandoff,
+  type ContextHealthReport,
   type ContextOverview,
   type ContextOwner,
   type ContextQuery,
@@ -15,6 +19,7 @@ import {
   type CreateContextEntryInput,
   type DecisionRecord,
   type DecisionStatus,
+  type ExecutionProfile,
   type SessionEvidence,
   type UpdateContextEntryInput,
   type UpdateContextTaskInput,
@@ -22,6 +27,15 @@ import {
 import { AtlasError, noopLogger, type Logger } from '@atlas/shared';
 import { buildBundle, handoffMarkdown, type BundleProvider } from './bundle.js';
 import type { ContextRepository, RepositoryInspector } from './ports.js';
+import { ContextBudgetStore, resolveBudget, type KeyValueStore } from './retrieval/budget.js';
+import { LruCache } from './retrieval/cache.js';
+import {
+  findConflicts,
+  findDuplicates,
+  missingSources,
+  pendingOfClosedTasks,
+} from './retrieval/consistency.js';
+import { queryTerms } from './retrieval/scoring.js';
 
 /** A context owner the Engine resolved and authorized (a project or a repository root). */
 export interface ResolvedTarget {
@@ -39,7 +53,32 @@ export interface SharedContextServiceOptions {
   generateId: () => string;
   /** Removes credentials before anything is stored. */
   redact: (text: string) => string;
+  /** Application settings holding the context budgets; defaults apply without it. */
+  settings?: KeyValueStore;
+  /** Active skills for a bundle's context (Skills Hub); none without it. */
+  skills?: (request: {
+    projectId: string | null;
+    role: AgentRole;
+    provider: BundleProvider;
+    skillIds: string[];
+  }) => Promise<BundleSkill[]>;
   logger?: Logger;
+}
+
+/** What a bundle is selected for (SDD-006 FR-601); all optional but the provider. */
+export interface BundleRequest {
+  taskId?: string | undefined;
+  provider: BundleProvider;
+  /** Explicit budget; otherwise resolved from task, profile, role, provider and default. */
+  budgetTokens?: number | undefined;
+  objective?: string | undefined;
+  agentRole?: AgentRole | undefined;
+  executionProfile?: ExecutionProfile | undefined;
+  files?: string[] | undefined;
+  keywords?: string[] | undefined;
+  excludeIds?: string[] | undefined;
+  detail?: 'essential' | 'full' | undefined;
+  skillIds?: string[] | undefined;
 }
 
 /** Fields the user may adjust before a handoff is stored. */
@@ -58,6 +97,22 @@ const RECENT_COMMITS = 10;
 
 /** Bounds the number of Git processes a freshness check may start. */
 const MAX_FRESHNESS_CHECKS = 100;
+
+/** Stored records considered for one bundle: newest entries plus full-text matches. */
+const BUNDLE_CANDIDATES = 500;
+const SEARCH_CANDIDATES = 200;
+/** Bundles' stored records kept in memory (FR-612). */
+const BUNDLE_CACHE_SIZE = 32;
+/** Budget large enough to estimate everything a bundle could include (Context Health). */
+const UNBOUNDED_BUDGET_TOKENS = 100_000_000;
+
+interface StoredBundleRecords {
+  task: ContextTask | null;
+  entries: ContextEntry[];
+  globalEntries: ContextEntry[];
+  decisions: DecisionRecord[];
+  searchRanks: Map<string, number>;
+}
 
 const notFound = (what: string) =>
   new AtlasError('VALIDATION_FAILED', `${what} not found.`, {
@@ -81,10 +136,16 @@ const GLOBAL_OWNER: ContextOwner = { projectId: null, workspacePath: null };
 export class SharedContextService {
   private readonly repo: ContextRepository;
   private readonly logger: Logger;
+  readonly budgets: ContextBudgetStore;
+  private readonly cache = new LruCache<StoredBundleRecords>(BUNDLE_CACHE_SIZE);
 
   constructor(private readonly options: SharedContextServiceOptions) {
     this.repo = options.repository;
     this.logger = options.logger ?? noopLogger;
+    this.budgets = new ContextBudgetStore(
+      options.settings ?? { get: async () => null, set: async () => undefined },
+      this.logger,
+    );
   }
 
   private now(): string {
@@ -123,6 +184,7 @@ export class SharedContextService {
       verification: 'user',
       source: { kind: 'user', ref: null, recordedBy },
       refs,
+      required: input.required ?? false,
       revision: 1,
       createdAt: now,
       updatedAt: now,
@@ -146,12 +208,22 @@ export class SharedContextService {
       body: input.body === undefined ? current.body : this.options.redact(input.body),
       category: input.category ?? current.category,
       status: input.status ?? current.status,
+      required: input.required ?? current.required,
       // A corrected entry is the user's statement, no longer the original evidence.
       verification: edited ? 'user' : current.verification,
       revision: current.revision + 1,
       updatedAt: this.now(),
     };
-    await this.repo.updateEntry(next, this.revisionOf(next, changedBy, input.reason ?? null));
+    // Revisions do not store the flag; the reason keeps its change in the history.
+    const requiredChange =
+      next.required === current.required
+        ? null
+        : next.required
+          ? 'Marked as always included'
+          : 'No longer always included';
+    const reason =
+      [input.reason?.trim() || null, requiredChange].filter(Boolean).join('; ') || null;
+    await this.repo.updateEntry(next, this.revisionOf(next, changedBy, reason));
     return next;
   }
 
@@ -206,6 +278,8 @@ export class SharedContextService {
       objective: this.options.redact(input.objective),
       status: 'open',
       baseCommit: state.head,
+      baseBranch: state.branch,
+      budgetTokens: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -225,6 +299,7 @@ export class SharedContextService {
       objective:
         input.objective === undefined ? task.objective : this.options.redact(input.objective),
       status: input.status ?? task.status,
+      budgetTokens: input.budgetTokens === undefined ? task.budgetTokens : input.budgetTokens,
       updatedAt: this.now(),
     };
     await this.repo.updateTask(next);
@@ -313,34 +388,197 @@ export class SharedContextService {
   // Bundles and snapshots
   // -------------------------------------------------------------------------
 
-  async bundle(
-    target: ResolvedTarget,
-    request: { taskId?: string; provider: BundleProvider; budgetTokens: number },
-  ): Promise<ContextBundle> {
-    const task =
-      request.taskId === undefined ? null : await this.ownTask(target.owner, request.taskId);
-    const ownerEntries = await this.repo.listEntries({ owner: target.owner });
-    // Without a task, task-specific notes stay out; with one, only that task's notes.
-    const entries = ownerEntries.filter(
-      (entry) => entry.taskId === null || entry.taskId === task?.id,
+  /**
+   * Context selected for an objective, task and role within a budget (SDD-006
+   * FR-601–FR-612). Stored records may come from the cache; repository freshness is
+   * always checked now, so the cache never hides changed or removed files.
+   */
+  async bundle(target: ResolvedTarget, request: BundleRequest): Promise<ContextBundle> {
+    const terms = queryTerms(request.objective ?? null, request.keywords ?? []);
+    const { records, cache } = await this.bundleRecords(target, request.taskId, terms);
+    const role = request.agentRole ?? 'generic';
+    const budget = resolveBudget(await this.budgets.get(), {
+      ...(request.budgetTokens === undefined ? {} : { requested: request.budgetTokens }),
+      task: records.task,
+      ...(request.executionProfile ? { profile: request.executionProfile } : {}),
+      role,
+      provider: request.provider,
+    });
+    const freshness = await this.freshness(
+      target,
+      [...records.entries, ...records.globalEntries],
+      records.task,
     );
-    const globalEntries = await this.repo.listEntries({ owner: GLOBAL_OWNER });
-    const decisions = (await this.repo.listDecisions(target.owner)).filter(
-      (decision) =>
-        decision.status === 'ACTIVE' && (decision.taskId === null || decision.taskId === task?.id),
-    );
-    const freshness = await this.freshness(target, [...entries, ...globalEntries], task);
+    const skills = await this.activeSkills(target, role, request.provider, request.skillIds ?? []);
     return buildBundle({
       label: target.label,
       provider: request.provider,
-      budgetTokens: request.budgetTokens,
+      budgetTokens: budget.tokens,
+      budgetSource: budget.source,
+      role,
+      ...(request.objective ? { objective: request.objective } : {}),
+      keywords: request.keywords ?? [],
+      files: (request.files ?? []).map((file) => file.replace(/^\.\//, '')),
+      excludeIds: request.excludeIds ?? [],
+      detail: request.detail ?? 'full',
+      searchRanks: records.searchRanks,
+      skills,
+      cache,
       freshness,
-      task,
-      entries,
-      globalEntries,
-      decisions,
+      task: records.task,
+      entries: records.entries,
+      globalEntries: records.globalEntries,
+      decisions: records.decisions,
       generatedAt: this.now(),
     });
+  }
+
+  /** Skills never fail a bundle: without them the context is still useful. */
+  private async activeSkills(
+    target: ResolvedTarget,
+    role: AgentRole,
+    provider: BundleProvider,
+    skillIds: string[],
+  ): Promise<BundleSkill[]> {
+    if (this.options.skills === undefined) return [];
+    try {
+      return await this.options.skills({
+        projectId: target.owner.projectId,
+        role,
+        provider,
+        skillIds,
+      });
+    } catch (error) {
+      this.logger.warn('Skills could not be resolved for a context bundle', {
+        error: error instanceof Error ? error.name : 'unknown',
+      });
+      return [];
+    }
+  }
+
+  /** Stored candidates of a bundle, cached by owner, task, query and context revision. */
+  private async bundleRecords(
+    target: ResolvedTarget,
+    taskId: string | undefined,
+    terms: string[],
+  ): Promise<{ records: StoredBundleRecords; cache: 'hit' | 'miss' }> {
+    const key = JSON.stringify([
+      target.owner.projectId,
+      target.owner.workspacePath,
+      target.directory,
+      taskId ?? null,
+      terms,
+      await this.repo.revision(target.owner),
+    ]);
+    const cached = this.cache.get(key);
+    if (cached !== undefined) return { records: cached, cache: 'hit' };
+
+    const task = taskId === undefined ? null : await this.ownTask(target.owner, taskId);
+    // Without a task, task-specific notes stay out; with one, only that task's notes.
+    const inScope = (entry: ContextEntry) => entry.taskId === null || entry.taskId === task?.id;
+    const searchRanks = new Map<string, number>();
+    const matched: ContextEntry[] = [];
+    if (terms.length > 0) {
+      for (const owner of [target.owner, GLOBAL_OWNER]) {
+        const ranked = await this.repo.rankEntries(owner, terms, SEARCH_CANDIDATES);
+        ranked.forEach((entry, index) => {
+          searchRanks.set(entry.id, index);
+          matched.push(entry);
+        });
+      }
+    }
+    const newest = await this.repo.listEntries({ owner: target.owner, limit: BUNDLE_CANDIDATES });
+    const globalNewest = await this.repo.listEntries({
+      owner: GLOBAL_OWNER,
+      limit: BUNDLE_CANDIDATES,
+    });
+    const unique = (items: ContextEntry[]) => [
+      ...new Map(items.map((entry) => [entry.id, entry])).values(),
+    ];
+    const isGlobal = (entry: ContextEntry) => sameOwner(entry, GLOBAL_OWNER);
+    const records: StoredBundleRecords = {
+      task,
+      entries: unique([...newest, ...matched.filter((entry) => !isGlobal(entry))]).filter(inScope),
+      globalEntries: unique([...globalNewest, ...matched.filter(isGlobal)]),
+      decisions: (await this.repo.listDecisions(target.owner)).filter(
+        (decision) =>
+          decision.status === 'ACTIVE' &&
+          (decision.taskId === null || decision.taskId === task?.id),
+      ),
+      searchRanks,
+    };
+    this.cache.set(key, records);
+    return { records, cache: 'miss' };
+  }
+
+  // -------------------------------------------------------------------------
+  // Context Health (SDD-006 FR-608)
+  // -------------------------------------------------------------------------
+
+  /** Heuristic consistency signals; read-only. */
+  async health(target: ResolvedTarget): Promise<ContextHealthReport> {
+    const [entries, globalEntries, decisions, tasks, counts, last] = await Promise.all([
+      this.repo.listEntries({ owner: target.owner, limit: 2000 }),
+      this.repo.listEntries({ owner: GLOBAL_OWNER, limit: BUNDLE_CANDIDATES }),
+      this.repo.listDecisions(target.owner),
+      this.repo.listTasks(target.owner),
+      this.repo.counts(target.owner),
+      this.repo.lastReconciliation(target.owner),
+    ]);
+    const freshness = await this.freshness(target, entries, null);
+    const generic = buildBundle({
+      label: target.label,
+      provider: 'generic',
+      budgetTokens: UNBOUNDED_BUDGET_TOKENS,
+      freshness,
+      task: null,
+      entries: entries.filter((entry) => entry.taskId === null),
+      globalEntries,
+      decisions: decisions.filter(
+        (decision) => decision.status === 'ACTIVE' && decision.taskId === null,
+      ),
+      generatedAt: this.now(),
+    });
+    return {
+      generatedAt: this.now(),
+      tokenEstimateMethod: TOKEN_ESTIMATE_METHOD,
+      repository: { branch: freshness.branch, head: freshness.head },
+      totals: counts,
+      estimatedRelevantTokens: generic.estimatedTokens,
+      stale: freshness.stale,
+      conflicts: findConflicts(entries, decisions),
+      missingSources: missingSources(entries).map((entry) => ({
+        id: entry.id,
+        title: entry.title,
+      })),
+      duplicates: findDuplicates(entries).map((group) => ({
+        keptId: group.kept.id,
+        duplicateIds: group.duplicates.map((entry) => entry.id),
+      })),
+      pendingOfClosedTasks: pendingOfClosedTasks(entries, tasks).map(({ entry, task }) => ({
+        id: entry.id,
+        title: entry.title,
+        taskId: task.id,
+      })),
+      checksTruncated: freshness.checksTruncated ?? false,
+      lastReconciliation: last,
+    };
+  }
+
+  /** Runs the health checks and records the run as the latest reconciliation. */
+  async reconcile(target: ResolvedTarget): Promise<ContextHealthReport> {
+    const report = await this.health(target);
+    const run = {
+      id: this.options.generateId(),
+      at: report.generatedAt,
+      head: report.repository.head,
+      branch: report.repository.branch,
+      stale: report.stale.length,
+      conflicts: report.conflicts.length,
+      duplicates: report.duplicates.length,
+    };
+    await this.repo.insertReconciliation(target.owner, run);
+    return { ...report, lastReconciliation: run };
   }
 
   async snapshot(target: ResolvedTarget, taskId?: string): Promise<ContextSnapshot> {
@@ -389,7 +627,11 @@ export class SharedContextService {
     }
     let checks = 0;
     for (const entry of entries) {
-      if (checks >= MAX_FRESHNESS_CHECKS) break;
+      if (entry.refs.commit === null && entry.refs.files.length === 0) continue;
+      if (checks >= MAX_FRESHNESS_CHECKS) {
+        result.checksTruncated = true;
+        break;
+      }
       if (entry.refs.commit !== null) {
         checks += 1;
         if (!(await isAncestor(entry.refs.commit))) {
@@ -401,7 +643,10 @@ export class SharedContextService {
         }
       }
       for (const file of entry.refs.files) {
-        if (checks >= MAX_FRESHNESS_CHECKS) break;
+        if (checks >= MAX_FRESHNESS_CHECKS) {
+          result.checksTruncated = true;
+          break;
+        }
         checks += 1;
         const hash = await this.options.inspector.fileHash(root, file.path);
         if (hash !== file.hash) {
@@ -613,6 +858,7 @@ export class SharedContextService {
         verification: fields.verification,
         source: { kind: fields.sourceKind ?? 'ai-session', ref: session.id, recordedBy },
         refs: fields.refs ?? { files: [], commit: null },
+        required: false,
         revision: 1,
         createdAt: now,
         updatedAt: now,
@@ -780,7 +1026,8 @@ export class SharedContextService {
         hash: await this.options.inspector.fileHash(root, path),
       })),
     );
-    return { files, commit: null };
+    // The branch tells later bundles that these files were described on another line of work.
+    return { files, commit: null, branch: state.branch };
   }
 
   private async gitEvidence(target: ResolvedTarget, base: string | null): Promise<SessionEvidence> {

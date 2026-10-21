@@ -525,3 +525,96 @@ export interface GitCommitContext {
     settingsInvalid?: boolean;
   }[];
 }
+
+// ---------------------------------------------------------------------------
+// Operation log (PLAN-016)
+// ---------------------------------------------------------------------------
+
+/** One Git command ATLAS ran inside an operation, with its sanitized output. */
+export interface GitCommandRecord {
+  operationId: string;
+  /** Order within the operation, from 1. */
+  sequence: number;
+  /** Arguments after `git` (credentials removed). */
+  args: string[];
+  startedAt: string;
+  durationMs: number;
+  /** Git's exit code; null when Git did not exit normally (timeout, cancelled, not found). */
+  exitCode: number | null;
+  outcome: 'succeeded' | 'failed' | 'cancelled';
+  /** Tail of standard output and standard error (credentials removed, size-limited). */
+  stdout: string | null;
+  stderr: string | null;
+  /** Output was longer than the stored limit; only its end is kept. */
+  truncated: boolean;
+}
+
+/** A logged operation and the number of Git commands recorded for it. */
+export interface GitOperationLogEntry extends GitOperation {
+  commandCount: number;
+}
+
+export interface GitOperationLogPage {
+  operations: GitOperationLogEntry[];
+  /** Pass as `before` to load older operations; null when there are none. */
+  nextBefore: string | null;
+}
+
+export interface GitOperationLogDetails {
+  operation: GitOperationLogEntry;
+  commands: GitCommandRecord[];
+}
+
+export const GitOperationLogQuerySchema = z.strictObject({
+  repositoryRoot: GitRepositoryRootSchema.optional(),
+  kind: z.enum(GIT_OPERATION_KINDS).optional(),
+  status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled']).optional(),
+  /** Only operations that started before this time (pagination). */
+  before: z.iso.datetime({ offset: true }).optional(),
+  limit: z.number().int().min(1).max(500).default(100),
+});
+export type GitOperationLogQuery = z.input<typeof GitOperationLogQuerySchema>;
+
+export const GIT_LOG_RETENTION_DAYS = [7, 30, 90, 180, 365] as const;
+export const GIT_LOG_MAX_OPERATIONS = [500, 1000, 5000, 10_000, 50_000] as const;
+
+const LogSettingsFields = {
+  retentionDays: z.number().int().min(1).max(3650),
+  maxOperations: z.number().int().min(100).max(100_000),
+};
+/** How long logged operations are kept; older or excess ones are removed. */
+export const GitOperationLogSettingsSchema = z.strictObject({
+  retentionDays: LogSettingsFields.retentionDays.default(90),
+  maxOperations: LogSettingsFields.maxOperations.default(5000),
+});
+export type GitOperationLogSettings = z.infer<typeof GitOperationLogSettingsSchema>;
+/** Without defaults: a field left out keeps its stored value. */
+export const UpdateGitOperationLogSettingsSchema = z.strictObject(LogSettingsFields).partial();
+export type UpdateGitOperationLogSettings = z.infer<typeof UpdateGitOperationLogSettingsSchema>;
+
+/**
+ * An entry of the repository's HEAD reflog: every change of HEAD made by any tool,
+ * including `git` typed in a terminal. Read from Git; never stored by ATLAS.
+ */
+export interface GitReflogEntry {
+  /** Position in the reflog (0 = latest), as in `HEAD@{0}`. */
+  index: number;
+  hash: string;
+  /** e.g. "commit", "checkout", "pull", "reset", "merge feature" */
+  action: string;
+  message: string;
+  date: string | null;
+  /** Who made the change, as recorded by Git. */
+  identity: string;
+  /**
+   * A logged ATLAS operation on this repository that was running at that time; null when
+   * the change probably came from outside ATLAS. Matched by time only.
+   */
+  atlasOperationId: string | null;
+}
+
+export const GitReflogInputSchema = z.strictObject({
+  repositoryRoot: GitRepositoryRootSchema,
+  limit: z.number().int().min(1).max(500).default(100),
+});
+export type GitReflogInput = z.input<typeof GitReflogInputSchema>;

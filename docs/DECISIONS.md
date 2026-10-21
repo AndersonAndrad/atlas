@@ -385,3 +385,88 @@ superseded decisions are marked, not deleted.
   servers (rejected for now: more setup per provider, larger surface).
 - **Consequences**: Works for the two supported CLIs in POSIX shells; a copy placed first
   by shell start-up files bypasses it, so the app reports where each CLI resolves.
+
+## ADR-043 — Lexical, explainable context retrieval (PLAN-015)
+
+- **Context**: SDD-006 asks for relevant context by objective, role and files within a token
+  budget, explainable and testable, without requiring embeddings.
+- **Decision**: Candidates from the structured filter plus FTS5 (`bm25`, any term) and a
+  score that is the sum of named factors (text, search rank, scope, files, category by
+  role, decision, verification, small recency, stale and branch penalties). A pure
+  `buildBundle` fits sections in the FR-604 order; the objective and required entries are
+  never left out; every other candidate is included or listed as excluded with a reason.
+  A task's own objective only ranks; an explicit objective, keywords or files also leave
+  unrelated history out.
+- **Alternatives**: Local embeddings (heavier dependency, spec says not required); only
+  ordering by category (no relevance); stored compaction summaries (risk to audit history).
+- **Consequences**: Deterministic and testable, but synonyms without shared words are not
+  found and the weights are heuristics, not a measured quality.
+
+## ADR-044 — Estimated token budgets resolved by specificity (PLAN-015)
+
+- **Decision**: Budgets in estimated tokens (characters / 4, always labelled), resolved
+  request → task → execution profile → role → provider → default, stored in
+  `application_settings`. ATLAS never claims measured provider usage.
+- **Alternatives**: Provider token-counting APIs (need credentials ATLAS does not hold);
+  a single global budget (does not meet FR-603).
+
+## ADR-045 — Context cache keyed by database revision; freshness always checked (PLAN-015)
+
+- **Decision**: A 32-entry LRU of stored records per owner, task and query terms, keyed by
+  `PRAGMA data_version` plus local writes, so writes by the CLI or another process
+  invalidate it. Git freshness, scoring and budgets are computed on every request.
+- **Consequences**: A cache hit can never hide repository changes; any context write
+  invalidates every cached bundle (simple and safe; the cache only saves database work).
+
+## ADR-046 — Persistent Git operation log and reflog view (PLAN-016)
+
+- **Context**: The developer asked to keep logs of every Git action to review them in
+  Operations; operations were only kept in memory, without their commands.
+- **Decision**: Persist operations (journal hook in the coordinator) and the Git commands
+  run inside them (executor wrapper with an `AsyncLocalStorage` scope) in SQLite, with
+  credential-free, size-limited output and a retention by age and count. Show the HEAD
+  reflog, read on demand, for changes made outside ATLAS, marked by matching logged
+  operations by time and kind.
+- **Alternatives**: Logging read-only polling commands too (rejected: noise and volume);
+  capturing terminal input (rejected: ATLAS never records terminals); reflog only
+  (rejected: no output, durations or failures).
+- **Consequences**: Git output, file and branch names are stored locally (unencrypted).
+  Attribution of reflog entries is heuristic. Schema v7 cannot be opened by older ATLAS.
+
+## ADR-047 — Skills are copied into ATLAS as immutable versions (PLAN-017)
+
+- **Decision**: Importing copies a reviewed skill folder into the ATLAS data directory as
+  an immutable version; the source is never modified; changes at the source are offered
+  as updates and imported only after a new review.
+- **Alternatives**: Referencing the source folder in place (no real history; content can
+  change under ATLAS without review).
+- **Consequences**: Reliable history, diffs and rollback; disk use bounded by 5 MB per
+  version; edits at the source need an explicit re-import.
+
+## ADR-048 — Skill delivery: context references and user-level sync only (PLAN-017)
+
+- **Decision**: Active skills are delivered to AI sessions as references (name, short
+  description, SKILL.md path) in the context bundle, honouring project, role, provider and
+  session rules. Synchronization writes only globally enabled skills into user-level
+  provider folders chosen by the user, marks every folder it writes, never changes other
+  folders, and can roll back.
+- **Alternatives**: Writing into project folders (`.claude/skills`, `.agents/skills`;
+  rejected: ATLAS does not write into projects); inlining skill text into prompts (rejected:
+  token cost and prompt injection surface).
+- **Consequences**: Narrower scopes only work for sessions ATLAS prepares; whether
+  providers load synchronized skills was not verified with the real CLIs.
+
+## ADR-049 — Commits read a fresh shell environment (PLAN-018)
+
+- **Context**: ATLAS started with `pnpm dev` passed `NODE_ENV=development` to terminals,
+  commit checks and Git hooks, breaking `next build`; checks also used an environment
+  captured once at Engine start, so profile changes never reached them.
+- **Decision**: Drop the variables ATLAS's development tooling sets from every user-facing
+  environment, and for each commit and push start the user's shell as an interactive login
+  shell to read the environment a new terminal would have, used by checks and hooks; fall
+  back to ATLAS's environment after 8 s with a visible note.
+- **Alternatives**: Only dropping `NODE_ENV` (profile changes still ignored); typing the
+  commit into a new visible terminal (loses structured results, index checks and
+  cancellation).
+- **Consequences**: Each commit takes the shell's start-up time longer; start-up files that
+  wait for input hit the timeout.

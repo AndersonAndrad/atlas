@@ -31,6 +31,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'groups',
       'projects',
       'sessions',
+      'skills',
       'terminals',
     ],
     // AI CLIs are only started or tracked; no command text crosses the bridge.

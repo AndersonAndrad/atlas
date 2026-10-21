@@ -27,8 +27,10 @@ import {
 import {
   SqliteProjectRepository,
   SqliteContextRepository,
+  SqliteGitOperationLogRepository,
   SqliteSessionRepository,
   SqliteSettingsRepository,
+  SqliteSkillRepository,
   SqliteTerminalGroupRepository,
   SqliteTerminalSessionRepository,
   getSchemaVersion,
@@ -72,17 +74,21 @@ import { ProjectConfigStore, type WRAPPED_CLIS } from './project-config.js';
 import {
   GitInspectionService,
   GitOperationCoordinator,
+  GitOperationLog,
   GitPreferencesStore,
   GitWorkspaceService,
   ProjectGitSettingsStore,
   RepositoryEvidence,
+  recordingExecutor,
   redactCredentials,
   type CommitChecks,
   type GitExecutor,
   type GitRunner,
   type PreCommitStepRunner,
 } from '@atlas/git';
+import { NodeSkillFileSystem, SkillsHub } from '@atlas/skills';
 import { createGitExecutor, createGitRunner } from './git/git-runner.js';
+import { captureLoginShellEnvironment } from './adapters/login-shell-environment.js';
 import { RepositoryWatcher } from './git/repository-watcher.js';
 import { GIT_SHUTDOWN_TIMEOUT_MS } from './shutdown-timing.js';
 
@@ -134,6 +140,10 @@ export interface Engine {
   /** Git workflow (SDD-004): status details, diffs and mutations. */
   readonly gitWorkspace: GitWorkspaceService;
   readonly gitOperations: GitOperationCoordinator;
+  /** Persistent log of Git operations and their commands (PLAN-016). */
+  readonly gitOperationLog: GitOperationLog;
+  /** Skills Hub (SDD-006 Milestone B). */
+  readonly skills: SkillsHub;
   readonly gitPreferences: GitPreferencesStore;
   /** Provider-independent shared context (SDD-005 Milestone A). */
   readonly context: SharedContextService;
@@ -394,29 +404,66 @@ export function createEngine(options: EngineOptions = {}): Engine {
     return status;
   };
 
+  const gitOperationLog = new GitOperationLog({
+    store: new SqliteGitOperationLogRepository(db),
+    settings,
+    now: () => clock.now(),
+    logger,
+  });
   const gitOperations = new GitOperationCoordinator({
     generateId: randomUUID,
     now: () => clock.now(),
     logger,
+    journal: gitOperationLog,
     onChange: (operation) => terminals?.publish({ type: 'git-operation', operation }),
   });
+  const userShell = env.SHELL ?? (platform === 'darwin' ? '/bin/zsh' : '/bin/sh');
+  // Commits start from what a new terminal starts from (`terminalEnvironment` above) and
+  // read the rest from the user's shell (PLAN-018).
   // Steps are user-configured commands; only the Engine host (which owns processes) runs them.
   const preCommitRunner =
     options.preCommitRunner ??
-    (terminalOptions === undefined
+    (terminalEnvironment === undefined
       ? undefined
       : new ShellPreCommitRunner({
           platform,
-          shell: env.SHELL ?? (platform === 'darwin' ? '/bin/zsh' : '/bin/sh'),
-          env: new ShellEnvironment({
-            env,
-            platform,
-            appVersion: terminalOptions.appVersion ?? engineVersion,
-          }).shellEnvironment(),
+          shell: userShell,
+          env: terminalEnvironment.shellEnvironment(),
         }));
+  /** Every commit and push reads the environment a new terminal would have now. */
+  const commitEnvironment =
+    terminalEnvironment === undefined
+      ? undefined
+      : async (repositoryRoot: string) => {
+          const base = terminalEnvironment.shellEnvironment();
+          try {
+            const fresh = await captureLoginShellEnvironment({
+              shell: userShell,
+              platform,
+              env: base,
+              cwd: repositoryRoot,
+            });
+            return { env: fresh, warning: null };
+          } catch (error) {
+            logger.warn('Shell environment unavailable for a commit; using ATLAS defaults', {
+              error: describeError(error),
+            });
+            return {
+              env: base,
+              warning: "your shell's environment could not be read; ATLAS's was used",
+            };
+          }
+        };
   const gitWorkspace = new GitWorkspaceService({
-    exec: options.gitExecutor ?? createGitExecutor({ env }),
+    // Commands run inside an operation are recorded in the operation log.
+    exec: recordingExecutor(
+      options.gitExecutor ?? createGitExecutor({ env }),
+      gitOperations,
+      gitOperationLog,
+      () => clock.now(),
+    ),
     ...(preCommitRunner ? { stepRunner: preCommitRunner } : {}),
+    ...(commitEnvironment ? { commitEnvironment } : {}),
     coordinator: gitOperations,
     now: () => clock.now(),
     logger,
@@ -426,12 +473,41 @@ export function createEngine(options: EngineOptions = {}): Engine {
     },
   });
   const gitPreferences = new GitPreferencesStore(settings, logger);
+  const skills = new SkillsHub({
+    repository: new SqliteSkillRepository(db),
+    fs: new NodeSkillFileSystem(env),
+    storageRoot: path.join(dataDir, 'skills'),
+    suggestions: { home: homeDirectory, claudeConfigDir: env.CLAUDE_CONFIG_DIR ?? null },
+    settings,
+    clock,
+    generateId: randomUUID,
+    logger,
+  });
   const context = new SharedContextService({
     repository: new SqliteContextRepository(db),
     inspector: new RepositoryEvidence(options.gitExecutor ?? createGitExecutor({ env })),
     clock,
     generateId: randomUUID,
     redact: redactCredentials,
+    settings,
+    skills: async (request) =>
+      (
+        await skills.resolve({
+          ...(request.projectId ? { projectId: request.projectId } : {}),
+          role: request.role,
+          provider: request.provider,
+          sessionSkillIds: request.skillIds,
+        })
+      )
+        .filter((skill) => skill.active)
+        .map((skill) => ({
+          skillId: skill.skillId,
+          name: skill.name,
+          description: skill.description,
+          version: skill.version,
+          skillFile: skill.skillFile,
+          reason: skill.reason,
+        })),
     logger,
   });
   const projectGitSettings = new ProjectGitSettingsStore(settings, logger);
@@ -674,6 +750,8 @@ export function createEngine(options: EngineOptions = {}): Engine {
     git,
     gitWorkspace,
     gitOperations,
+    gitOperationLog,
+    skills,
     gitPreferences,
     projectGitSettings,
     gitRepositories: discoverRepositories,
@@ -739,10 +817,19 @@ export function createEngine(options: EngineOptions = {}): Engine {
           handoffMarkdown(await context.getHandoff(target, input.handoffId), target.label),
         );
       } else if (input.includeContext) {
+        // The same selection the Start dialog previewed: objective, role and exclusions.
         const bundle = await context.bundle(target, {
-          ...(input.taskId ? { taskId: input.taskId } : {}),
+          taskId: input.taskId,
           provider: input.provider,
-          budgetTokens: input.budgetTokens ?? 6000,
+          budgetTokens: input.budgetTokens,
+          objective: input.objective,
+          agentRole: input.agentRole,
+          executionProfile: input.executionProfile,
+          files: input.files,
+          keywords: input.keywords,
+          excludeIds: input.excludeIds,
+          detail: input.detail,
+          skillIds: input.skillIds,
         });
         prompt = continuationPrompt(bundle.markdown);
       }
@@ -759,6 +846,11 @@ export function createEngine(options: EngineOptions = {}): Engine {
         ...(input.handoffId ? { handoffId: input.handoffId } : {}),
         terminalId: terminal.id,
       });
+      // Skills chosen for this session are kept as session assignments (auditable).
+      const sessionSkills = input.includeContext && !input.handoffId ? (input.skillIds ?? []) : [];
+      for (const skillId of sessionSkills) {
+        await skills.assign({ skillId, scope: 'session', target: session.id, effect: 'enable' });
+      }
       let file: string | null = null;
       if (prompt !== null) {
         // The prompt goes through a private file: its content never becomes shell text.
@@ -808,6 +900,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
       await terminals?.initialize();
       if (ownsExecution) {
         await sessions.reconcile('engine-restart');
+        await gitOperationLog.start();
         try {
           await projectConfig.installWrappers();
         } catch (error) {
@@ -827,6 +920,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
       );
       await projects.remove(project.id);
       await projectGitSettings.remove(project.id);
+      await skills.projectRemoved(project.id);
       // A refresh that started before the removal finishes first, then the files go.
       await projectRefreshes.get(project.id)?.running;
       await projectConfig.remove(project.id);

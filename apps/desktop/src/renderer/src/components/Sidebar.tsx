@@ -14,7 +14,8 @@ import {
 import atlasLogo from '@/assets/atlas-logo.svg';
 import { cn } from '@/lib/utils';
 
-export type AppView = 'projects' | 'terminals' | 'git' | 'context' | 'sessions' | 'settings';
+export type AppView =
+  'projects' | 'terminals' | 'git' | 'context' | 'sessions' | 'skills' | 'settings';
 
 interface NavItem {
   id: string;
@@ -30,7 +31,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'context', label: 'Context', icon: Database, view: 'context' },
   { id: 'sessions', label: 'Sessions', icon: ListChecks, view: 'sessions' },
   { id: 'agents', label: 'Agents', icon: Bot },
-  { id: 'skills', label: 'Skills', icon: Sparkles },
+  { id: 'skills', label: 'Skills', icon: Sparkles, view: 'skills' },
   { id: 'accounts', label: 'Accounts', icon: KeyRound },
   { id: 'usage', label: 'Usage', icon: ChartColumn },
   { id: 'settings', label: 'Settings', icon: Settings, view: 'settings' },

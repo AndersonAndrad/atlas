@@ -4,12 +4,13 @@ import type {
   ContextHandoff,
   ContextOverview,
   ContextOwner,
+  ContextReconciliation,
   ContextRevision,
   ContextSnapshot,
   ContextTask,
   DecisionRecord,
 } from '@atlas/contracts';
-import type { ContextRepository, EntryFilter } from '@atlas/context';
+import type { ContextCounts, ContextRepository, EntryFilter } from '@atlas/context';
 import { AtlasError } from '@atlas/shared';
 import type { Database } from './database.js';
 
@@ -42,6 +43,7 @@ function toEntry(row: Row): ContextEntry {
       recordedBy: str(row, 'recorded_by'),
     },
     refs: json(row.refs),
+    required: row.required === 1,
     revision: row.revision as number,
     createdAt: str(row, 'created_at'),
     updatedAt: str(row, 'updated_at'),
@@ -57,6 +59,8 @@ function toTask(row: Row): ContextTask {
     objective: str(row, 'objective'),
     status: str(row, 'status') as ContextTask['status'],
     baseCommit: strOrNull(row, 'base_commit'),
+    baseBranch: strOrNull(row, 'base_branch'),
+    budgetTokens: (row.budget_tokens as number | null) ?? null,
     createdAt: str(row, 'created_at'),
     updatedAt: str(row, 'updated_at'),
   };
@@ -138,9 +142,30 @@ function ftsQuery(search: string): string | null {
   return terms.length === 0 ? null : terms.map((term) => `"${term}"*`).join(' ');
 }
 
+/** Retrieval terms as an FTS5 query matching any of them, with the same quoting. */
+function anyTermQuery(terms: string[]): string | null {
+  const quoted = terms
+    .map((term) => term.replace(/"/g, '').trim())
+    .filter((term) => term !== '')
+    .map((term) => `"${term}"*`);
+  return quoted.length === 0 ? null : quoted.join(' OR ');
+}
+
+/** Reconciliation runs kept per owner. */
+const RECONCILIATIONS_KEPT = 20;
+
 /** SQLite storage of shared context (migration v5). */
 export class SqliteContextRepository implements ContextRepository {
+  /** Writes through this connection; other connections show in `PRAGMA data_version`. */
+  private writes = 0;
+
   constructor(private readonly db: Database) {}
+
+  private write<T>(operation: string, action: () => T): T {
+    const result = this.run(operation, action);
+    this.writes += 1;
+    return result;
+  }
 
   private run<T>(operation: string, action: () => T): T {
     try {
@@ -155,7 +180,7 @@ export class SqliteContextRepository implements ContextRepository {
   }
 
   private transaction<T>(operation: string, action: () => T): T {
-    return this.run(operation, () => {
+    return this.write(operation, () => {
       this.db.exec('BEGIN IMMEDIATE');
       try {
         const result = action();
@@ -176,8 +201,8 @@ export class SqliteContextRepository implements ContextRepository {
         .prepare(
           `INSERT INTO context_entries (id, scope, project_id, workspace_path, task_id, session_id,
              category, title, body, status, verification, source_kind, source_ref, recorded_by,
-             refs, revision, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             refs, required, revision, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           entry.id,
@@ -195,6 +220,7 @@ export class SqliteContextRepository implements ContextRepository {
           entry.source.ref,
           entry.source.recordedBy,
           JSON.stringify(entry.refs),
+          entry.required ? 1 : 0,
           entry.revision,
           entry.createdAt,
           entry.updatedAt,
@@ -211,7 +237,7 @@ export class SqliteContextRepository implements ContextRepository {
       this.db
         .prepare(
           `UPDATE context_entries SET category = ?, title = ?, body = ?, status = ?,
-             verification = ?, revision = ?, updated_at = ? WHERE id = ?`,
+             verification = ?, required = ?, revision = ?, updated_at = ? WHERE id = ?`,
         )
         .run(
           entry.category,
@@ -219,6 +245,7 @@ export class SqliteContextRepository implements ContextRepository {
           entry.body,
           entry.status,
           entry.verification,
+          entry.required ? 1 : 0,
           entry.revision,
           entry.updatedAt,
           entry.id,
@@ -299,6 +326,58 @@ export class SqliteContextRepository implements ContextRepository {
     });
   }
 
+  async rankEntries(owner: ContextOwner, terms: string[], limit: number): Promise<ContextEntry[]> {
+    const query = anyTermQuery(terms);
+    if (query === null) return [];
+    return this.run('rankEntries', () =>
+      (
+        this.db
+          .prepare(
+            `SELECT e.* FROM context_search
+               JOIN context_entries e ON e.id = context_search.entry_id
+             WHERE context_search MATCH ? AND e.project_id IS ? AND e.workspace_path IS ?
+               AND e.status = 'active'
+             ORDER BY bm25(context_search), e.updated_at DESC LIMIT ?`,
+          )
+          .all(query, ...ownerParams(owner), limit) as Row[]
+      ).map(toEntry),
+    );
+  }
+
+  async revision(_owner: ContextOwner): Promise<string> {
+    // Any committed write invalidates: per owner tracking is not worth its cost here.
+    return this.run('revision', () => {
+      const { data_version: version } = this.db.prepare('PRAGMA data_version').get() as {
+        data_version: number;
+      };
+      return `${version}:${this.writes}`;
+    });
+  }
+
+  async counts(owner: ContextOwner): Promise<ContextCounts> {
+    return this.run('counts', () => {
+      const count = (sql: string) =>
+        (this.db.prepare(sql).get(...ownerParams(owner)) as { n: number }).n;
+      const entries = (filter: string) =>
+        count(`SELECT COUNT(*) AS n FROM context_entries WHERE ${OWNER_CLAUSE}${filter}`);
+      const decisions = (filter: string) =>
+        count(`SELECT COUNT(*) AS n FROM context_decisions WHERE ${OWNER_CLAUSE}${filter}`);
+      return {
+        entries: entries(''),
+        activeEntries: entries(" AND status = 'active'"),
+        obsoleteEntries: entries(" AND status = 'obsolete'"),
+        requiredEntries: entries(" AND status = 'active' AND required = 1"),
+        decisions: decisions(''),
+        activeDecisions: decisions(" AND status = 'ACTIVE'"),
+        supersededDecisions: decisions(" AND status = 'SUPERSEDED'"),
+        tasks: count(`SELECT COUNT(*) AS n FROM context_tasks WHERE ${OWNER_CLAUSE}`),
+        openTasks: count(
+          `SELECT COUNT(*) AS n FROM context_tasks WHERE ${OWNER_CLAUSE} AND status = 'open'`,
+        ),
+      };
+    });
+  }
+
   async listRevisions(entryId: string): Promise<ContextRevision[]> {
     return this.run('listRevisions', () =>
       (
@@ -323,11 +402,12 @@ export class SqliteContextRepository implements ContextRepository {
   // Tasks -------------------------------------------------------------------
 
   async insertTask(task: ContextTask): Promise<void> {
-    this.run('insertTask', () =>
+    this.write('insertTask', () =>
       this.db
         .prepare(
           `INSERT INTO context_tasks (id, project_id, workspace_path, title, objective, status,
-             base_commit, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             base_commit, base_branch, budget_tokens, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           task.id,
@@ -337,6 +417,8 @@ export class SqliteContextRepository implements ContextRepository {
           task.objective,
           task.status,
           task.baseCommit,
+          task.baseBranch,
+          task.budgetTokens,
           task.createdAt,
           task.updatedAt,
         ),
@@ -344,12 +426,13 @@ export class SqliteContextRepository implements ContextRepository {
   }
 
   async updateTask(task: ContextTask): Promise<void> {
-    this.run('updateTask', () =>
+    this.write('updateTask', () =>
       this.db
         .prepare(
-          'UPDATE context_tasks SET title = ?, objective = ?, status = ?, updated_at = ? WHERE id = ?',
+          `UPDATE context_tasks SET title = ?, objective = ?, status = ?, budget_tokens = ?,
+             updated_at = ? WHERE id = ?`,
         )
-        .run(task.title, task.objective, task.status, task.updatedAt, task.id),
+        .run(task.title, task.objective, task.status, task.budgetTokens, task.updatedAt, task.id),
     );
   }
 
@@ -385,7 +468,7 @@ export class SqliteContextRepository implements ContextRepository {
   // Decisions ---------------------------------------------------------------
 
   async insertDecision(decision: DecisionRecord): Promise<void> {
-    this.run('insertDecision', () =>
+    this.write('insertDecision', () =>
       this.db
         .prepare(
           `INSERT INTO context_decisions (id, project_id, workspace_path, task_id, question, decision,
@@ -413,7 +496,7 @@ export class SqliteContextRepository implements ContextRepository {
   }
 
   async updateDecision(decision: DecisionRecord): Promise<void> {
-    this.run('updateDecision', () =>
+    this.write('updateDecision', () =>
       this.db
         .prepare(
           'UPDATE context_decisions SET status = ?, superseded_by = ?, updated_at = ? WHERE id = ?',
@@ -447,7 +530,7 @@ export class SqliteContextRepository implements ContextRepository {
   // Sessions ----------------------------------------------------------------
 
   async insertSession(session: AiSession): Promise<void> {
-    this.run('insertSession', () =>
+    this.write('insertSession', () =>
       this.db
         .prepare(
           `INSERT INTO ai_sessions (id, provider, capture_mode, project_id, workspace_path, task_id,
@@ -472,7 +555,7 @@ export class SqliteContextRepository implements ContextRepository {
   }
 
   async updateSession(session: AiSession): Promise<void> {
-    this.run('updateSession', () =>
+    this.write('updateSession', () =>
       this.db
         .prepare('UPDATE ai_sessions SET status = ?, ended_at = ? WHERE id = ?')
         .run(session.status, session.endedAt, session.id),
@@ -522,7 +605,7 @@ export class SqliteContextRepository implements ContextRepository {
       createdAt,
       ...payload
     } = handoff;
-    this.run('insertHandoff', () =>
+    this.write('insertHandoff', () =>
       this.db
         .prepare(
           `INSERT INTO context_handoffs (id, project_id, workspace_path, task_id, source_session_id,
@@ -563,7 +646,7 @@ export class SqliteContextRepository implements ContextRepository {
   }
 
   async insertSnapshot(snapshot: ContextSnapshot): Promise<void> {
-    this.run('insertSnapshot', () =>
+    this.write('insertSnapshot', () =>
       this.db
         .prepare(
           `INSERT INTO context_snapshots (id, project_id, workspace_path, task_id, markdown, head, created_at)
@@ -611,6 +694,56 @@ export class SqliteContextRepository implements ContextRepository {
     });
   }
 
+  // Reconciliations ---------------------------------------------------------
+
+  async insertReconciliation(owner: ContextOwner, run: ContextReconciliation): Promise<void> {
+    this.transaction('insertReconciliation', () => {
+      this.db
+        .prepare(
+          `INSERT INTO context_reconciliations (id, project_id, workspace_path, at, head, branch,
+             stale, conflicts, duplicates) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          run.id,
+          owner.projectId,
+          owner.workspacePath,
+          run.at,
+          run.head,
+          run.branch,
+          run.stale,
+          run.conflicts,
+          run.duplicates,
+        );
+      this.db
+        .prepare(
+          `DELETE FROM context_reconciliations WHERE ${OWNER_CLAUSE} AND id NOT IN (
+             SELECT id FROM context_reconciliations WHERE ${OWNER_CLAUSE}
+             ORDER BY at DESC LIMIT ?)`,
+        )
+        .run(...ownerParams(owner), ...ownerParams(owner), RECONCILIATIONS_KEPT);
+    });
+  }
+
+  async lastReconciliation(owner: ContextOwner): Promise<ContextReconciliation | null> {
+    return this.run('lastReconciliation', () => {
+      const row = this.db
+        .prepare(
+          `SELECT * FROM context_reconciliations WHERE ${OWNER_CLAUSE} ORDER BY at DESC LIMIT 1`,
+        )
+        .get(...ownerParams(owner)) as Row | undefined;
+      if (row === undefined) return null;
+      return {
+        id: str(row, 'id'),
+        at: str(row, 'at'),
+        head: strOrNull(row, 'head'),
+        branch: strOrNull(row, 'branch'),
+        stale: row.stale as number,
+        conflicts: row.conflicts as number,
+        duplicates: row.duplicates as number,
+      };
+    });
+  }
+
   async reassignProject(projectId: string, workspacePath: string): Promise<void> {
     this.transaction('reassignProject', () => {
       for (const table of [
@@ -620,6 +753,7 @@ export class SqliteContextRepository implements ContextRepository {
         'context_decisions',
         'context_handoffs',
         'context_snapshots',
+        'context_reconciliations',
       ]) {
         this.db
           .prepare(`UPDATE ${table} SET project_id = NULL, workspace_path = ? WHERE project_id = ?`)

@@ -17,7 +17,12 @@ export interface PreCommitStepOutcome {
 export interface PreCommitStepRunner {
   run(
     step: PreCommitStep,
-    options: { cwd: string; signal: AbortSignal },
+    options: {
+      cwd: string;
+      signal: AbortSignal;
+      /** Environment for this commit (a fresh shell's); the runner's default otherwise. */
+      env?: Record<string, string> | undefined;
+    },
   ): Promise<PreCommitStepOutcome>;
 }
 
@@ -43,6 +48,7 @@ export async function runPreCommitSteps(
   checks: CommitChecks,
   runner: PreCommitStepRunner,
   context: GitOperationContext,
+  env?: Record<string, string>,
 ): Promise<void> {
   const results: GitPreCommitStepResult[] = checks.steps.map((step) => ({
     name: redactCredentials(step.name),
@@ -66,7 +72,7 @@ export async function runPreCommitSteps(
           output: '',
           durationMs: 0,
         } as const)
-      : await runner.run(step, { cwd: checks.cwd, signal: context.signal });
+      : await runner.run(step, { cwd: checks.cwd, signal: context.signal, env });
     results[index] = {
       ...results[index]!,
       status: outcome.status,

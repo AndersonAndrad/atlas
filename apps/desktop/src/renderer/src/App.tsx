@@ -6,6 +6,7 @@ import { ProjectsView } from './components/ProjectsView';
 import { SettingsView } from './components/SettingsView';
 import { GitView, type GitOpenRequest } from './git/components/GitView';
 import { ContextView, type ContextOpenRequest } from './context/components/ContextView';
+import { SkillsView } from './skills/components/SkillsView';
 import { Sidebar, type AppView } from './components/Sidebar';
 import { TooltipProvider } from './components/ui/tooltip';
 import { useAppInfo, versionLabel } from './hooks/useAppInfo';
@@ -168,6 +169,7 @@ export function App() {
             onCreateRequestHandled={clearSessionRequest}
           />
         )}
+        {view === 'skills' && <SkillsView projects={projects.items ?? []} />}
         {view === 'settings' && <SettingsView preferences={preferences} />}
       </div>
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}

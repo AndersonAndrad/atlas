@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { ApiError, api, errorMessage, unwrap } from '@/api';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -23,6 +24,13 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useKeyedLoad } from '../hooks/useContextData';
+import {
+  BundleRecords,
+  DEFAULT_SELECTION,
+  SelectionFields,
+  bundleSummary,
+  selectionRequest,
+} from './ContextPreview';
 
 type Source = 'context' | 'handoff' | 'none';
 const NO_TASK = '__none__';
@@ -49,6 +57,7 @@ export function StartAiDialog(props: StartAiDialogProps) {
   const [taskId, setTaskId] = useState<string>(props.taskId ?? NO_TASK);
   const [source, setSource] = useState<Source>(props.handoffId ? 'handoff' : 'context');
   const [handoffId, setHandoffId] = useState<string | null>(props.handoffId ?? null);
+  const [selection, setSelection] = useState(DEFAULT_SELECTION);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,11 +65,19 @@ export function StartAiDialog(props: StartAiDialogProps) {
   const handoffs = useKeyedLoad(`${props.targetKey}:handoffs`, () =>
     api().context.handoffs(props.target),
   );
+  const skills = useKeyedLoad('start-ai-skills', () => api().skills.list());
   const task = taskId === NO_TASK ? undefined : taskId;
   const bundle = useKeyedLoad(
-    source === 'context' ? `${props.targetKey}:bundle:${provider}:${taskId}` : null,
+    source === 'context'
+      ? `${props.targetKey}:bundle:${provider}:${taskId}:${JSON.stringify(selection)}`
+      : null,
     () =>
-      api().context.bundle({ target: props.target, provider, ...(task ? { taskId: task } : {}) }),
+      api().context.bundle({
+        target: props.target,
+        provider,
+        ...(task ? { taskId: task } : {}),
+        ...selectionRequest(selection),
+      }),
   );
   const handoff = useKeyedLoad(
     source === 'handoff' && handoffId !== null ? `${props.targetKey}:handoff:${handoffId}` : null,
@@ -78,6 +95,9 @@ export function StartAiDialog(props: StartAiDialogProps) {
   const ready = source === 'none' || preview !== null;
 
   async function start() {
+    // The objective applies on blur: a click right after typing changes the selection,
+    // and nothing is sent until its preview has been shown.
+    if (!ready) return;
     setBusy(true);
     setError(null);
     try {
@@ -88,6 +108,8 @@ export function StartAiDialog(props: StartAiDialogProps) {
           ...(task ? { taskId: task } : {}),
           ...(source === 'handoff' && handoffId ? { handoffId } : {}),
           includeContext: source === 'context',
+          // Same selection as the preview, so the reviewed text is what is sent.
+          ...(source === 'context' ? selectionRequest(selection) : {}),
         }),
       );
       props.onStarted(started.terminalId);
@@ -205,6 +227,43 @@ export function StartAiDialog(props: StartAiDialogProps) {
           )}
         </fieldset>
 
+        {source === 'context' && <SelectionFields value={selection} onChange={setSelection} />}
+        {source === 'context' && (skills.value ?? []).some((skill) => skill.validation.valid) && (
+          <fieldset className="flex flex-col gap-1" data-testid="start-ai-skills">
+            <legend className="mb-1 text-sm font-medium">Skills for this session</legend>
+            {(skills.value ?? [])
+              .filter((skill) => skill.validation.valid)
+              .map((skill) => {
+                const active = bundle.value?.skills.find((item) => item.skillId === skill.id);
+                const chosen = selection.skillIds.includes(skill.id);
+                const byRule = active !== undefined && !chosen;
+                return (
+                  <label key={skill.id} className="flex items-start gap-2 text-sm">
+                    <Checkbox
+                      className="mt-0.5"
+                      checked={active !== undefined || chosen}
+                      disabled={byRule}
+                      onCheckedChange={(checked) =>
+                        setSelection({
+                          ...selection,
+                          skillIds:
+                            checked === true
+                              ? [...selection.skillIds, skill.id]
+                              : selection.skillIds.filter((id) => id !== skill.id),
+                        })
+                      }
+                    />
+                    <span className="flex flex-col">
+                      <span>{skill.name}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {byRule ? active.reason : skill.description.slice(0, 160)}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+          </fieldset>
+        )}
         {source === 'context' && bundle.value && bundle.value.freshness.stale.length > 0 && (
           <Alert role="status" className="border-warning/40">
             <TriangleAlert className="text-warning" />
@@ -214,13 +273,26 @@ export function StartAiDialog(props: StartAiDialogProps) {
             </AlertDescription>
           </Alert>
         )}
+        {source === 'context' && bundle.value && (
+          <details className="rounded-md border p-2" data-testid="start-ai-records">
+            <summary className="cursor-pointer text-sm">
+              Review records ({bundle.value.included.length} included,{' '}
+              {bundle.value.excluded.length} left out)
+            </summary>
+            <div className="pt-2">
+              <BundleRecords
+                bundle={bundle.value}
+                excludeIds={selection.excludeIds}
+                onExcludeChange={(excludeIds) => setSelection({ ...selection, excludeIds })}
+              />
+            </div>
+          </details>
+        )}
         {preview !== null && (
           <section className="flex flex-col gap-1" aria-label="First message preview">
             <span className="text-muted-foreground text-xs">
               First message preview
-              {source === 'context' && bundle.value
-                ? ` · ~${bundle.value.tokenEstimate} tokens${bundle.value.omitted ? ` · ${bundle.value.omitted} record(s) left out` : ''}`
-                : ''}
+              {source === 'context' && bundle.value ? ` · ${bundleSummary(bundle.value)}` : ''}
             </span>
             <pre
               className="bg-muted/50 max-h-64 overflow-auto rounded border p-2 font-mono text-xs whitespace-pre-wrap"

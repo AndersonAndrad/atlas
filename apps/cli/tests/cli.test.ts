@@ -467,6 +467,84 @@ describe('atlas CLI', () => {
       expect((await run(['context', 'show', '--project', id])).out).toContain('1 handoffs');
     });
 
+    it('imports, enables, resolves and removes skills from explicit paths', async () => {
+      const dir = path.join(temp.dir, 'my-skill');
+      mkdirSync(path.join(dir, 'scripts'), { recursive: true });
+      writeFileSync(
+        path.join(dir, 'SKILL.md'),
+        '---\nname: my-skill\ndescription: Helps.\n---\n# Hi\n',
+      );
+      writeFileSync(path.join(dir, 'scripts', 'run.sh'), '#!/bin/sh\necho hi\n');
+      expect((await run(['skills', 'list'])).out).toContain('No skills registered.');
+
+      const refused = await run(['skills', 'import', dir]);
+      expect(refused.out).toContain('scripts/run.sh');
+      expect(refused.err).toContain('Re-run with --yes');
+      const imported = await run(['skills', 'import', dir, '--yes', '--json']);
+      expect(imported.code).toBe(0);
+      const skill = JSON.parse(imported.out.slice(imported.out.indexOf('{'))) as { id: string };
+      expect((await run(['skills', 'enable', skill.id])).out).toContain('enabled globally');
+      expect((await run(['skills', 'resolve', '--provider', 'codex'])).out).toMatch(
+        /active\s+my-skill/,
+      );
+      expect(
+        (await run(['skills', 'assign', skill.id, '--scope', 'role', '--target', 'boss'])).code,
+      ).not.toBe(0);
+      expect((await run(['skills', 'show', skill.id])).out).toContain('Source: path');
+      expect((await run(['skills', 'templates'])).out).toContain('conventional-commits');
+      expect((await run(['skills', 'remove', skill.id, '--yes'])).out).toContain('Removed');
+      expect(existsSync(path.join(dir, 'SKILL.md'))).toBe(true);
+    });
+
+    it('lists the Git operation log and validates its options', async () => {
+      const empty = await run(['git', 'log-operations']);
+      expect(empty.code).toBe(0);
+      expect(empty.out).toContain('No logged Git operations.');
+      const json = await run(['git', 'log-operations', '--json']);
+      expect(JSON.parse(json.out)).toEqual({ operations: [], nextBefore: null });
+      expect((await run(['git', 'log-operations', '--limit', 'all'])).err).toContain(
+        '--limit must be a number',
+      );
+      const missing = await run(['git', 'log-operation', '00000000-0000-4000-8000-000000000001']);
+      expect(missing.code).not.toBe(0);
+      expect((await run(['git', 'reflog', '--repo', temp.dir])).err).toContain(
+        'is not inside a Git repository',
+      );
+    });
+
+    it('retrieves ranked context and reports context health', async () => {
+      const id = await projectId();
+      const retrieved = await run([
+        'context',
+        'retrieve',
+        '--project',
+        id,
+        '--objective',
+        'Rotate JWT tokens',
+        '--role',
+        'qa',
+        '--file',
+        'src/auth.ts',
+      ]);
+      expect(retrieved.code).toBe(0);
+      expect(retrieved.out).toContain('Objective: Rotate JWT tokens · role: qa');
+      expect(retrieved.out).toContain('approximation: characters / 4');
+
+      const json = await run(['context', 'bundle', '--project', id, '--budget', '1000', '--json']);
+      expect(JSON.parse(json.out)).toMatchObject({ budgetTokens: 1000, budgetSource: 'request' });
+
+      const health = await run(['context', 'health', '--project', id]);
+      expect(health.code).toBe(0);
+      expect(health.out).toContain('Last reconciliation: never');
+      expect(health.out).toContain('not a quality score');
+
+      expect((await run(['context', 'bundle', '--project', id, '--budget', 'lots'])).err).toContain(
+        '--budget must be a number',
+      );
+      const badRole = await run(['context', 'retrieve', '--project', id, '--role', 'boss']);
+      expect(badRole.code).not.toBe(0);
+    });
+
     it('requires one target and a valid provider, and needs the running app to start AI', async () => {
       const id = await projectId();
       expect((await run(['context', 'show'])).err).toContain('--project <id> or --cwd');

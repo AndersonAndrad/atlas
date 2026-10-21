@@ -610,6 +610,7 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
       {tree && (
         <OperationsSheet
           repositoryName={tree.repositoryName}
+          repositoryRoot={tree.repositoryRoot}
           operations={operations}
           open={operationsSheet.open}
           onOpenChange={operationsSheet.setOpen}

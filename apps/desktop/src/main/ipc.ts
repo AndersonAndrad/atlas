@@ -13,6 +13,9 @@ import {
   GitFetchInputSchema,
   GitMergeInputSchema,
   GitOperationIdSchema,
+  GitOperationLogQuerySchema,
+  GitReflogInputSchema,
+  UpdateGitOperationLogSettingsSchema,
   GitPathsInputSchema,
   GitPullInputSchema,
   GitPushInputSchema,
@@ -38,6 +41,12 @@ import {
   UpdateTerminalPreferencesSchema,
   UpdateProjectInputSchema,
   parseInput,
+  AddSkillSourceSchema,
+  ImportSkillSchema,
+  InspectSkillSchema,
+  SkillSyncTargetsSchema,
+  type AddSkillSourceInput,
+  type ImportSkillInput,
   type AppInfo,
   type DirectoryChoice,
   type IpcResult,
@@ -75,7 +84,13 @@ export interface IpcDependencies {
 const NoArgs = z.tuple([]);
 const IdArgs = z.tuple([ProjectIdSchema]);
 const PositionSchema = z.number().int().min(0).max(10_000);
-const DIRECTORY_PURPOSES = ['project', 'terminal', 'default-directory', 'session'] as const;
+const DIRECTORY_PURPOSES = [
+  'project',
+  'terminal',
+  'default-directory',
+  'session',
+  'skill',
+] as const;
 type DirectoryPurpose = (typeof DIRECTORY_PURPOSES)[number];
 const ChoosePurposeArgs = z.union([z.tuple([]), z.tuple([z.enum(DIRECTORY_PURPOSES)])]);
 const DIALOG_TITLES: Record<DirectoryPurpose, string> = {
@@ -83,6 +98,7 @@ const DIALOG_TITLES: Record<DirectoryPurpose, string> = {
   terminal: 'Open terminal in folder',
   'default-directory': 'Select default terminal directory',
   session: 'Select session workspace',
+  skill: 'Select a skill folder or a folder of skills',
 };
 const TerminalArgs = z.tuple([TerminalIdSchema]);
 const SessionArgs = z.tuple([AtlasSessionIdSchema]);
@@ -343,6 +359,10 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     [IPC_CHANNELS.contextSetDecisionStatus, 'context.setDecisionStatus'],
     [IPC_CHANNELS.contextBundle, 'context.bundle'],
     [IPC_CHANNELS.contextSnapshot, 'context.snapshot'],
+    [IPC_CHANNELS.contextHealth, 'context.health'],
+    [IPC_CHANNELS.contextReconcile, 'context.reconcile'],
+    [IPC_CHANNELS.contextBudgets, 'context.budgets'],
+    [IPC_CHANNELS.contextSetBudgets, 'context.setBudgets'],
     [IPC_CHANNELS.contextPrepareHandoff, 'context.prepareHandoff'],
     [IPC_CHANNELS.contextCreateHandoff, 'context.createHandoff'],
     [IPC_CHANNELS.contextHandoffs, 'context.handoffs'],
@@ -361,6 +381,63 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
       (engine.call as (name: string, ...params: unknown[]) => Promise<unknown>)(method, ...args),
     );
   }
+
+  // Skills Hub (SDD-006 Milestone B): arguments are the Engine method's parameters.
+  const skillChannels: [string, EngineMethod][] = [
+    [IPC_CHANNELS.skillsList, 'skills.list'],
+    [IPC_CHANNELS.skillsDetails, 'skills.details'],
+    [IPC_CHANNELS.skillsSuggestions, 'skills.suggestions'],
+    [IPC_CHANNELS.skillsSources, 'skills.sources'],
+    [IPC_CHANNELS.skillsSetSourceEnabled, 'skills.setSourceEnabled'],
+    [IPC_CHANNELS.skillsRemoveSource, 'skills.removeSource'],
+    [IPC_CHANNELS.skillsDiscover, 'skills.discover'],
+    [IPC_CHANNELS.skillsTemplates, 'skills.templates'],
+    [IPC_CHANNELS.skillsCreateFromTemplate, 'skills.createFromTemplate'],
+    [IPC_CHANNELS.skillsEdit, 'skills.edit'],
+    [IPC_CHANNELS.skillsReadFile, 'skills.readFile'],
+    [IPC_CHANNELS.skillsDiff, 'skills.diff'],
+    [IPC_CHANNELS.skillsValidate, 'skills.validate'],
+    [IPC_CHANNELS.skillsSetEnabled, 'skills.setEnabled'],
+    [IPC_CHANNELS.skillsAssign, 'skills.assign'],
+    [IPC_CHANNELS.skillsUnassign, 'skills.unassign'],
+    [IPC_CHANNELS.skillsRemove, 'skills.remove'],
+    [IPC_CHANNELS.skillsResolve, 'skills.resolve'],
+    [IPC_CHANNELS.skillsSyncTargets, 'skills.syncTargets'],
+    [IPC_CHANNELS.skillsSyncPreview, 'skills.syncPreview'],
+    [IPC_CHANNELS.skillsSyncApply, 'skills.syncApply'],
+    [IPC_CHANNELS.skillsSyncHistory, 'skills.syncHistory'],
+    [IPC_CHANNELS.skillsSyncRollback, 'skills.syncRollback'],
+  ];
+  for (const [channel, method] of skillChannels) {
+    handle(channel, ENGINE_METHOD_PARAMS[method] as unknown as z.ZodType<unknown[]>, (args) =>
+      (engine.call as (name: string, ...params: unknown[]) => Promise<unknown>)(method, ...args),
+    );
+  }
+  // Folders are read only when chosen in the native picker (`explicit`) or when they are
+  // inside a skill source the user added; the renderer cannot claim either.
+  const picked = (folder: string) => pickedPaths.has(folder);
+  handle(IPC_CHANNELS.skillsAddSource, z.tuple([AddSkillSourceSchema]), ([input]) => {
+    const value = input as AddSkillSourceInput;
+    return engine.call('skills.addSource', value, picked(value.path));
+  });
+  handle(IPC_CHANNELS.skillsInspect, z.tuple([InspectSkillSchema.shape.path]), ([folder]) =>
+    engine.call('skills.inspect', { path: folder as string }, picked(folder as string)),
+  );
+  // Sync writes into these folders: only picked or Engine-suggested folders are accepted.
+  handle(IPC_CHANNELS.skillsSetSyncTargets, z.tuple([SkillSyncTargetsSchema]), async ([input]) => {
+    const changes = input as Record<string, string | null | undefined>;
+    const suggested = new Set((await engine.call('skills.suggestions')).map((item) => item.path));
+    for (const folder of Object.values(changes)) {
+      if (typeof folder === 'string' && !picked(folder) && !suggested.has(folder)) {
+        throw new AtlasError('SKILL_SOURCE_UNAUTHORIZED');
+      }
+    }
+    return engine.call('skills.setSyncTargets', changes);
+  });
+  handle(IPC_CHANNELS.skillsImport, z.tuple([ImportSkillSchema]), ([input]) => {
+    const value = input as ImportSkillInput;
+    return engine.call('skills.import', value, picked(value.path));
+  });
 
   handle(IPC_CHANNELS.copyText, z.tuple([z.string().max(1_000_000)]), async ([text]) => {
     deps.writeClipboard(text as string);
@@ -406,6 +483,19 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     'git.setProjectSettings',
   );
   gitCall(IPC_CHANNELS.gitCancelOperation, z.tuple([GitOperationIdSchema]), 'git.cancelOperation');
+  gitCall(IPC_CHANNELS.gitOperationLog, z.tuple([GitOperationLogQuerySchema]), 'git.operationLog');
+  gitCall(
+    IPC_CHANNELS.gitOperationDetails,
+    z.tuple([GitOperationIdSchema]),
+    'git.operationDetails',
+  );
+  gitCall(IPC_CHANNELS.gitReflog, z.tuple([GitReflogInputSchema]), 'git.reflog');
+  gitCall(IPC_CHANNELS.gitLogSettings, NoArgs, 'git.logSettings');
+  gitCall(
+    IPC_CHANNELS.gitSetLogSettings,
+    z.tuple([UpdateGitOperationLogSettingsSchema]),
+    'git.setLogSettings',
+  );
   gitCall(IPC_CHANNELS.gitGetPreferences, NoArgs, 'git.getPreferences');
   gitCall(
     IPC_CHANNELS.gitSetPreferences,

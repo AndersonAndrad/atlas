@@ -5,3 +5,5 @@ export * from './sqlite-settings-repository.js';
 export * from './sqlite-terminal-session-repository.js';
 export * from './sqlite-session-repository.js';
 export * from './sqlite-context-repository.js';
+export * from './sqlite-git-operation-log-repository.js';
+export * from './sqlite-skill-repository.js';

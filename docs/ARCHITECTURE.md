@@ -42,19 +42,20 @@ process is a thin, security-focused broker between the renderer and the Engine.
 
 ## Workspace layout
 
-| Path                            | Responsibility                                                                                                                                              | Depends on                              |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `packages/shared`               | `AtlasError`, error codes and user-safe messages, `Logger` port                                                                                             | —                                       |
-| `packages/contracts`            | Zod schemas/types: projects, terminals, layouts, Engine method contract (`engine-api`), IPC contract (`./ipc`, Zod-free)                                    | shared, zod                             |
-| `packages/projects`             | Project domain: `ProjectService`, ports, path normalization                                                                                                 | shared, contracts                       |
-| `packages/terminal`             | Terminal domain/application: `TerminalService`, lifecycle state machine, `TerminalSettings`, ports (PTY, mirror, shells, …)                                 | shared, contracts                       |
-| `packages/conventional-commits` | Conventional Commits 1.0.0 validator, stricter project rules, deterministic commit suggestions (no dependencies; also used by the renderer)                 | —                                       |
-| `packages/git`                  | Git inspection and workflow: porcelain parsers, `GitInspectionService`, `GitWorkspaceService`, `GitOperationCoordinator`, credential redaction, preferences | shared, contracts, conventional-commits |
-| `packages/context`              | Shared Context: `SharedContextService`, bundles and handoff rendering, `ContextRepository` / `RepositoryInspector` ports                                    | shared, contracts                       |
-| `packages/persistence`          | SQLite, migrations, project/settings/terminal-session repositories                                                                                          | shared, contracts, ports                |
-| `apps/engine`                   | Composition root `createEngine()`, `startEngineHost()`, adapters (node-pty, headless mirror, shells), RPC dispatcher + socket                               | all packages, node-pty, xterm           |
-| `apps/cli`                      | `atlas` command line client                                                                                                                                 | engine                                  |
-| `apps/desktop`                  | Electron main (broker), Engine host entry, preload bridge, React renderer (shadcn/ui, xterm.js)                                                             | engine (main/host), contracts           |
+| Path                            | Responsibility                                                                                                                                                                              | Depends on                              |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `packages/shared`               | `AtlasError`, error codes and user-safe messages, `Logger` port                                                                                                                             | —                                       |
+| `packages/contracts`            | Zod schemas/types: projects, terminals, layouts, Engine method contract (`engine-api`), IPC contract (`./ipc`, Zod-free)                                                                    | shared, zod                             |
+| `packages/projects`             | Project domain: `ProjectService`, ports, path normalization                                                                                                                                 | shared, contracts                       |
+| `packages/terminal`             | Terminal domain/application: `TerminalService`, lifecycle state machine, `TerminalSettings`, ports (PTY, mirror, shells, …)                                                                 | shared, contracts                       |
+| `packages/conventional-commits` | Conventional Commits 1.0.0 validator, stricter project rules, deterministic commit suggestions (no dependencies; also used by the renderer)                                                 | —                                       |
+| `packages/git`                  | Git inspection and workflow: porcelain parsers, `GitInspectionService`, `GitWorkspaceService`, `GitOperationCoordinator`, credential redaction, preferences                                 | shared, contracts, conventional-commits |
+| `packages/skills`               | Skills Hub: SKILL.md parsing, provider adapters, safety checks, activation rules, versions, sync; `SkillRepository` / `SkillFileSystem` ports                                               | shared, contracts, git, yaml            |
+| `packages/context`              | Shared Context: `SharedContextService`, ranked bundles (`retrieval/`: terms, scoring, budgets, consistency, cache) and handoff rendering, `ContextRepository` / `RepositoryInspector` ports | shared, contracts                       |
+| `packages/persistence`          | SQLite, migrations, project/settings/terminal-session repositories                                                                                                                          | shared, contracts, ports                |
+| `apps/engine`                   | Composition root `createEngine()`, `startEngineHost()`, adapters (node-pty, headless mirror, shells), RPC dispatcher + socket                                                               | all packages, node-pty, xterm           |
+| `apps/cli`                      | `atlas` command line client                                                                                                                                                                 | engine                                  |
+| `apps/desktop`                  | Electron main (broker), Engine host entry, preload bridge, React renderer (shadcn/ui, xterm.js)                                                                                             | engine (main/host), contracts           |
 
 Dependency direction is inward: `projects` and `terminal` define ports; `persistence` and
 `engine` implement them. Domain packages never import node-pty, SQLite or Electron.
@@ -289,6 +290,11 @@ Full description: `docs/sdd/SDD-004-git-and-ai-execution.md`, Part I.
 - **Operations**: expected failures are reported on the `GitOperation` with a code and
   credential-free Git output; validation problems are request errors. `git-operation`
   events update every view; mutations invalidate the inspection cache and emit `git`.
+- **Operation log (PLAN-016)**: the coordinator's journal (`GitOperationLog`) persists
+  every status change; `recordingExecutor` records each command run inside an operation
+  (attributed through an `AsyncLocalStorage` scope) with sanitized, size-limited output.
+  `git.reflog` reads HEAD's reflog and marks entries matching a logged operation by time
+  and kind. Retention by age and count; unfinished operations are closed at start.
 - **Conventional Commits**: enforced by default in the renderer and Engine, with stricter
   rules from `git.preferences`. Project settings can disable enforcement and configure
   ordered pre-commit commands through the Engine's `PreCommitStepRunner` adapter
@@ -340,6 +346,44 @@ Full description: `docs/sdd/SDD-005-multi-agent-and-shared-context.md`, Part I.
 ```
 
 Details and limitations: SDD-005 Part I, "Project configuration for LLMs"; ADR-042.
+
+### Context retrieval (SDD-006 Milestone A)
+
+Full description: `docs/sdd/SDD-006-context-intelligence-and-skills.md`, Part I.
+
+```text
+ context.bundle(objective, role, files, keywords, exclusions, detail)
+      │
+ SharedContextService.bundle ─► LRU cache of stored records (key: owner, task, terms,
+      │                          PRAGMA data_version + local writes)
+      ├─ candidates: newest entries + FTS5 bm25 matches, active decisions, global entries
+      ├─ freshness against Git (always, also on a cache hit)
+      ├─ budget: request → task → profile → role → provider → default (application_settings)
+      └─ buildBundle (pure): explainable scores, duplicates, compaction, relevance,
+         priority sections, required records, included / excluded with reasons, warnings
+ context.health / reconcile ─► stale, conflicts, duplicates, closed-task pending, sources
+```
+
+Tokens are always an estimate (characters / 4). The retrieval code is pure and has no
+Node.js dependencies because the renderer bundles `@atlas/context`.
+
+### Skills Hub (SDD-006 Milestone B)
+
+Full description: `docs/sdd/SDD-006-context-intelligence-and-skills.md`, Part I-B.
+
+```text
+ Skills view / CLI ─► skills.* (Engine) ─► SkillsHub (packages/skills)
+                                            ├─ NodeSkillFileSystem: read authorized folders, copy
+                                            ├─ analyzeSkill: frontmatter (yaml), Claude/Codex adapters,
+                                            │   scripts, permissions, credentials, dependencies
+                                            ├─ SqliteSkillRepository (migration v8)
+                                            ├─ resolveSkill: security > restrictions > session > role > enable
+                                            └─ sync: preview / apply / rollback, .atlas-managed.json
+ SharedContextService.bundle ─► skills resolver ─► "Skills enabled by the user" (paths only)
+```
+
+Picked paths are tracked by the desktop main process, which passes `explicit` to the
+Engine; sync folders must be picked or suggested.
 
 ### Project context of a terminal
 
@@ -469,7 +513,10 @@ terminals running as standalone terminals (SDD-003 §2).
   append-only migrations in `schema_migrations` (`BEGIN IMMEDIATE`), newer schemas refused.
 - Schema v1: `projects`, `application_settings`. Schema v2: `terminal_sessions`. Schema v3:
   standalone terminals, names, groups (table rebuild; SDD-002 per-project layouts dropped).
-  Schema v4: ATLAS Sessions (additive).
+  Schema v4: ATLAS Sessions (additive). Schema v5: Shared Context with FTS5 (additive).
+  Schema v6: context retrieval — required entries, task branch and budget,
+  reconciliation runs (additive). Schema v7: Git operation and command log (additive).
+  Schema v8: Skills Hub (additive).
 - Data dir: macOS `~/Library/Application Support/ATLAS`, Windows `%APPDATA%\ATLAS`, Linux
   `$XDG_DATA_HOME/atlas`; `ATLAS_DATA_DIR` overrides.
 

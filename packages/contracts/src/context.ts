@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ProjectIdSchema } from './project.js';
+import { EXECUTION_PROFILES, type ExecutionProfile } from './session.js';
 
 // ---------------------------------------------------------------------------
 // Shared Context (SDD-005 Milestone A)
@@ -24,6 +25,8 @@ export const CONTEXT_CATEGORIES = [
   'overview',
   'architecture',
   'convention',
+  /** A rule the receiving agent must respect, e.g. "never edit generated files". */
+  'constraint',
   'command',
   'objective',
   'progress',
@@ -71,6 +74,8 @@ export interface ContextSource {
 export interface ContextReferences {
   files: { path: string; hash: string | null }[];
   commit: string | null;
+  /** Branch checked out when the entry was recorded (absent in entries before v0.10.0). */
+  branch?: string | null;
 }
 
 /** The project or repository a context record belongs to; both null for global records. */
@@ -91,6 +96,8 @@ export interface ContextEntry extends ContextOwner {
   verification: ContextVerification;
   source: ContextSource;
   refs: ContextReferences;
+  /** Always part of a bundle: never left out for the budget nor excluded in a preview. */
+  required: boolean;
   revision: number;
   createdAt: string;
   updatedAt: string;
@@ -120,6 +127,10 @@ export interface ContextTask extends ContextOwner {
   status: ContextTaskStatus;
   /** HEAD when the task was created; commits after it belong to the task's history. */
   baseCommit: string | null;
+  /** Branch checked out when the task was created. */
+  baseBranch: string | null;
+  /** Context budget for this task's bundles, overriding role, provider and global budgets. */
+  budgetTokens: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -201,19 +212,218 @@ export interface ContextFreshness {
   head: string | null;
   uncommittedFiles: number;
   stale: { id: string; reason: string }[];
+  /** The bounded number of Git checks was reached; later references were not checked. */
+  checksTruncated?: boolean;
 }
 
-/** Compact, provider-formatted context for an AI session (FR-505). */
+// ---------------------------------------------------------------------------
+// Context retrieval (SDD-006 Milestone A)
+// ---------------------------------------------------------------------------
+
+/** Roles that receive different context; `generic` is an ordinary AI session. */
+export const AGENT_ROLES = [
+  'generic',
+  'architect',
+  'developer',
+  'qa',
+  'security',
+  'reviewer',
+] as const;
+export type AgentRole = (typeof AGENT_ROLES)[number];
+
+export const CONTEXT_BUDGET_MIN = 500;
+export const CONTEXT_BUDGET_MAX = 32_000;
+export const CONTEXT_BUDGET_DEFAULT = 6000;
+
+/**
+ * Token counts are never measured by ATLAS: it holds no provider credentials. Every
+ * count is this approximation and must be presented as an estimate.
+ */
+export const TOKEN_ESTIMATE_METHOD = 'approximation: characters / 4';
+
+/** Bundle sections in priority order (FR-604): earlier sections are kept first. */
+export const BUNDLE_SECTIONS = [
+  'constraints',
+  'decisions',
+  'relevant-files',
+  'task-state',
+  'validations',
+  'blockers',
+  'knowledge',
+  'history',
+  'global',
+] as const;
+export type BundleSection = (typeof BUNDLE_SECTIONS)[number];
+
+/** One explainable part of a relevance score. */
+export interface ScoreFactor {
+  name:
+    | 'text'
+    | 'search-rank'
+    | 'scope'
+    | 'files'
+    | 'category'
+    | 'decision'
+    | 'verification'
+    | 'recency'
+    | 'stale'
+    | 'branch';
+  points: number;
+  detail: string;
+}
+
+/** A record considered for a bundle, with its provenance and relevance (FR-602, FR-605). */
+export interface ContextReference {
+  id: string;
+  kind: 'entry' | 'decision';
+  section: BundleSection;
+  title: string;
+  /** Line written to the bundle. */
+  text: string;
+  category: ContextCategory | null;
+  verification: ContextVerification;
+  required: boolean;
+  stale: boolean;
+  score: number;
+  factors: ScoreFactor[];
+  source: ContextSource;
+  files: string[];
+  commit: string | null;
+  /** Equivalent records collapsed into this one; they stay stored (FR-607). */
+  duplicates: string[];
+  estimatedTokens: number;
+}
+
+export type ExclusionReason =
+  /** Did not fit the token budget. */
+  | 'budget'
+  /** Excluded by the user in the preview. */
+  | 'user'
+  /** Equivalent to an included record. */
+  | 'duplicate'
+  /** Older session summaries; the latest ones are kept (structured compaction). */
+  | 'compacted'
+  /** No match with the objective, keywords or files, in a section that needs one. */
+  | 'not-relevant'
+  /** Left for on-demand retrieval by an essential bundle (FR-611). */
+  | 'progressive';
+
+export interface ExcludedReference {
+  reference: ContextReference;
+  reason: ExclusionReason;
+}
+
+export type ContextWarningKind =
+  | 'stale'
+  | 'branch-changed'
+  | 'conflict'
+  | 'pending-of-closed-task'
+  | 'over-budget'
+  | 'required-not-excludable';
+
+export interface ContextWarning {
+  kind: ContextWarningKind;
+  message: string;
+  /** Records the warning is about. */
+  ids: string[];
+}
+
+export type BudgetSource = 'request' | 'task' | 'profile' | 'role' | 'provider' | 'default';
+
+/** A skill active for the bundle's project, role and provider (SDD-006 Milestone B). */
+export interface BundleSkill {
+  skillId: string;
+  name: string;
+  description: string;
+  version: string;
+  /** SKILL.md of the ATLAS-managed copy; the provider reads it when relevant. */
+  skillFile: string;
+  /** Why it is active (e.g. "Enabled for this project."). */
+  reason: string;
+}
+
+/** Compact, provider-formatted context for an AI session (SDD-005 FR-505, SDD-006 FR-605). */
 export interface ContextBundle {
   markdown: string;
   provider: AiProvider | 'generic';
+  /** Objective the context was selected for: the request's, else the task's. */
+  objective: string | null;
+  role: AgentRole;
   budgetTokens: number;
-  /** Rough estimate (characters / 4). */
+  budgetSource: BudgetSource;
+  /** Estimate of the markdown size (see TOKEN_ESTIMATE_METHOD); never a measured count. */
   tokenEstimate: number;
-  /** Lower-priority records left out to respect the budget. */
+  estimatedTokens: number;
+  tokenEstimateMethod: typeof TOKEN_ESTIMATE_METHOD;
+  /** Required content alone exceeds the budget; it was kept and reported. */
+  overBudget: boolean;
+  /** Records left out to respect the budget. */
   omitted: number;
+  /** Mandatory ATLAS policies sent with every bundle; they cannot be removed. */
+  instructions: string[];
+  /** Included records in bundle order. */
+  included: ContextReference[];
+  excluded: ExcludedReference[];
+  decisions: ContextReference[];
+  relevantFiles: ContextReference[];
+  completedWork: ContextReference[];
+  pendingWork: ContextReference[];
+  validations: ContextReference[];
+  blockers: ContextReference[];
+  warnings: ContextWarning[];
+  /** Skills the user enabled for this context; listed, never inlined. */
+  skills: BundleSkill[];
+  /** Whether the stored records came from the bundle cache (freshness is always checked now). */
+  cache: 'hit' | 'miss';
   freshness: ContextFreshness;
   generatedAt: string;
+}
+
+/** Per-scope context budgets in estimated tokens (FR-603). */
+export interface ContextBudgetSettings {
+  defaultTokens: number;
+  providers: Partial<Record<AiProvider | 'generic', number>>;
+  roles: Partial<Record<AgentRole, number>>;
+  profiles: Partial<Record<ExecutionProfile, number>>;
+}
+
+/** Heuristic signals about stored context (FR-608); not a measure of correctness. */
+export interface ContextHealthReport {
+  generatedAt: string;
+  tokenEstimateMethod: typeof TOKEN_ESTIMATE_METHOD;
+  repository: { branch: string | null; head: string | null };
+  totals: {
+    entries: number;
+    activeEntries: number;
+    obsoleteEntries: number;
+    requiredEntries: number;
+    decisions: number;
+    activeDecisions: number;
+    supersededDecisions: number;
+    tasks: number;
+    openTasks: number;
+  };
+  /** Estimated size of every record a generic bundle could include, without a budget. */
+  estimatedRelevantTokens: number;
+  stale: { id: string; reason: string }[];
+  conflicts: { ids: string[]; reason: string }[];
+  missingSources: { id: string; title: string }[];
+  duplicates: { keptId: string; duplicateIds: string[] }[];
+  pendingOfClosedTasks: { id: string; title: string; taskId: string }[];
+  /** Freshness checks stopped at their bound; some references were not checked. */
+  checksTruncated: boolean;
+  lastReconciliation: ContextReconciliation | null;
+}
+
+/** A recorded run of the freshness and consistency checks. */
+export interface ContextReconciliation {
+  id: string;
+  at: string;
+  head: string | null;
+  branch: string | null;
+  stale: number;
+  conflicts: number;
+  duplicates: number;
 }
 
 export interface ContextSnapshot extends ContextOwner {
@@ -241,6 +451,7 @@ export interface ContextOverview {
 // ---------------------------------------------------------------------------
 
 const Id = z.uuid();
+const BudgetTokens = z.number().int().min(CONTEXT_BUDGET_MIN).max(CONTEXT_BUDGET_MAX);
 const Text = (max: number) => z.string().trim().min(1).max(max);
 const List = (max: number) => z.array(z.string().trim().min(1).max(2000)).max(max);
 const PathText = z
@@ -263,6 +474,8 @@ export const CreateContextEntrySchema = z.strictObject({
   category: z.enum(CONTEXT_CATEGORIES),
   title: Text(200),
   body: z.string().max(20_000),
+  /** Always sent in bundles; reserve it for constraints that must not be dropped. */
+  required: z.boolean().optional(),
   /** Repository files the entry is about; their current content is fingerprinted. */
   files: z.array(PathText).max(50).optional(),
 });
@@ -273,6 +486,7 @@ export const UpdateContextEntrySchema = z.strictObject({
   body: z.string().max(20_000).optional(),
   category: z.enum(CONTEXT_CATEGORIES).optional(),
   status: z.enum(['active', 'obsolete']).optional(),
+  required: z.boolean().optional(),
   reason: z.string().trim().max(500).optional(),
 });
 export type UpdateContextEntryInput = z.infer<typeof UpdateContextEntrySchema>;
@@ -299,6 +513,8 @@ export const UpdateContextTaskSchema = z.strictObject({
   title: Text(200).optional(),
   objective: z.string().trim().min(1).max(4000).optional(),
   status: z.enum(CONTEXT_TASK_STATUSES).optional(),
+  /** Null removes the task's override. */
+  budgetTokens: BudgetTokens.nullable().optional(),
 });
 export type UpdateContextTaskInput = z.infer<typeof UpdateContextTaskSchema>;
 
@@ -316,13 +532,33 @@ export const CreateDecisionSchema = z.strictObject({
 });
 export type CreateDecisionInput = z.input<typeof CreateDecisionSchema>;
 
+/** What to select context for (FR-601); everything is optional. */
+const RetrievalFields = {
+  /** Current objective; defaults to the task's. */
+  objective: z.string().trim().max(4000).optional(),
+  agentRole: z.enum(AGENT_ROLES).optional(),
+  executionProfile: z.enum(EXECUTION_PROFILES).optional(),
+  /** Repository-relative files the work is about. */
+  files: z.array(PathText).max(50).optional(),
+  keywords: z.array(z.string().trim().min(1).max(100)).max(20).optional(),
+  /** Optional records the user excluded in the preview; required ones stay. */
+  excludeIds: z.array(Id).max(500).optional(),
+  /** `essential` leaves project knowledge and history for on-demand retrieval (FR-611). */
+  detail: z.enum(['essential', 'full']).optional(),
+  /** Skills chosen for this session in addition to the enabled ones. */
+  skillIds: z.array(Id).max(100).optional(),
+};
+
 export const ContextBundleRequestSchema = z.strictObject({
   target: ContextTargetSchema,
   taskId: Id.optional(),
   provider: z.enum(['claude', 'codex', 'generic']).default('generic'),
-  budgetTokens: z.number().int().min(500).max(32_000).default(6000),
+  /** Explicit budget; otherwise task, profile, role, provider and global budgets apply. */
+  budgetTokens: BudgetTokens.optional(),
+  ...RetrievalFields,
 });
 export type ContextBundleRequest = z.input<typeof ContextBundleRequestSchema>;
+export type ParsedContextBundleRequest = z.infer<typeof ContextBundleRequestSchema>;
 
 export const CreateHandoffSchema = z.strictObject({
   target: ContextTargetSchema,
@@ -344,7 +580,8 @@ export const StartAiSessionSchema = z.strictObject({
   /** Continue from this handoff; otherwise a context bundle is sent when enabled. */
   handoffId: Id.optional(),
   includeContext: z.boolean(),
-  budgetTokens: z.number().int().min(500).max(32_000).default(6000),
+  budgetTokens: BudgetTokens.optional(),
+  ...RetrievalFields,
 });
 export type StartAiSessionInput = z.input<typeof StartAiSessionSchema>;
 
@@ -437,3 +674,23 @@ export interface ProjectConfigView {
   configPath: string;
   wrappers: { claude: LlmWrapperStatus; codex: LlmWrapperStatus };
 }
+
+const BudgetMap = <K extends string>(keys: readonly [K, ...K[]]) =>
+  z.partialRecord(z.enum(keys), BudgetTokens);
+
+const BudgetFields = {
+  defaultTokens: BudgetTokens,
+  providers: BudgetMap(['claude', 'codex', 'generic']),
+  roles: BudgetMap(AGENT_ROLES),
+  profiles: BudgetMap(EXECUTION_PROFILES),
+};
+
+export const ContextBudgetSettingsSchema = z.strictObject({
+  defaultTokens: BudgetFields.defaultTokens.default(CONTEXT_BUDGET_DEFAULT),
+  providers: BudgetFields.providers.default({}),
+  roles: BudgetFields.roles.default({}),
+  profiles: BudgetFields.profiles.default({}),
+});
+/** Without defaults: a field left out keeps its stored value. */
+export const UpdateContextBudgetSettingsSchema = z.strictObject(BudgetFields).partial();
+export type UpdateContextBudgetSettings = z.input<typeof UpdateContextBudgetSettingsSchema>;

@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-20 — PLAN-014 (project configuration for LLMs).
+Last updated: 2026-10-20 — PLAN-018 (fresh shell environment for commits).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -8,7 +8,126 @@ Context) implemented and validated on macOS (arm64) with automated tests; all aw
 developer's approval. SDD-005 A1 still needs a manual check with the real Claude Code and
 Codex CLIs. SDD-004 Milestone B (provider execution) and SDD-005 stage A2, Milestones B and
 C are not started. PLAN-014 (project configuration read by LLMs) is implemented and awaits
-approval. Version 0.9.0 (schema v5).
+approval. SDD-006 Milestone A (intelligent context retrieval, PLAN-015) is implemented and
+validated with automated tests and awaits approval; SDD-006 Milestones B and C are not
+started (C depends on SDD-004 B and SDD-005 B). PLAN-016 (persistent Git operation log
+and reflog) is implemented and validated and awaits approval. SDD-006 Milestone B (Skills
+Hub, PLAN-017) is implemented and validated and awaits approval. PLAN-018 (commits use a
+fresh shell environment; ATLAS's development NODE_ENV no longer leaks) is implemented and
+awaits approval. Version 0.12.1 (schema v8).
+
+## PLAN-018 — Fresh shell environment for commits
+
+Checks and Git hooks of every commit and push get the environment a new terminal would
+have, read from the user's interactive login shell at that moment; `NODE_ENV` from `pnpm
+dev` is no longer passed to terminals, checks or Git. Details: SDD-004 Part I, "Commit
+environment"; ADR-049.
+
+Validation (2026-10-20, macOS arm64, Node 24.18.0, zsh): `pnpm test` 640/640 (50 files),
+including a real-zsh test where a `.zshrc` change made while ATLAS runs reaches the next
+commit's check and hook; `pnpm test:e2e` 62/62 in two consecutive runs (a check of a commit
+from an app launched with `NODE_ENV=development` sees it unset); clean build, typecheck,
+lint, format and audit clean. Staff review: no Critical or High findings; Low (documented):
+hooks of pull, merge and branch switching keep ATLAS's environment (without NODE_ENV).
+
+## SDD-006 Milestone B — Skills Hub (PLAN-017)
+
+| Requirement | Summary                                                                                         |
+| ----------- | ----------------------------------------------------------------------------------------------- |
+| FR-614/618  | Registry; immutable versions copied into the data folder; update available; version diff        |
+| FR-615/619  | Global, project, provider, role and session rules with deterministic precedence and reasons     |
+| FR-616/623  | Discovery only in authorized folders; import review with content hash; source never changed     |
+| FR-617      | Claude Code / Codex adapters: compatible, partial (ignored features listed) or incompatible     |
+| FR-620/621  | Dependencies checked without running anything; scripts, permissions, credentials, links, limits |
+| FR-622      | Skills view (Installed, Available, Sync) and `atlas skills` CLI                                 |
+| FR-624      | User-level sync with marker files, conflicts, preview, apply and rollback                       |
+| FR-625      | Seven versioned templates, editable, never enabled automatically                                |
+
+| Acceptance (§7)                         | Evidence                                                              |
+| --------------------------------------- | --------------------------------------------------------------------- |
+| Registered and imported from folders    | hub and IPC tests; E2E import                                         |
+| Metadata validated                      | analyze tests (frontmatter, adapters, credentials, limits)            |
+| Global and project scopes; role rules   | resolve tests; hub and Engine tests                                   |
+| Provider compatibility reported         | analyze tests; E2E "Codex: partial"                                   |
+| Enable / disable; version history       | hub tests (versions, diff); CLI test; E2E                             |
+| Dependency validation                   | analyze tests (executables, skills, tools, providers)                 |
+| Unsafe execution prevented (documented) | no execution path; scripts and permissions shown; credentials refused |
+| Skills Hub UI                           | E2E (Available → review → Installed → Sync), 380 px                   |
+| Provider configurations preserved       | hub sync test (foreign folder untouched, conflict); E2E rollback      |
+| Unit and integration tests pass         | see below                                                             |
+
+Validation (2026-10-20, macOS arm64, Node 24.18.0): `pnpm test` 635/635 (49 files);
+`pnpm test:e2e` 61/61 in two consecutive runs; clean build ok (renderer 1,244 kB);
+typecheck, lint, format and audit clean. New dependency `yaml` 2.8.4 (exact): the plan
+approved 2.8.1, the audit reported GHSA-48c2-rrv3-qjmp and the developer approved 2.8.4.
+Not verified: that the real Claude Code and Codex CLIs load synchronized skills or follow
+listed skill files.
+
+Staff review: no Critical or High findings. Low (open): CLI clients may inspect and import
+any folder (explicit command arguments, local authenticated socket); a skill folder linked
+from a source to a location outside it must be added or picked separately; turning skills
+on or off does not refresh a project's `context.md` until the next context change.
+
+## PLAN-016 — Persistent Git operation log and reflog
+
+Every Git operation ATLAS runs is kept across restarts with each Git command it executed
+(arguments, exit code, duration, credential-free output, bounded per command and per
+operation); unfinished operations are closed at start; retention by age and count
+(Settings → Git operation log). Operations panel: Recent, History (filters, commands,
+Copy log) and Reflog (HEAD changes by any tool, "ATLAS" or "Outside ATLAS" by time and
+kind). CLI: `atlas git log-operations`, `log-operation <id>`, `reflog`. Details: SDD-004
+Part I, "Operation log and reflog"; ADR-046.
+
+Validation (2026-10-20, macOS arm64, Node 24.18.0, Git 2.55.0): `pnpm test` 613/613
+(44 files); `pnpm test:e2e` 60/60 in two consecutive runs; clean build ok (renderer
+1,212 kB); typecheck, lint, format and audit clean.
+
+Staff review: no Critical or High findings. Corrected: a terminal commit made while ATLAS
+was staging was attributed to ATLAS (attribution now requires an operation kind that can
+move HEAD in that way); stored output is bounded per operation (about 256 KB). Remaining
+Low: authenticated local CLI clients can read the log of every repository ATLAS operated
+on; pagination by start time can skip operations started in the same millisecond; a
+reflog that cannot be read is shown as empty.
+
+## SDD-006 Milestone A — Intelligent context retrieval (PLAN-015)
+
+| Requirement | Summary                                                                                              |
+| ----------- | ---------------------------------------------------------------------------------------------------- |
+| FR-601/602  | Objective, role, files and keywords; FTS5 bm25 + structured filter; scores as sums of named factors  |
+| FR-603      | Estimated-token budgets: request → task → profile → role → provider → default; Settings and Tasks UI |
+| FR-604/605  | Priority sections; objective and required entries never left out; included / excluded with reasons   |
+| FR-606/607  | Branch changes, conflicts, pending of closed tasks; duplicates collapsed, history untouched          |
+| FR-608      | Context → Health and `atlas context health`; reconciliation runs recorded; no overall score          |
+| FR-609      | Preview context and Start dialog: records, exclusions (required locked), warnings, exact text        |
+| FR-610–613  | Bundle-time compaction; essential detail + on-demand `atlas context retrieve`; LRU cache; isolation  |
+
+| Acceptance (§5)                    | Evidence                                                                      |
+| ---------------------------------- | ----------------------------------------------------------------------------- |
+| Retrieval by objective             | Engine test "retrieves by objective…"; bundle unit tests; E2E preview         |
+| Project and task filters           | Engine isolation and task budget tests; bundle task scope                     |
+| Relevance scoring                  | `retrieval.test.ts` (explainable factors, recency vs decisions, roles, files) |
+| Budgets enforced                   | bundle budget and over-budget tests; Engine budget resolution; E2E Settings   |
+| Source references preserved        | bundle "relevant files … contract" test (source, files)                       |
+| Stale context detected             | Engine cache + freshness test; Health test (removed file)                     |
+| Duplicates reduced                 | consistency and bundle duplicate tests; Health duplicates                     |
+| Context Health                     | Engine Health/reconcile test; IPC and CLI tests; E2E                          |
+| Context previews                   | E2E (objective, exclusion, locked required, text, 380 px)                     |
+| Cache invalidation                 | Engine test: Engine write and another database connection invalidate          |
+| SDD-005 handoffs remain functional | SDD-005 handoff, session and E2E tests pass unchanged                         |
+| Unit and integration tests pass    | see below                                                                     |
+
+Validation (2026-10-20, macOS arm64, Node 24.18.0): `pnpm test` 599/599 (41 files);
+`pnpm test:e2e` 59/59 in two consecutive runs; clean build ok (renderer 1,202 kB);
+typecheck, lint, format and audit clean. Not verified: the real Claude Code and Codex CLIs
+(fake executables in tests) and ranking quality on real project histories (heuristic
+weights; no objective relevance measure).
+
+Staff review: no Critical or High findings. Corrected: start guarded until the preview of
+the current selection is loaded; true FNV-1a fingerprint (reference vectors tested);
+near-duplicate comparison reuses word sets; required-flag changes recorded as revision
+reasons; score explanation exposed to assistive technology; locale-independent token
+numbers. Remaining Low: score factors are shown on hover / to screen readers, not as
+visible text; any context write invalidates every cached bundle (documented).
 
 ## PLAN-014 — Project configuration for LLMs
 

@@ -43,6 +43,11 @@ export interface GitExecOptions extends GitRunOptions {
   maxOutputBytes?: number;
   /** Receives each progress line Git writes to standard error. */
   onProgress?: (line: string) => void;
+  /**
+   * Environment of this command instead of the executor's, e.g. the user's fresh shell
+   * environment for commits so hooks see what a new terminal sees.
+   */
+  env?: Record<string, string>;
 }
 
 export interface GitExecResult {

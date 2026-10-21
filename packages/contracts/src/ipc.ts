@@ -8,13 +8,41 @@ import type {
 } from './project.js';
 import type { AppInfo } from './app-info.js';
 import type {
+  AddSkillSourceInput,
+  CreateSkillFromTemplateInput,
+  DiscoveredSkill,
+  EditSkillInput,
+  ImportSkillInput,
+  RemoveSkillAssignmentInput,
+  ResolveSkillsInput,
+  ResolvedSkill,
+  Skill,
+  SkillAssignmentInput,
+  SkillDetails,
+  SkillDiff,
+  SkillFileContent,
+  SkillImportPreview,
+  SkillSource,
+  SkillSourceSuggestion,
+  SkillSyncBatch,
+  SkillSyncPlan,
+  SkillSyncResult,
+  SkillSyncTargets,
+  SkillTemplate,
+  UpdateSkillSyncTargets,
+} from './skills.js';
+
+import type {
+  AiProvider,
   AiSession,
   AttachTerminalInput,
+  ContextBudgetSettings,
   ContextBundle,
   ContextBundleRequest,
   ContextEntry,
   ContextHandoff,
   ContextHandoffDraft,
+  ContextHealthReport,
   ContextOverview,
   ContextQuery,
   ContextRevision,
@@ -31,6 +59,7 @@ import type {
   SessionSummaryInput,
   StartAiSessionInput,
   StartedAiSession,
+  UpdateContextBudgetSettings,
   UpdateContextEntryInput,
   UpdateContextTaskInput,
   UpdateProjectAiConfig,
@@ -48,7 +77,13 @@ import type {
   GitMergeInput,
   GitMergePreview,
   GitOperation,
+  GitOperationLogDetails,
+  GitOperationLogPage,
+  GitOperationLogQuery,
+  GitOperationLogSettings,
   GitPathsInput,
+  GitReflogEntry,
+  GitReflogInput,
   GitPreferences,
   GitPullInfo,
   GitPullInput,
@@ -64,6 +99,7 @@ import type {
   StoredProjectGitSettings,
   TerminalGitContext,
   TerminalProjectContext,
+  UpdateGitOperationLogSettings,
   UpdateGitPreferences,
 } from './git.js';
 import type {
@@ -152,6 +188,11 @@ export const IPC_CHANNELS = {
   gitSuggestMessage: 'atlas:git:suggest-message',
   gitOperations: 'atlas:git:operations',
   gitCancelOperation: 'atlas:git:cancel-operation',
+  gitOperationLog: 'atlas:git:operation-log',
+  gitOperationDetails: 'atlas:git:operation-details',
+  gitReflog: 'atlas:git:reflog',
+  gitLogSettings: 'atlas:git:log-settings',
+  gitSetLogSettings: 'atlas:git:set-log-settings',
   gitGetPreferences: 'atlas:git:get-preferences',
   gitSetPreferences: 'atlas:git:set-preferences',
   gitCommitContext: 'atlas:git:commit-context',
@@ -178,6 +219,10 @@ export const IPC_CHANNELS = {
   contextSetDecisionStatus: 'atlas:context:set-decision-status',
   contextBundle: 'atlas:context:bundle',
   contextSnapshot: 'atlas:context:snapshot',
+  contextHealth: 'atlas:context:health',
+  contextReconcile: 'atlas:context:reconcile',
+  contextBudgets: 'atlas:context:budgets',
+  contextSetBudgets: 'atlas:context:set-budgets',
   contextPrepareHandoff: 'atlas:context:prepare-handoff',
   contextCreateHandoff: 'atlas:context:create-handoff',
   contextHandoffs: 'atlas:context:handoffs',
@@ -188,6 +233,33 @@ export const IPC_CHANNELS = {
   contextSessionForTerminal: 'atlas:context:session-for-terminal',
   contextProjectConfig: 'atlas:context:project-config',
   contextSetProjectConfig: 'atlas:context:set-project-config',
+  skillsList: 'atlas:skills:list',
+  skillsDetails: 'atlas:skills:details',
+  skillsSuggestions: 'atlas:skills:suggestions',
+  skillsSources: 'atlas:skills:sources',
+  skillsAddSource: 'atlas:skills:add-source',
+  skillsSetSourceEnabled: 'atlas:skills:set-source-enabled',
+  skillsRemoveSource: 'atlas:skills:remove-source',
+  skillsDiscover: 'atlas:skills:discover',
+  skillsInspect: 'atlas:skills:inspect',
+  skillsImport: 'atlas:skills:import',
+  skillsTemplates: 'atlas:skills:templates',
+  skillsCreateFromTemplate: 'atlas:skills:create-from-template',
+  skillsEdit: 'atlas:skills:edit',
+  skillsReadFile: 'atlas:skills:read-file',
+  skillsDiff: 'atlas:skills:diff',
+  skillsValidate: 'atlas:skills:validate',
+  skillsSetEnabled: 'atlas:skills:set-enabled',
+  skillsAssign: 'atlas:skills:assign',
+  skillsUnassign: 'atlas:skills:unassign',
+  skillsRemove: 'atlas:skills:remove',
+  skillsResolve: 'atlas:skills:resolve',
+  skillsSyncTargets: 'atlas:skills:sync-targets',
+  skillsSetSyncTargets: 'atlas:skills:set-sync-targets',
+  skillsSyncPreview: 'atlas:skills:sync-preview',
+  skillsSyncApply: 'atlas:skills:sync-apply',
+  skillsSyncHistory: 'atlas:skills:sync-history',
+  skillsSyncRollback: 'atlas:skills:sync-rollback',
   aiStart: 'atlas:ai:start',
   aiAttach: 'atlas:ai:attach',
 
@@ -285,7 +357,7 @@ export interface AtlasApi {
   dialog: {
     /** `purpose` only changes the dialog title. */
     chooseDirectory(
-      purpose?: 'project' | 'terminal' | 'default-directory' | 'session',
+      purpose?: 'project' | 'terminal' | 'default-directory' | 'session' | 'skill',
     ): Promise<IpcResult<DirectoryChoice>>;
   };
   terminals: {
@@ -361,6 +433,16 @@ export interface AtlasApi {
     suggestMessage(input: GitPathsInput): Promise<IpcResult<GitCommitSuggestion | null>>;
     operations(): Promise<IpcResult<GitOperation[]>>;
     cancelOperation(id: string): Promise<IpcResult<GitOperation>>;
+    /** Operations ATLAS ran, kept across restarts (newest first). */
+    operationLog(query: GitOperationLogQuery): Promise<IpcResult<GitOperationLogPage>>;
+    /** A logged operation with every Git command it ran. */
+    operationDetails(id: string): Promise<IpcResult<GitOperationLogDetails>>;
+    /** HEAD reflog: changes made by any tool, including `git` typed in a terminal. */
+    reflog(input: GitReflogInput): Promise<IpcResult<GitReflogEntry[]>>;
+    logSettings(): Promise<IpcResult<GitOperationLogSettings>>;
+    setLogSettings(
+      changes: UpdateGitOperationLogSettings,
+    ): Promise<IpcResult<GitOperationLogSettings>>;
     getPreferences(): Promise<IpcResult<StoredGitPreferences>>;
     setPreferences(input: UpdateGitPreferences): Promise<IpcResult<GitPreferences>>;
     mergePreview(input: GitMergeInput): Promise<IpcResult<GitMergePreview>>;
@@ -428,6 +510,12 @@ export interface AtlasApi {
     ): Promise<IpcResult<DecisionRecord>>;
     bundle(request: ContextBundleRequest): Promise<IpcResult<ContextBundle>>;
     snapshot(target: ContextTarget, taskId: string | null): Promise<IpcResult<ContextSnapshot>>;
+    /** Heuristic consistency signals of the stored context (read-only). */
+    health(target: ContextTarget): Promise<IpcResult<ContextHealthReport>>;
+    /** Runs the same checks and records the run as the latest reconciliation. */
+    reconcile(target: ContextTarget): Promise<IpcResult<ContextHealthReport>>;
+    budgets(): Promise<IpcResult<ContextBudgetSettings>>;
+    setBudgets(changes: UpdateContextBudgetSettings): Promise<IpcResult<ContextBudgetSettings>>;
     prepareHandoff(
       target: ContextTarget,
       request: { taskId?: string; sourceSessionId?: string },
@@ -452,6 +540,40 @@ export interface AtlasApi {
       projectId: string,
       changes: UpdateProjectAiConfig,
     ): Promise<IpcResult<ProjectConfigView>>;
+  };
+  /** Skills Hub (SDD-006 Milestone B). */
+  skills: {
+    list(): Promise<IpcResult<Skill[]>>;
+    details(id: string): Promise<IpcResult<SkillDetails>>;
+    suggestions(): Promise<IpcResult<SkillSourceSuggestion[]>>;
+    sources(): Promise<IpcResult<SkillSource[]>>;
+    addSource(input: AddSkillSourceInput): Promise<IpcResult<SkillSource>>;
+    setSourceEnabled(id: string, enabled: boolean): Promise<IpcResult<null>>;
+    removeSource(id: string): Promise<IpcResult<null>>;
+    discover(): Promise<IpcResult<DiscoveredSkill[]>>;
+    inspect(path: string): Promise<IpcResult<SkillImportPreview>>;
+    import(input: ImportSkillInput): Promise<IpcResult<Skill>>;
+    templates(): Promise<IpcResult<SkillTemplate[]>>;
+    createFromTemplate(input: CreateSkillFromTemplateInput): Promise<IpcResult<Skill>>;
+    edit(input: EditSkillInput): Promise<IpcResult<Skill>>;
+    readFile(input: {
+      skillId: string;
+      sequence: number;
+      path: string;
+    }): Promise<IpcResult<SkillFileContent>>;
+    diff(input: { skillId: string; from: number; to: number }): Promise<IpcResult<SkillDiff>>;
+    validate(id: string): Promise<IpcResult<Skill>>;
+    setEnabled(id: string, enabled: boolean): Promise<IpcResult<Skill>>;
+    assign(input: SkillAssignmentInput): Promise<IpcResult<Skill>>;
+    unassign(input: RemoveSkillAssignmentInput): Promise<IpcResult<Skill>>;
+    remove(id: string): Promise<IpcResult<null>>;
+    resolve(input: ResolveSkillsInput): Promise<IpcResult<ResolvedSkill[]>>;
+    syncTargets(): Promise<IpcResult<SkillSyncTargets>>;
+    setSyncTargets(changes: UpdateSkillSyncTargets): Promise<IpcResult<SkillSyncTargets>>;
+    syncPreview(provider: AiProvider): Promise<IpcResult<SkillSyncPlan>>;
+    syncApply(provider: AiProvider): Promise<IpcResult<SkillSyncResult>>;
+    syncHistory(): Promise<IpcResult<SkillSyncBatch[]>>;
+    syncRollback(batchId: string): Promise<IpcResult<{ restored: string[]; skipped: string[] }>>;
   };
   /** Individual AI CLI sessions started or tracked by ATLAS. */
   ai: {

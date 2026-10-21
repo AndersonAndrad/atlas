@@ -1,7 +1,16 @@
 import {
   CLI_ENGINE_METHODS,
+  type AddSkillSourceInput,
+  type AiProvider,
+  type CreateSkillFromTemplateInput,
+  type EditSkillInput,
+  type ImportSkillInput,
+  type RemoveSkillAssignmentInput,
+  type ResolveSkillsInput,
+  type SkillAssignmentInput,
   type AttachTerminalInput,
-  type ContextBundleRequest,
+  type ParsedContextBundleRequest,
+  type UpdateContextBudgetSettings,
   type ContextQuery,
   type ContextTarget,
   type CreateContextEntryInput,
@@ -28,11 +37,14 @@ import {
   type GitPathsInput,
   type GitPullInput,
   type GitPushInput,
+  type GitReflogInput,
+  type UpdateGitOperationLogSettings,
   type GitRenameBranchInput,
   type GitSwitchBranchInput,
   type UpdateProjectInput,
 } from '@atlas/contracts';
 import { deterministicSuggestionProvider } from '@atlas/conventional-commits';
+import type { GitOperationLogFilter } from '@atlas/git';
 import { AtlasError } from '@atlas/shared';
 import type { ResolvedTarget } from '@atlas/context';
 import type { TerminalService } from '@atlas/terminal';
@@ -78,6 +90,7 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
   };
   /** Git workflow requests only reach repositories the Engine resolved itself. */
   const repo = (repositoryRoot: string) => engine.requireGitRepository(repositoryRoot);
+  const { skills } = engine;
 
   const handlers: {
     [M in EngineMethod]: (
@@ -224,6 +237,15 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     },
     'git.operations': () => engine.gitOperations.list(),
     'git.cancelOperation': ([id]: [string]) => engine.gitOperations.cancel(id),
+    'git.operationLog': ([query]: [GitOperationLogFilter]) => engine.gitOperationLog.list(query),
+    'git.operationDetails': ([id]: [string]) => engine.gitOperationLog.details(id),
+    'git.reflog': async ([input]: [Required<GitReflogInput>]) => {
+      const root = await repo(input.repositoryRoot);
+      return engine.gitOperationLog.attribute(root, await gitService.reflog(root, input.limit));
+    },
+    'git.logSettings': () => engine.gitOperationLog.settings(),
+    'git.setLogSettings': ([changes]: [UpdateGitOperationLogSettings]) =>
+      engine.gitOperationLog.updateSettings(changes),
     'git.mergePreview': async ([input]: [GitMergeInput]) =>
       gitService.mergePreview(await repo(input.repositoryRoot), input.branch),
     'git.merge': async ([input]: [GitMergeInput]) =>
@@ -315,10 +337,15 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
       const resolved = await target(value);
       return changed(resolved, await context.setDecisionStatus(resolved, id, status));
     },
-    'context.bundle': async ([{ target: value, ...request }]: [Required<ContextBundleRequest>]) =>
+    'context.bundle': async ([{ target: value, ...request }]: [ParsedContextBundleRequest]) =>
       context.bundle(await target(value), request),
     'context.snapshot': async ([value, taskId]: [ContextTarget, string | null]) =>
       context.snapshot(await target(value), taskId ?? undefined),
+    'context.health': async ([value]: [ContextTarget]) => context.health(await target(value)),
+    'context.reconcile': async ([value]: [ContextTarget]) => context.reconcile(await target(value)),
+    'context.budgets': () => context.budgets.get(),
+    'context.setBudgets': ([changes]: [UpdateContextBudgetSettings]) =>
+      context.budgets.update(changes),
     'context.prepareHandoff': async ([value, request]: [
       ContextTarget,
       { taskId?: string; sourceSessionId?: string },
@@ -350,6 +377,50 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     'context.projectConfig': ([projectId]: [string]) => engine.projectConfigView(projectId),
     'context.setProjectConfig': ([projectId, changes]: [string, UpdateProjectAiConfig]) =>
       engine.setProjectConfig(projectId, changes),
+    // Skills Hub. `explicit`: the user chose this exact folder (native picker, set by the
+    // desktop main process, or a CLI argument).
+    'skills.list': () => skills.listSkills(),
+    'skills.details': ([id]: [string]) => skills.details(id),
+    'skills.suggestions': () => skills.suggestions(),
+    'skills.sources': () => skills.listSources(),
+    'skills.addSource': ([input, explicit]: [AddSkillSourceInput, boolean], scope) =>
+      skills.addSource(input, scope === 'cli' || explicit),
+    'skills.setSourceEnabled': async ([id, enabled]: [string, boolean]) => {
+      await skills.setSourceEnabled(id, enabled);
+      return null;
+    },
+    'skills.removeSource': async ([id]: [string]) => {
+      await skills.removeSource(id);
+      return null;
+    },
+    'skills.discover': () => skills.discover(),
+    'skills.inspect': ([input, explicit]: [{ path: string }, boolean], scope) =>
+      skills.inspect(input.path, scope === 'cli' || explicit),
+    'skills.import': ([input, explicit]: [ImportSkillInput, boolean], scope) =>
+      skills.import(input, scope === 'cli' || explicit),
+    'skills.templates': () => skills.templates(),
+    'skills.createFromTemplate': ([input]: [CreateSkillFromTemplateInput]) =>
+      skills.createFromTemplate(input),
+    'skills.edit': ([input]: [EditSkillInput]) => skills.edit(input),
+    'skills.readFile': ([input]: [{ skillId: string; sequence: number; path: string }]) =>
+      skills.readFile(input.skillId, input.sequence, input.path),
+    'skills.diff': ([input]: [{ skillId: string; from: number; to: number }]) =>
+      skills.diff(input.skillId, input.from, input.to),
+    'skills.validate': ([id]: [string]) => skills.validate(id),
+    'skills.setEnabled': ([id, enabled]: [string, boolean]) => skills.setEnabled(id, enabled),
+    'skills.assign': ([input]: [SkillAssignmentInput]) => skills.assign(input),
+    'skills.unassign': ([input]: [RemoveSkillAssignmentInput]) => skills.unassign(input),
+    'skills.remove': async ([id]: [string]) => {
+      await skills.remove(id);
+      return null;
+    },
+    'skills.resolve': ([input]: [ResolveSkillsInput]) => skills.resolve(input),
+    'skills.syncTargets': () => skills.syncTargets(),
+    'skills.setSyncTargets': ([changes]: [unknown]) => skills.setSyncTargets(changes),
+    'skills.syncPreview': ([provider]: [AiProvider]) => skills.syncPreview(provider),
+    'skills.syncApply': ([provider]: [AiProvider]) => skills.syncApply(provider),
+    'skills.syncHistory': () => skills.syncHistory(),
+    'skills.syncRollback': ([batchId]: [string]) => skills.syncRollback(batchId),
     'sessions.getSettings': () => engine.sessionSettings.get(),
     'sessions.setSettings': ([input]: [unknown]) => engine.sessionSettings.update(input),
   };

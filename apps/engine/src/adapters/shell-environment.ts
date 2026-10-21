@@ -17,6 +17,20 @@ const BLOCKED_NAMES = new Set([
   'ORIGINAL_XDG_CURRENT_DESKTOP',
 ]);
 
+/**
+ * Variables ATLAS's own development tooling sets (`pnpm dev` runs electron-vite, which
+ * sets NODE_ENV=development and NODE_ENV_ELECTRON_VITE). They describe ATLAS, not the
+ * user's projects, and break tools such as `next build` in terminals, commit checks and
+ * Git hooks. A NODE_ENV set by the user's shell profile is recreated by the shell.
+ */
+export function withoutDevToolingVariables<T extends Record<string, string | undefined>>(
+  env: T,
+): T {
+  if (env.NODE_ENV_ELECTRON_VITE === undefined) return env;
+  const { NODE_ENV: _nodeEnv, NODE_ENV_ELECTRON_VITE: _tooling, ...rest } = env;
+  return rest as T;
+}
+
 export interface ShellEnvironmentOptions {
   env: Record<string, string | undefined>;
   platform: NodeJS.Platform;
@@ -34,7 +48,7 @@ export class ShellEnvironment implements EnvironmentProvider {
 
   shellEnvironment(terminal?: ShellEnvironmentTarget): Record<string, string> {
     const env: Record<string, string> = {};
-    for (const [name, value] of Object.entries(this.options.env)) {
+    for (const [name, value] of Object.entries(withoutDevToolingVariables(this.options.env))) {
       if (value === undefined) continue;
       if (BLOCKED_NAMES.has(name) || BLOCKED_PREFIXES.some((prefix) => name.startsWith(prefix))) {
         continue;

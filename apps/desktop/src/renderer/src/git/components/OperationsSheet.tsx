@@ -9,8 +9,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { isActive } from '../format';
+import { OperationHistory, ReflogList } from './OperationHistory';
 import { OperationsPanel } from './OperationsPanel';
 
 /** Failures that open the panel by themselves; commit failures are shown in their dialog. */
@@ -111,18 +113,25 @@ export function OperationsButton({
 
 interface OperationsSheetProps {
   repositoryName: string;
+  repositoryRoot: string;
   operations: GitOperation[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-/** Side panel with the repository's recent Git operations. */
+/**
+ * Side panel with the repository's Git operations: live ones, the persistent log with
+ * every Git command (PLAN-016) and the reflog, which also shows changes made outside ATLAS.
+ */
 export function OperationsSheet({
   repositoryName,
+  repositoryRoot,
   operations,
   open,
   onOpenChange,
 }: OperationsSheetProps) {
+  // History and reflog reload when an operation finishes while the panel is open.
+  const refreshKey = operations.find((operation) => !isActive(operation))?.id ?? '';
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -131,11 +140,24 @@ export function OperationsSheet({
       >
         <SheetHeader>
           <SheetTitle>Operations</SheetTitle>
-          <SheetDescription>Recent Git operations in {repositoryName}.</SheetDescription>
+          <SheetDescription>Git operations in {repositoryName}.</SheetDescription>
         </SheetHeader>
-        <div className="px-4 pb-6">
-          <OperationsPanel operations={operations} />
-        </div>
+        <Tabs defaultValue="recent" className="min-w-0 px-4 pb-6">
+          <TabsList>
+            <TabsTrigger value="recent">Recent</TabsTrigger>
+            <TabsTrigger value="history">History</TabsTrigger>
+            <TabsTrigger value="reflog">Reflog</TabsTrigger>
+          </TabsList>
+          <TabsContent value="recent">
+            <OperationsPanel operations={operations} />
+          </TabsContent>
+          <TabsContent value="history">
+            {open && <OperationHistory repositoryRoot={repositoryRoot} refreshKey={refreshKey} />}
+          </TabsContent>
+          <TabsContent value="reflog">
+            {open && <ReflogList repositoryRoot={repositoryRoot} refreshKey={refreshKey} />}
+          </TabsContent>
+        </Tabs>
       </SheetContent>
     </Sheet>
   );

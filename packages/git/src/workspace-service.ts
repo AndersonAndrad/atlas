@@ -16,6 +16,7 @@ import type {
   GitOperation,
   GitPullInfo,
   GitPullInput,
+  GitReflogEntry,
   GitRemote,
   GitRenameBranchInput,
   GitSetUpstream,
@@ -35,6 +36,7 @@ import {
   type GitOperationCoordinator,
   type GitOperationOutcome,
 } from './coordinator.js';
+import { REFLOG_FORMAT, parseReflog } from './operation-log.js';
 import {
   REF_FORMAT,
   parseNumstat,
@@ -89,6 +91,13 @@ export interface GitWorkspaceServiceOptions {
   logger?: Logger;
   /** Called after a mutation may have changed the repository. */
   onRepositoryChanged?: (repositoryRoot: string) => void;
+  /**
+   * Environment for commit checks and hooks (commit, push), read fresh for every
+   * commit like a new terminal; `warning` says when it fell back to the default.
+   */
+  commitEnvironment?: (
+    repositoryRoot: string,
+  ) => Promise<{ env: Record<string, string>; warning: string | null }>;
   timeouts?: Partial<GitWorkspaceTimeouts>;
   limits?: Partial<GitWorkspaceLimits>;
 }
@@ -118,6 +127,12 @@ const DEFAULT_LIMITS: GitWorkspaceLimits = {
 const BINARY_SNIFF_BYTES = 8000;
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+
+/** Environment of one commit's checks and hooks. */
+type CommitShell = { env: Record<string, string>; warning: string | null };
+
+/** Appended to a commit's or push's result when the fresh environment was unavailable. */
+const shellNote = (shell: CommitShell | null) => (shell?.warning ? ` (${shell.warning})` : '');
 
 /**
  * Git workflow operations on one repository root. The caller is responsible for
@@ -360,6 +375,31 @@ export class GitWorkspaceService {
   // Mutations
   // -------------------------------------------------------------------------
 
+  /**
+   * The latest HEAD reflog entries: changes of HEAD by any tool, newest first. Empty
+   * when the repository has no commits yet or the reflog cannot be read.
+   */
+  async reflog(
+    repositoryRoot: string,
+    limit: number,
+  ): Promise<Omit<GitReflogEntry, 'atlasOperationId'>[]> {
+    const result = await this.read(
+      repositoryRoot,
+      [
+        'reflog',
+        'show',
+        '--date=iso-strict',
+        `--format=${REFLOG_FORMAT}`,
+        '-n',
+        String(limit),
+        'HEAD',
+        '--',
+      ],
+      [0, 128],
+    );
+    return result.exitCode === 0 ? parseReflog(result.stdout) : [];
+  }
+
   async stage(repositoryRoot: string, paths: readonly string[]): Promise<GitOperation> {
     const outcome = await this.mutate(repositoryRoot, 'stage', ['index'], false, async () => {
       const tree = await this.workingTree(repositoryRoot);
@@ -421,6 +461,7 @@ export class GitWorkspaceService {
     }
 
     const hasSteps = checks.steps.length > 0;
+    let shell: CommitShell | null = null;
     const outcome = await this.mutate(
       repositoryRoot,
       'commit',
@@ -434,8 +475,9 @@ export class GitWorkspaceService {
         // still be what it was when the commit started.
         const selected = this.requireFiles(before, input.stage, 'unstaged');
         const identity = await this.selectionIdentity(repositoryRoot, selected);
+        shell = await this.shellEnvironment(repositoryRoot);
         if (hasSteps) {
-          await runPreCommitSteps(checks, this.options.stepRunner!, context);
+          await runPreCommitSteps(checks, this.options.stepRunner!, context, shell?.env);
           if (context.signal.aborted) {
             throw new GitCommandError('cancelled', 'pre-commit steps cancelled');
           }
@@ -485,16 +527,24 @@ export class GitWorkspaceService {
           await this.write(repositoryRoot, ['commit', '-F', '-'], {
             input: input.message,
             timeoutMs: this.timeouts.commit,
+            ...(shell ? { env: shell.env } : {}),
           });
         } catch (error) {
           const failure = toFailure(error);
           const kept = snapshot === null ? '' : ' Your file selection remains staged.';
-          throw new GitOperationFailure(failure.code, `${failure.message}${kept}`, failure.output);
+          throw new GitOperationFailure(
+            failure.code,
+            `${failure.message}${kept}${shellNote(shell)}`,
+            failure.output,
+          );
         }
         const hash = (await this.read(repositoryRoot, ['rev-parse', 'HEAD'])).trim();
         const header = input.message.split(/\r?\n/, 1)[0]!;
         const where = tree.branch ?? 'detached HEAD';
-        return { summary: `Committed ${hash.slice(0, 7)} on ${where}: ${header}`, value: hash };
+        return {
+          summary: `Committed ${hash.slice(0, 7)} on ${where}: ${header}${shellNote(shell)}`,
+          value: hash,
+        };
       },
     );
 
@@ -502,7 +552,7 @@ export class GitWorkspaceService {
     if (pushPlan !== null && outcome.operation.status === 'succeeded') {
       // The plan was validated before committing; a failing push is reported on its
       // own operation and the commit result keeps its hash.
-      push = await this.runPush(repositoryRoot, pushPlan);
+      push = await this.runPush(repositoryRoot, pushPlan, shell);
     }
     return { commit: outcome.operation, hash: outcome.value, push };
   }
@@ -562,22 +612,48 @@ export class GitWorkspaceService {
   }
 
   /** Runs a validated push; Git failures are reported on the operation, not thrown. */
-  private async runPush(repositoryRoot: string, plan: PushPlan): Promise<GitOperation> {
+  private async runPush(
+    repositoryRoot: string,
+    plan: PushPlan,
+    commitShell: CommitShell | null = null,
+  ): Promise<GitOperation> {
     const outcome = await this.mutate(
       repositoryRoot,
       'push',
       ['remote'],
       false,
       async ({ progress }) => {
-        const result = await this.write(repositoryRoot, plan.args, {
-          timeoutMs: this.timeouts.network,
-          onProgress: progress,
-        });
+        // pre-push hooks get the same fresh environment as a commit's hooks.
+        const shell = commitShell ?? (await this.shellEnvironment(repositoryRoot));
+        let result: GitExecResult;
+        try {
+          result = await this.write(repositoryRoot, plan.args, {
+            timeoutMs: this.timeouts.network,
+            onProgress: progress,
+            ...(shell ? { env: shell.env } : {}),
+          });
+        } catch (error) {
+          // Only a fallback is worth mentioning; other failures are mapped as before.
+          if (
+            !shell?.warning ||
+            !(error instanceof GitCommandError) ||
+            error.kind === 'cancelled'
+          ) {
+            throw error;
+          }
+          const failure = toFailure(error);
+          throw new GitOperationFailure(
+            failure.code,
+            `${failure.message}${shellNote(shell)}`,
+            failure.output,
+          );
+        }
         const upToDate = /Everything up-to-date/i.test(result.stderr);
         return {
-          summary: upToDate
-            ? 'Everything up-to-date.'
-            : `Pushed ${plan.branch} to ${plan.destination}.`,
+          summary:
+            (upToDate
+              ? 'Everything up-to-date.'
+              : `Pushed ${plan.branch} to ${plan.destination}.`) + shellNote(shell),
           value: null,
         };
       },
@@ -853,6 +929,12 @@ export class GitWorkspaceService {
     if (!known || branch === list.current) {
       throw invalid('branch', 'Choose another existing branch to merge.');
     }
+  }
+
+  /** A fresh environment for checks and hooks, read like a new terminal (PLAN-018). */
+  private async shellEnvironment(repositoryRoot: string): Promise<CommitShell | null> {
+    if (this.options.commitEnvironment === undefined) return null;
+    return this.options.commitEnvironment(repositoryRoot);
   }
 
   private async mutate<T>(
