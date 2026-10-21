@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- ATLAS app icon: the sidebar emblem on a dark rounded square (macOS grid: 824 px body). -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#121826"/>
+  <g transform="translate(512 512) scale(3.8) translate(-160 -74)">
+    <g stroke="#56718F" stroke-width="2" fill="none" opacity=".75">
+      <path d="M160 26 L91 63 L112 121 L208 121 L229 63 Z"/>
+      <path d="M160 26 L160 80 L91 63 M160 80 L229 63 M160 80 L112 121 M160 80 L208 121"/>
+    </g>
+    <circle cx="160" cy="26" r="7" fill="#56A7DF"/>
+    <circle cx="91" cy="63" r="7" fill="#56A7DF"/>
+    <circle cx="229" cy="63" r="7" fill="#56A7DF"/>
+    <circle cx="112" cy="121" r="7" fill="#56A7DF"/>
+    <circle cx="208" cy="121" r="7" fill="#56A7DF"/>
+    <circle cx="160" cy="80" r="23" stroke="#56A7DF" stroke-width="2.5" fill="#172F4A"/>
+    <circle cx="160" cy="80" r="10" fill="#D8EFFF"/>
+    <circle cx="160" cy="80" r="4" fill="#56A7DF"/>
+  </g>
+</svg>

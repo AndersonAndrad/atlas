@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-21 — PLAN-023 (quick commands, project actions, project tabs).
+Last updated: 2026-10-21 — PLAN-024 (GitHub Actions and installers).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -21,7 +21,25 @@ checkpoints, wrappers first on PATH, import of a folder of skills) is implemente
 approval. PLAN-022 (reflog search and the files of each entry's commit) is implemented and
 awaits approval. PLAN-023 (quick commands, project action menus in Terminals, project
 details in tabs; revision 2: commands enabled per project) is implemented and awaits
-approval. Version 0.16.2 (schema v8).
+approval. PLAN-024 (GitHub Actions: all checks on Linux and macOS, then Debian and macOS
+installers) is implemented and awaits its first run on GitHub. Version 0.17.0 (schema v8).
+
+## PLAN-024 — GitHub Actions and installers
+
+`.github/workflows/ci.yml`: format, lint, typecheck, production audit, unit and E2E tests on
+Ubuntu 24.04 and macOS 15; when all pass, electron-builder builds `atlas-control-*.deb`
+(x64) and `.dmg`/`.zip` (arm64) as run artifacts, and a `v*` tag also creates a Release.
+Details: README "Download builds"; ADR-056.
+
+Validation (2026-10-21): macOS arm64 — `pnpm test` 663/663, `pnpm test:e2e` 70/70 in two
+consecutive runs, build, typecheck, lint, format and production audit clean; `pnpm package`
+produced the `.dmg`/`.zip` (app archive 3.2 MB, `node-pty` unpacked, ad-hoc signature, DMG
+checksum valid) and the packaged app opened a working terminal. Linux — the same workflow
+steps in a Debian x64 container (Node 24.18.0, Xvfb): format, lint, typecheck and audit
+clean, E2E 69 passed and 1 macOS-only skipped, `.deb` built and inspected. That run found
+and fixed a Linux bug (the LLM wrapper check used a login shell, whose `/etc/profile`
+replaces `PATH`, so wrappers showed as "Not installed") and two timing-sensitive tests.
+The workflow itself runs for the first time on GitHub after the push.
 
 ## PLAN-023 — Quick commands, project actions and project tabs
 

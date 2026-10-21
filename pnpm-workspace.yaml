@@ -6,3 +6,5 @@ allowBuilds:
   electron: true
   esbuild: true
   node-pty: true
+  # Windows installers only; ATLAS builds Debian and macOS packages.
+  electron-winstaller: false

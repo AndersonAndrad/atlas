@@ -976,6 +976,10 @@ test('searches long branch lists in the Branches dialog', async ({ atlas }) => {
     .getByRole('button', { name: 'Switch' })
     .click();
   await expect.poll(() => git('branch', '--show-current').trim()).toBe('hotfix/login-timeout');
+  // The dialog stays open while the switch finishes; wait until it shows the new branch.
+  await expect(dialog.getByRole('paragraph').filter({ hasText: 'Current:' })).toContainText(
+    'hotfix/login-timeout',
+  );
 
   await search.press('Escape');
   await search.press('Escape');

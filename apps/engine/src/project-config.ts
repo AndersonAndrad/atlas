@@ -423,7 +423,10 @@ export class ProjectConfigStore {
     ].join('; ');
     return new Promise((resolve) => {
       let output = '';
-      const child = spawn(shell, ['-ilc', script], {
+      // Started like ATLAS terminals start the shell: a login shell on macOS only. On Linux a
+      // login shell reads /etc/profile, which replaces PATH (e.g. Debian and Ubuntu).
+      const flags = this.options.platform === 'darwin' ? '-ilc' : '-ic';
+      const child = spawn(shell, [flags, script], {
         cwd,
         env,
         stdio: ['ignore', 'pipe', 'ignore'],

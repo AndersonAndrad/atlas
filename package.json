@@ -1,6 +1,6 @@
 {
   "name": "atlas",
-  "version": "0.16.2",
+  "version": "0.17.0",
   "private": true,
   "description": "ATLAS \u2014 Autonomous Task Leadership & Agent System",
   "type": "module",
@@ -14,6 +14,7 @@
     "typecheck": "tsc -b tsconfig.build.json && tsc -p tsconfig.test.json && pnpm --filter @atlas/desktop typecheck",
     "test": "pnpm run build:packages && vitest run",
     "test:e2e": "pnpm build && playwright test",
+    "package": "pnpm build && pnpm --filter @atlas/desktop package",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

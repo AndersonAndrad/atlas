@@ -141,12 +141,20 @@ describe.skipIf(!gitAvailable)('Automatic LLM sessions (PLAN-021)', () => {
     );
 
     // The next LLM gets the work in progress at the top of the context file.
-    await vi.waitFor(() => {
-      const context = readFileSync(path.join(dataDir, 'projects', projectId, 'context.md'), 'utf8');
-      expect(context).toContain('Work in progress (claude): Add login');
-      expect(context).toContain('## Next steps');
-      expect(context.indexOf('Work in progress')).toBeLessThan(context.indexOf('Automatic record'));
-    });
+    await vi.waitFor(
+      () => {
+        const context = readFileSync(
+          path.join(dataDir, 'projects', projectId, 'context.md'),
+          'utf8',
+        );
+        expect(context).toContain('Work in progress (claude): Add login');
+        expect(context).toContain('## Next steps');
+        expect(context.indexOf('Work in progress')).toBeLessThan(
+          context.indexOf('Automatic record'),
+        );
+      },
+      { timeout: 10_000 },
+    );
   });
 
   it('ends without a record when nothing changed, and when the terminal closes', async () => {
@@ -167,11 +175,14 @@ describe.skipIf(!gitAvailable)('Automatic LLM sessions (PLAN-021)', () => {
     checkpoint(second, '## Objective\nRefactor auth\n\n## In progress\n- session store\n');
     writeFileSync(path.join(dir, 'auth.ts'), 'export {};\n');
     await engine.terminals!.terminate(closed.id);
-    await vi.waitFor(async () => {
-      await engine.llmSessions.idle();
-      const sessions = await engine.context.listSessions(await target());
-      expect(sessions.every((session) => session.status === 'ended')).toBe(true);
-    });
+    await vi.waitFor(
+      async () => {
+        await engine.llmSessions.idle();
+        const sessions = await engine.context.listSessions(await target());
+        expect(sessions.every((session) => session.status === 'ended')).toBe(true);
+      },
+      { timeout: 10_000 },
+    );
     const entries = await engine.context.list(await target(), {});
     expect(entries.map((entry) => entry.category).sort()).toEqual([
       'checkpoint',

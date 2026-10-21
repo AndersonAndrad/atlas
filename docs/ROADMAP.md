@@ -16,7 +16,7 @@
 | M3c       | TBD           | Provider accounts (Claude, Codex) and usage tracking                                           | Not started                           |
 | M4        | TBD           | Agents and multi-agent orchestration                                                           | Not started                           |
 | M5        | TBD           | Skills Hub and Context Engine                                                                  | Not started                           |
-| M6        | TBD           | Packaging, signing, auto-update, release pipeline                                              | Not started                           |
+| M6        | PLAN-024      | Packaging and CI release pipeline (done); signing, notarization, auto-update (not started)     | Partially implemented                 |
 
 Notes:
 

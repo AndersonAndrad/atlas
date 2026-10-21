@@ -536,3 +536,17 @@ superseded decisions are marked, not deleted.
   commands are enabled per project.
 - **Consequences**: Commands run without per-use confirmation, as the user configured
   them; they are typed into the shell before its start-up files finish, like AI sessions.
+
+## ADR-056 — GitHub Actions gate and electron-builder installers (PLAN-024)
+
+- **Decision**: One workflow runs every check on Ubuntu 24.04 and macOS 15; a build job
+  that needs all of them produces a Debian x64 `.deb` and macOS arm64 `.dmg`/`.zip` with
+  electron-builder, kept as run artifacts and attached to a GitHub Release for `v*` tags.
+  Actions are pinned by commit; the release uses the `gh` CLI with the job token.
+- **Alternatives**: electron-forge (more configuration for the same targets); macOS x64
+  builds (another runner, not needed now); signing and notarization (need an Apple
+  certificate; later).
+- **Consequences**: Only `node-pty` and the headless xterm modules are runtime
+  dependencies of the desktop package; everything else is bundled, so it moved to
+  `devDependencies` and the app archive stays small. `node-pty` is a Node-API addon and is
+  not rebuilt for Electron. macOS builds are ad-hoc signed and need "Open" the first time.

@@ -20,6 +20,26 @@ Implemented: **SDD-001 — Project Registry**, **SDD-002 — Terminal Manager** 
 Linux needs a C/C++ toolchain and Python for `node-pty`, which compiles during installation
 (macOS and Windows use prebuilt binaries).
 
+## Download builds
+
+GitHub Actions (`.github/workflows/ci.yml`) runs every check — format, lint, typecheck,
+production audit, unit and end-to-end tests — on Ubuntu 24.04 and macOS 15. Only when all of
+them pass, it builds the installers:
+
+- **Debian/Ubuntu (x64):** `atlas-control-<version>-linux-amd64.deb` —
+  `sudo apt install ./atlas-control-<version>-linux-amd64.deb`
+- **macOS (Apple silicon):** `atlas-control-<version>-mac-arm64.dmg` (and `.zip`)
+
+Download them from the run's **Artifacts** (Actions → the run → Artifacts, kept 30 days), or
+from the GitHub **Release** created for a `v*` tag (`git tag v0.17.0 && git push --tags`).
+
+The macOS app is not signed with a developer certificate or notarized yet. The first time,
+right-click the app and choose **Open**, or run
+`xattr -dr com.apple.quarantine "/Applications/ATLAS Control.app"`.
+
+Build the installer for the current system locally with `pnpm package` (output in
+`apps/desktop/dist`).
+
 ## Getting started
 
 ```bash

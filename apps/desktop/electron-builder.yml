@@ -1,0 +1,49 @@
+# Installers of ATLAS Control (PLAN-024): Debian (.deb, x64) and macOS (.dmg/.zip, arm64).
+# Builds are not signed with a developer certificate yet; macOS gets an ad-hoc signature.
+appId: dev.atlas.control
+productName: ATLAS Control
+copyright: Copyright © 2026 Anderson Andrade
+directories:
+  output: dist
+  buildResources: build
+extraMetadata:
+  name: atlas-control
+  productName: ATLAS Control
+  homepage: https://github.com/AndersonAndrad/atlas
+# The bundles contain everything else; only the runtime `dependencies` of the desktop
+# package (node-pty and the headless xterm modules) are copied from node_modules.
+files:
+  - out/**
+  - package.json
+  - '!**/*.map'
+# node-pty is a Node-API addon: the build for Node works in Electron without a rebuild.
+npmRebuild: false
+# node-pty starts processes through its native addon and, on macOS, a helper executable.
+asarUnpack:
+  - '**/node_modules/node-pty/**'
+artifactName: atlas-control-${version}-${os}-${arch}.${ext}
+mac:
+  target:
+    - target: dmg
+      arch: arm64
+    - target: zip
+      arch: arm64
+  category: public.app-category.developer-tools
+  icon: build/icon.png
+  identity: '-'
+  hardenedRuntime: false
+  notarize: false
+dmg:
+  writeUpdateInfo: false
+linux:
+  target:
+    - target: deb
+      arch: x64
+  category: Development
+  icon: build/icon.png
+  executableName: atlas-control
+  maintainer: Anderson Andrade
+  synopsis: ATLAS — terminals, Git and shared context for AI coding agents
+deb:
+  packageName: atlas-control
+publish: null

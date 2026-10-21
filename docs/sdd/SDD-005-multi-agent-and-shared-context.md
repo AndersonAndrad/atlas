@@ -212,7 +212,8 @@ off removes the file; removing the project removes its folder.
 
 Shell start-up files may put another `claude` / `codex` first on `PATH`. The details panel
 runs the user's shell as an interactive login shell with the project terminal environment
-(`$SHELL -ilc`, 8 s timeout, cached for 60 s) and reports **wrapped**, **shadowed**,
+(`$SHELL -ilc` on macOS, `$SHELL -ic` on Linux like the terminals, because a Linux login
+shell reads `/etc/profile`, which replaces `PATH`; 8 s timeout, cached for 60 s) and reports **wrapped**, **shadowed**,
 **missing** or **unknown**.
 
 ## Automatic LLM sessions and checkpoints (PLAN-021)
