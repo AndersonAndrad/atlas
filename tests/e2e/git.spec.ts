@@ -920,3 +920,77 @@ test('searches long branch lists in the Branches dialog', async ({ atlas }) => {
   await search.press('Escape');
   await expect(dialog).toBeHidden();
 });
+
+test('cherry-picks commits of another branch, keeping them, and aborts a conflicting one (PLAN-019)', async ({
+  atlas,
+}) => {
+  const dir = atlas.workspace('picks');
+  const { git } = repositoryWithRemote(dir, path.join(atlas.root, 'home'));
+  git('checkout', '-q', '--', 'README.md');
+  git('switch', '-q', '-c', 'feature');
+  writeFileSync(path.join(dir, 'one.ts'), 'export const one = 1;\n');
+  git('add', 'one.ts');
+  git('commit', '-qm', 'feat: add one');
+  writeFileSync(path.join(dir, 'two.ts'), 'export const two = 2;\n');
+  git('add', 'two.ts');
+  git('commit', '-qm', 'feat: add two');
+  writeFileSync(path.join(dir, 'README.md'), 'from feature\n');
+  git('commit', '-qam', 'docs: feature readme');
+  git('switch', '-q', 'main');
+  writeFileSync(path.join(dir, 'README.md'), 'from main\n');
+  git('commit', '-qam', 'docs: main readme');
+  const before = git('rev-parse', 'HEAD').trim();
+  atlas.cli('project', 'add', dir);
+  const { page } = await atlas.launch();
+  await openGit(page);
+
+  await page.getByRole('button', { name: 'Cherry-pick…' }).click();
+  const dialog = page.getByTestId('cherry-pick-dialog');
+  await dialog.getByRole('combobox', { name: 'Take commits from' }).click();
+  // The current branch is never offered as a source.
+  await expect(page.getByRole('option', { name: 'main', exact: true })).toHaveCount(0);
+  await page.getByRole('option', { name: 'feature', exact: true }).click();
+  await expect(dialog.getByTestId('cherry-pick-commit')).toHaveCount(3);
+  await dialog.getByRole('checkbox', { name: /Pick .* feat: add two/ }).click();
+  await dialog.getByRole('checkbox', { name: /Pick .* feat: add one/ }).click();
+  await expect(dialog.getByTestId('cherry-pick-summary')).toContainText(
+    '2 commits will be applied',
+  );
+  await dialog.getByRole('button', { name: 'Cherry-pick 2 commits' }).click();
+  await expect(dialog.getByTestId('cherry-pick-success')).toContainText(
+    'Applied 2 commits of feature to main.',
+  );
+  // Normal cherry-pick: one commit each, original messages, in the source order.
+  expect(git('log', '--format=%s', '-3').trim().split('\n')).toEqual([
+    'feat: add two',
+    'feat: add one',
+    'docs: main readme',
+  ]);
+  expect(git('log', '-1', '--format=%B')).toContain('(cherry picked from commit');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+
+  // A conflicting commit stops; the banner continues, skips or aborts.
+  await page.getByRole('button', { name: 'Cherry-pick…' }).click();
+  await dialog.getByRole('combobox', { name: 'Take commits from' }).click();
+  await page.getByRole('option', { name: 'feature', exact: true }).click();
+  await expect(
+    dialog.getByTestId('cherry-pick-commit').filter({ hasText: 'feat: add one' }),
+  ).toHaveAttribute('data-applied', 'true');
+  await dialog.getByRole('checkbox', { name: /Pick .* docs: feature readme/ }).click();
+  await dialog.getByRole('button', { name: 'Cherry-pick 1 commit' }).click();
+  await expect(dialog.getByTestId('cherry-pick-stopped')).toContainText('README.md');
+  await page.keyboard.press('Escape');
+  const banner = page.getByTestId('git-cherry-pick-banner');
+  await expect(banner).toContainText('docs: feature readme');
+  await expect(banner.getByRole('button', { name: 'Continue' })).toBeDisabled();
+  await banner.getByRole('button', { name: 'Abort cherry-pick…' }).click();
+  await page
+    .getByTestId('abort-cherry-pick-dialog')
+    .getByRole('button', { name: 'Abort cherry-pick' })
+    .click();
+  await expect(banner).toHaveCount(0, { timeout: 15_000 });
+  expect(git('status', '--porcelain').trim()).toBe('');
+  expect(git('log', '--format=%s', '-1').trim()).toBe('feat: add two');
+  expect(git('rev-parse', 'HEAD~2').trim()).toBe(before);
+});

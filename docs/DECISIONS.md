@@ -470,3 +470,13 @@ superseded decisions are marked, not deleted.
   cancellation).
 - **Consequences**: Each commit takes the shell's start-up time longer; start-up files that
   wait for input hit the timeout.
+
+## ADR-050 — Cherry-pick as a normal, commit-preserving Git cherry-pick (PLAN-019)
+
+- **Decision**: Use `git cherry-pick [-x]` with Git's sequencer: one commit per picked
+  commit with the original message and author; conflicts are continued, skipped or
+  aborted through Git (`--continue`, `--skip`, `--abort`). Source: another branch only.
+- **Alternatives**: `--no-commit` like ATLAS's merge (rejected by the developer: it squashes
+  commits and loses authorship; Git has no in-progress state to abort it safely).
+- **Consequences**: The project's commit checks and Conventional Commits rules do not run
+  for picked commits; the dialog warns about non-conventional messages.

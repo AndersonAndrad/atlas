@@ -4,6 +4,8 @@ import { lstat, open, readFile, readlink, realpath, stat } from 'node:fs/promise
 import path from 'node:path';
 import type {
   GitBranchList,
+  GitCherryPickInput,
+  GitCherryPickPreview,
   GitCommitInput,
   GitCreateBranchInput,
   GitDiffInput,
@@ -128,6 +130,11 @@ const BINARY_SNIFF_BYTES = 8000;
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
+/** Separates `git log` fields; never part of commit subjects or names. */
+const FIELD = '\x1f';
+/** Commits listed for a cherry-pick (the newest of the source branch). */
+export const CHERRY_PICK_LIMIT = 200;
+
 /** Environment of one commit's checks and hooks. */
 type CommitShell = { env: Record<string, string>; warning: string | null };
 
@@ -215,6 +222,8 @@ export class GitWorkspaceService {
       this.inProgress(directory),
     ]);
     const mergeMessage = inProgress === 'merge' ? await this.mergeMessage(directory) : null;
+    const cherryPick =
+      inProgress === 'cherry-pick' ? await this.cherryPickState(repositoryRoot, directory) : null;
     const tree: GitWorkingTree = {
       repositoryRoot,
       repositoryName: path.basename(repositoryRoot),
@@ -229,6 +238,7 @@ export class GitWorkspaceService {
       lastFetchAt,
       inProgress,
       mergeMessage,
+      cherryPick,
       files,
       truncated: entries.length > listed.length,
       stagedTruncated: hiddenStaged > 0,
@@ -878,6 +888,135 @@ export class GitWorkspaceService {
     return outcome.operation;
   }
 
+  /**
+   * Commits of `branch` the current branch does not have, oldest first (the newest
+   * CHERRY_PICK_LIMIT), marking those whose changes it already has (`--cherry-mark`).
+   */
+  async cherryPickPreview(repositoryRoot: string, branch: string): Promise<GitCherryPickPreview> {
+    const tree = await this.workingTree(repositoryRoot);
+    if (tree.branch === null) throw invalid('branch', 'Switch to a branch before cherry-picking.');
+    await this.requireOtherBranch(repositoryRoot, branch, 'cherry-pick from');
+    const output = await this.read(repositoryRoot, [
+      'log',
+      '--cherry-mark',
+      '--right-only',
+      '--no-merges',
+      '--topo-order',
+      '-n',
+      String(CHERRY_PICK_LIMIT + 1),
+      `--format=%m${FIELD}%H${FIELD}%s${FIELD}%an${FIELD}%aI`,
+      `HEAD...${branch}`,
+      '--',
+    ]);
+    const lines = output.split('\n').filter((line) => line.includes(FIELD));
+    const commits = lines
+      .slice(0, CHERRY_PICK_LIMIT)
+      .map((line) => {
+        const [mark = '', hash = '', subject = '', author = '', date = ''] = line.split(FIELD);
+        return {
+          hash,
+          subject,
+          author,
+          date,
+          applied: mark === '=',
+          conventional: validateCommitMessage(subject).valid,
+        };
+      })
+      .reverse();
+    return {
+      branch,
+      current: tree.branch,
+      commits,
+      truncated: lines.length > CHERRY_PICK_LIMIT,
+    };
+  }
+
+  /**
+   * Applies commits of another branch to the current one, one new commit each, keeping
+   * their messages and authors (`git cherry-pick`, optionally `-x`). They are applied in
+   * the source branch's order. Requires a clean working tree, which keeps aborting safe.
+   */
+  async cherryPick(input: GitCherryPickInput): Promise<GitOperation> {
+    const { repositoryRoot, branch } = input;
+    const tree = await this.workingTree(repositoryRoot);
+    if (tree.inProgress !== null) {
+      throw invalid('branch', `A ${tree.inProgress} is in progress. Finish or abort it first.`);
+    }
+    if (tree.branch === null) throw invalid('branch', 'Switch to a branch before cherry-picking.');
+    if (
+      tree.files.some(
+        (file) => file.staged !== null || (file.unstaged !== null && file.unstaged !== 'untracked'),
+      )
+    ) {
+      throw invalid('commits', 'Commit or stash your changes before cherry-picking.');
+    }
+    const preview = await this.cherryPickPreview(repositoryRoot, branch);
+    const chosen = new Set(input.commits);
+    const candidates = preview.commits.filter((commit) => chosen.has(commit.hash));
+    if (candidates.length !== chosen.size) {
+      throw invalid('commits', `Choose commits of ${branch} that ${tree.branch} does not have.`);
+    }
+    if (candidates.some((commit) => commit.applied)) {
+      throw invalid('commits', `${tree.branch} already has the changes of a chosen commit.`);
+    }
+    const current = tree.branch;
+    const outcome = await this.mutate(repositoryRoot, 'cherry-pick', ['index'], false, async () => {
+      const shell = await this.shellEnvironment(repositoryRoot);
+      await this.runCherryPick(
+        repositoryRoot,
+        ['cherry-pick', ...(input.recordOrigin ? ['-x'] : []), ...candidates.map((c) => c.hash)],
+        shell,
+      );
+      return {
+        summary:
+          `Applied ${plural(candidates.length, 'commit')} of ${branch} to ${current}.` +
+          shellNote(shell),
+        value: null,
+      };
+    });
+    return outcome.operation;
+  }
+
+  /** Commits the resolved changes and goes on with the remaining commits. */
+  continueCherryPick(repositoryRoot: string): Promise<GitOperation> {
+    return this.cherryPickStep(repositoryRoot, 'continue-cherry-pick', async (tree) => {
+      if (tree.files.some((file) => file.staged === 'conflicted')) {
+        throw invalid('files', 'Resolve every conflicted file and mark it resolved first.');
+      }
+      // The commit keeps its original message: no editor is opened.
+      return ['-c', 'core.editor=true', 'cherry-pick', '--continue'];
+    });
+  }
+
+  /** Leaves out the commit that stopped and goes on with the remaining ones. */
+  skipCherryPick(repositoryRoot: string): Promise<GitOperation> {
+    return this.cherryPickStep(repositoryRoot, 'skip-cherry-pick', async () => [
+      'cherry-pick',
+      '--skip',
+    ]);
+  }
+
+  /** Restores the branch as it was before the cherry-pick started (`--abort`). */
+  async abortCherryPick(repositoryRoot: string): Promise<GitOperation> {
+    const tree = await this.workingTree(repositoryRoot);
+    if (tree.inProgress !== 'cherry-pick')
+      throw invalid('branch', 'No cherry-pick is in progress.');
+    const outcome = await this.mutate(
+      repositoryRoot,
+      'abort-cherry-pick',
+      ['index'],
+      false,
+      async () => {
+        await this.write(repositoryRoot, ['cherry-pick', '--abort']);
+        return {
+          summary: 'Cherry-pick aborted; the branch is back to its state before it started.',
+          value: null,
+        };
+      },
+    );
+    return outcome.operation;
+  }
+
   /** Restores the state before the merge (`git merge --abort`). */
   async abortMerge(repositoryRoot: string): Promise<GitOperation> {
     const tree = await this.workingTree(repositoryRoot);
@@ -923,11 +1062,107 @@ export class GitWorkspaceService {
   }
 
   /** A local or remote-tracking branch other than the current one. */
-  private async requireMergeSource(repositoryRoot: string, branch: string): Promise<void> {
+  private requireMergeSource(repositoryRoot: string, branch: string): Promise<void> {
+    return this.requireOtherBranch(repositoryRoot, branch, 'merge');
+  }
+
+  /** An existing local or remote-tracking branch other than the current one. */
+  private async requireOtherBranch(
+    repositoryRoot: string,
+    branch: string,
+    action: string,
+  ): Promise<void> {
     const list = await this.branches(repositoryRoot);
     const known = [...list.local, ...list.remote].some((candidate) => candidate.name === branch);
     if (!known || branch === list.current) {
-      throw invalid('branch', 'Choose another existing branch to merge.');
+      throw invalid('branch', `Choose another existing branch to ${action}.`);
+    }
+  }
+
+  /** Continue or skip: runs while a cherry-pick is in progress and reports where it stops. */
+  private async cherryPickStep(
+    repositoryRoot: string,
+    kind: 'continue-cherry-pick' | 'skip-cherry-pick',
+    args: (tree: GitWorkingTree) => Promise<string[]>,
+  ): Promise<GitOperation> {
+    const tree = await this.workingTree(repositoryRoot);
+    if (tree.inProgress !== 'cherry-pick')
+      throw invalid('branch', 'No cherry-pick is in progress.');
+    const command = await args(tree);
+    const outcome = await this.mutate(repositoryRoot, kind, ['index'], false, async () => {
+      const shell = await this.shellEnvironment(repositoryRoot);
+      await this.runCherryPick(repositoryRoot, command, shell);
+      return {
+        summary:
+          (kind === 'skip-cherry-pick' ? 'Commit skipped; ' : 'Commit created; ') +
+          'the cherry-pick finished.' +
+          shellNote(shell),
+        value: null,
+      };
+    });
+    return outcome.operation;
+  }
+
+  /**
+   * Runs a cherry-pick command. When Git stops (conflicts, or a commit that became
+   * empty), the failure names the commit and what to do next; the state stays for
+   * Continue, Skip or Abort.
+   */
+  private async runCherryPick(
+    repositoryRoot: string,
+    args: string[],
+    shell: CommitShell | null,
+  ): Promise<void> {
+    try {
+      await this.write(repositoryRoot, args, {
+        timeoutMs: this.timeouts.commit,
+        ...(shell ? { env: shell.env } : {}),
+      });
+    } catch (error) {
+      const after = await this.workingTree(repositoryRoot).catch(() => null);
+      if (after?.inProgress !== 'cherry-pick' || after.cherryPick === null) throw error;
+      const failure = toFailure(error);
+      const stopped = `${after.cherryPick.hash.slice(0, 7)} ${after.cherryPick.subject}`;
+      const rest =
+        after.cherryPick.remaining > 0
+          ? ` ${plural(after.cherryPick.remaining, 'commit')} after it will follow.`
+          : '';
+      const conflicted = after.files.filter((file) => file.staged === 'conflicted');
+      if (conflicted.length === 0) {
+        throw new GitOperationFailure(
+          'conflict',
+          `The cherry-pick stopped at ${stopped}: its changes are already on ` +
+            `${after.branch ?? 'this branch'}, so it would be empty. Skip it or abort.${rest}`,
+          failure.output,
+        );
+      }
+      const names = conflicted.slice(0, 20).map((file) => file.path);
+      const more =
+        conflicted.length > names.length ? ` and ${conflicted.length - names.length} more` : '';
+      throw new GitOperationFailure(
+        'conflict',
+        `The cherry-pick stopped at ${stopped} with conflicts in ` +
+          `${plural(conflicted.length, 'file')}: ${names.join(', ')}${more}. ` +
+          `Resolve them, mark them resolved and continue, skip this commit, or abort.${rest}`,
+        failure.output,
+      );
+    }
+  }
+
+  /** The commit a cherry-pick stopped at and how many remain after it. */
+  private async cherryPickState(
+    repositoryRoot: string,
+    gitDir: string,
+  ): Promise<GitWorkingTree['cherryPick']> {
+    try {
+      const hash = (await readFile(path.join(gitDir, 'CHERRY_PICK_HEAD'), 'utf8')).trim();
+      const subject = (await this.read(repositoryRoot, ['log', '-1', '--format=%s', hash])).trim();
+      const todo = await readFile(path.join(gitDir, 'sequencer', 'todo'), 'utf8').catch(() => '');
+      // The todo list starts with the commit that stopped.
+      const pending = todo.split(/\r?\n/).filter((line) => /^\s*(pick|p)\s/.test(line)).length;
+      return { hash, subject, remaining: Math.max(0, pending - 1) };
+    } catch {
+      return null;
     }
   }
 

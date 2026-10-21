@@ -52,6 +52,10 @@ export const OPERATION_LABELS: Record<GitOperationKind, string> = {
   'rename-branch': 'Rename branch',
   merge: 'Merge',
   'abort-merge': 'Abort merge',
+  'cherry-pick': 'Cherry-pick',
+  'continue-cherry-pick': 'Continue cherry-pick',
+  'skip-cherry-pick': 'Skip commit',
+  'abort-cherry-pick': 'Abort cherry-pick',
 };
 
 export function fileName(path: string): string {

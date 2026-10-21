@@ -130,6 +130,8 @@ export interface GitWorkingTree {
    * comment lines), used as the default commit message.
    */
   mergeMessage: string | null;
+  /** The cherry-pick in progress: the commit that stopped and how many follow it. */
+  cherryPick: { hash: string; subject: string; remaining: number } | null;
   files: GitFileChange[];
   /** True when more changed paths exist than were listed. */
   truncated: boolean;
@@ -218,6 +220,10 @@ export const GIT_OPERATION_KINDS = [
   'rename-branch',
   'merge',
   'abort-merge',
+  'cherry-pick',
+  'continue-cherry-pick',
+  'skip-cherry-pick',
+  'abort-cherry-pick',
 ] as const;
 export type GitOperationKind = (typeof GIT_OPERATION_KINDS)[number];
 
@@ -404,6 +410,40 @@ export interface GitMergePreview {
   /** Commits of `branch` that the current branch does not have yet. */
   commits: number;
 }
+
+/** A commit of another branch that can be brought into the current one. */
+export interface GitCherryPickCandidate {
+  hash: string;
+  subject: string;
+  author: string;
+  date: string;
+  /** Its changes are already in the current branch (same patch, maybe another hash). */
+  applied: boolean;
+  /** The subject follows Conventional Commits; kept as it is either way. */
+  conventional: boolean;
+}
+
+export interface GitCherryPickPreview {
+  branch: string;
+  current: string;
+  /** Oldest first, as they would be applied. */
+  commits: GitCherryPickCandidate[];
+  /** Only the newest commits are listed. */
+  truncated: boolean;
+}
+
+export const GitCherryPickInputSchema = z.strictObject({
+  repositoryRoot: GitRepositoryRootSchema,
+  /** Branch the commits come from; never the current one. */
+  branch: GitRefNameSchema,
+  commits: z
+    .array(z.string().regex(/^[0-9a-f]{40}$/))
+    .min(1)
+    .max(200),
+  /** Adds "(cherry picked from commit …)" to each message (`-x`). */
+  recordOrigin: z.boolean(),
+});
+export type GitCherryPickInput = z.infer<typeof GitCherryPickInputSchema>;
 
 export const GitRenameBranchInputSchema = z.strictObject({
   repositoryRoot: GitRepositoryRootSchema,

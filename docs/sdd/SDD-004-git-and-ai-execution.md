@@ -289,6 +289,34 @@ atlas git log-operation <id> [--json]
 atlas git reflog [--repo <path>] [-n <count>] [--json]
 ```
 
+## Cherry-pick (PLAN-019)
+
+Git view → **Cherry-pick…** brings chosen commits of **another** branch (local or
+remote-tracking; the current branch is never offered) into the current one, as a normal
+`git cherry-pick`: one new commit per chosen commit, keeping its message and author
+(optionally with "(cherry picked from commit …)", `-x`, on by default).
+
+- The dialog lists the source branch's commits the current branch does not have (newest
+  200, merges excluded, oldest first). Commits whose changes are already there (`git log
+--cherry-mark`, same patch under another hash) are marked and cannot be chosen.
+- Commits are applied in the source branch's order, whatever the order of selection.
+- Requires a branch (not detached HEAD), no other operation in progress and no tracked
+  changes (as merge), so aborting is always safe.
+- Picked commits keep their original messages: the project's commit checks and
+  Conventional Commits rules do not run for them (the dialog says which chosen messages
+  are not conventional). Git hooks run with the commit environment of PLAN-018.
+- When Git stops (conflicts, or a commit whose changes are already there and would be
+  empty), the operation names the commit, the conflicted files and how many commits
+  follow. The banner offers **Continue** (after every conflict is marked resolved; commits
+  with the original message, no editor), **Skip this commit** and **Abort cherry-pick…**
+  (confirmation; `git cherry-pick --abort` restores the branch, including commits already
+  applied by that cherry-pick).
+- Operations `cherry-pick`, `continue-cherry-pick`, `skip-cherry-pick` and
+  `abort-cherry-pick` appear in Operations and the operation log.
+
+Engine methods: `git.cherryPickPreview`, `git.cherryPick`, `git.continueCherryPick`,
+`git.skipCherryPick`, `git.abortCherryPick` (desktop only).
+
 ## Commit environment (PLAN-018)
 
 Commit checks and Git hooks (pre-commit, commit-msg, pre-push) see what a new terminal

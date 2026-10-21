@@ -74,6 +74,8 @@ import type {
   GitDiffInput,
   GitFetchInput,
   GitFileDiff,
+  GitCherryPickInput,
+  GitCherryPickPreview,
   GitMergeInput,
   GitMergePreview,
   GitOperation,
@@ -199,6 +201,11 @@ export const IPC_CHANNELS = {
   gitMergePreview: 'atlas:git:merge-preview',
   gitMerge: 'atlas:git:merge',
   gitAbortMerge: 'atlas:git:abort-merge',
+  gitCherryPickPreview: 'atlas:git:cherry-pick-preview',
+  gitCherryPick: 'atlas:git:cherry-pick',
+  gitContinueCherryPick: 'atlas:git:continue-cherry-pick',
+  gitSkipCherryPick: 'atlas:git:skip-cherry-pick',
+  gitAbortCherryPick: 'atlas:git:abort-cherry-pick',
   gitGetProjectSettings: 'atlas:git:get-project-settings',
   gitSetProjectSettings: 'atlas:git:set-project-settings',
   appInfo: 'atlas:app:info',
@@ -450,6 +457,13 @@ export interface AtlasApi {
     merge(input: GitMergeInput): Promise<IpcResult<GitOperation>>;
     /** Restores the state before the merge; conflict resolutions in progress are lost. */
     abortMerge(repositoryRoot: string): Promise<IpcResult<GitOperation>>;
+    /** Commits of another branch, oldest first, marked when already applied. */
+    cherryPickPreview(input: GitMergeInput): Promise<IpcResult<GitCherryPickPreview>>;
+    /** Applies the chosen commits to the current branch, one commit each. */
+    cherryPick(input: GitCherryPickInput): Promise<IpcResult<GitOperation>>;
+    continueCherryPick(repositoryRoot: string): Promise<IpcResult<GitOperation>>;
+    skipCherryPick(repositoryRoot: string): Promise<IpcResult<GitOperation>>;
+    abortCherryPick(repositoryRoot: string): Promise<IpcResult<GitOperation>>;
     /** Projects of a repository and the commit settings each applies. */
     commitContext(repositoryRoot: string): Promise<IpcResult<GitCommitContext>>;
     getProjectSettings(projectId: string): Promise<IpcResult<StoredProjectGitSettings>>;

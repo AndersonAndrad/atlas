@@ -33,6 +33,7 @@ import {
   type GitCreateBranchInput,
   type GitDiffInput,
   type GitFetchInput,
+  type GitCherryPickInput,
   type GitMergeInput,
   type GitPathsInput,
   type GitPullInput,
@@ -251,6 +252,14 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     'git.merge': async ([input]: [GitMergeInput]) =>
       gitService.merge(await repo(input.repositoryRoot), input.branch),
     'git.abortMerge': async ([root]: [string]) => gitService.abortMerge(await repo(root)),
+    'git.cherryPickPreview': async ([input]: [GitMergeInput]) =>
+      gitService.cherryPickPreview(await repo(input.repositoryRoot), input.branch),
+    'git.cherryPick': async ([input]: [GitCherryPickInput]) =>
+      gitService.cherryPick({ ...input, repositoryRoot: await repo(input.repositoryRoot) }),
+    'git.continueCherryPick': async ([root]: [string]) =>
+      gitService.continueCherryPick(await repo(root)),
+    'git.skipCherryPick': async ([root]: [string]) => gitService.skipCherryPick(await repo(root)),
+    'git.abortCherryPick': async ([root]: [string]) => gitService.abortCherryPick(await repo(root)),
     'git.commitContext': async ([root]: [string]) => engine.gitCommitContext(await repo(root)),
     'git.getProjectSettings': async ([projectId]: [string]) => {
       await projects.getDetails(projectId);

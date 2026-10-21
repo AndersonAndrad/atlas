@@ -11,6 +11,7 @@ import {
   GitCreateBranchInputSchema,
   GitDiffInputSchema,
   GitFetchInputSchema,
+  GitCherryPickInputSchema,
   GitMergeInputSchema,
   GitOperationIdSchema,
   GitOperationLogQuerySchema,
@@ -476,6 +477,15 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
   gitCall(IPC_CHANNELS.gitMergePreview, z.tuple([GitMergeInputSchema]), 'git.mergePreview');
   gitCall(IPC_CHANNELS.gitMerge, z.tuple([GitMergeInputSchema]), 'git.merge');
   gitCall(IPC_CHANNELS.gitAbortMerge, RootArgs, 'git.abortMerge');
+  gitCall(
+    IPC_CHANNELS.gitCherryPickPreview,
+    z.tuple([GitMergeInputSchema]),
+    'git.cherryPickPreview',
+  );
+  gitCall(IPC_CHANNELS.gitCherryPick, z.tuple([GitCherryPickInputSchema]), 'git.cherryPick');
+  gitCall(IPC_CHANNELS.gitContinueCherryPick, RootArgs, 'git.continueCherryPick');
+  gitCall(IPC_CHANNELS.gitSkipCherryPick, RootArgs, 'git.skipCherryPick');
+  gitCall(IPC_CHANNELS.gitAbortCherryPick, RootArgs, 'git.abortCherryPick');
   gitCall(IPC_CHANNELS.gitGetProjectSettings, IdArgs, 'git.getProjectSettings');
   gitCall(
     IPC_CHANNELS.gitSetProjectSettings,

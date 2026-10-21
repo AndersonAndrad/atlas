@@ -112,6 +112,11 @@ const api: AtlasApi = {
     mergePreview: (input) => ipcRenderer.invoke(IPC_CHANNELS.gitMergePreview, input),
     merge: (input) => ipcRenderer.invoke(IPC_CHANNELS.gitMerge, input),
     abortMerge: (root) => ipcRenderer.invoke(IPC_CHANNELS.gitAbortMerge, root),
+    cherryPickPreview: (input) => ipcRenderer.invoke(IPC_CHANNELS.gitCherryPickPreview, input),
+    cherryPick: (input) => ipcRenderer.invoke(IPC_CHANNELS.gitCherryPick, input),
+    continueCherryPick: (root) => ipcRenderer.invoke(IPC_CHANNELS.gitContinueCherryPick, root),
+    skipCherryPick: (root) => ipcRenderer.invoke(IPC_CHANNELS.gitSkipCherryPick, root),
+    abortCherryPick: (root) => ipcRenderer.invoke(IPC_CHANNELS.gitAbortCherryPick, root),
     getProjectSettings: (projectId) =>
       ipcRenderer.invoke(IPC_CHANNELS.gitGetProjectSettings, projectId),
     setProjectSettings: (projectId, settings) =>

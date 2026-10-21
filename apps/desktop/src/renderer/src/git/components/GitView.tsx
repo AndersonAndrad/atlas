@@ -1,4 +1,4 @@
-import type { GitRemote } from '@atlas/contracts';
+import type { GitOperation, GitRemote } from '@atlas/contracts';
 import {
   ArrowDown,
   ArrowUp,
@@ -58,6 +58,7 @@ import { DiffViewer } from './DiffViewer';
 import { OperationsButton, OperationsSheet, useOperationsSheet } from './OperationsSheet';
 import { MergeDialog } from './MergeDialog';
 import { PullDialog, PushDialog } from './RemoteDialogs';
+import { CherryPickDialog } from './CherryPickDialog';
 
 /** Opens the Git view on the repository of a project or a terminal. */
 export interface GitOpenRequest {
@@ -67,7 +68,16 @@ export interface GitOpenRequest {
 }
 
 type GitDialog =
-  'commit' | 'push' | 'pull' | 'branches' | 'checks' | 'merge' | 'abort-merge' | null;
+  | 'commit'
+  | 'push'
+  | 'pull'
+  | 'branches'
+  | 'checks'
+  | 'merge'
+  | 'abort-merge'
+  | 'cherry-pick'
+  | 'abort-cherry-pick'
+  | null;
 
 /** Commits to push or pull, as of the last fetch; nothing without an upstream. */
 function SyncCount({
@@ -185,6 +195,8 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
   };
 
   /** Runs a Git action and refreshes the tree; resolves to its result, or null when it threw. */
+  /** Result of the last Continue or Skip, shown while the cherry-pick is still stopped. */
+  const [cherryResult, setCherryResult] = useState<GitOperation | null>(null);
   async function mutate<T>(action: () => Promise<T>): Promise<T | null> {
     setActionError(null);
     try {
@@ -430,6 +442,15 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
                   <Button
                     variant="outline"
                     size="sm"
+                    disabled={busy || tree.inProgress !== null || tree.branch === null}
+                    onClick={() => setDialog('cherry-pick')}
+                  >
+                    <GitCommitHorizontal />
+                    Cherry-pick…
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     disabled={busy}
                     onClick={() => setDialog('branches')}
                   >
@@ -529,15 +550,83 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
                 </AlertDescription>
               </Alert>
             )}
-            {tree.inProgress && tree.inProgress !== 'merge' && (
-              <Alert role="status" className="border-warning/40">
-                <TriangleAlert className="text-warning" />
-                <AlertDescription>
-                  {IN_PROGRESS_TEXT[tree.inProgress]} Finish or abort it in a terminal; ATLAS does
-                  not resolve conflicts for you.
+            {tree.inProgress === 'cherry-pick' && (
+              <Alert
+                role="status"
+                className="border-warning/40"
+                data-testid="git-cherry-pick-banner"
+              >
+                <GitCommitHorizontal className="text-warning" />
+                <AlertDescription className="flex flex-col gap-2">
+                  <span>
+                    <strong className="text-foreground">Cherry-pick in progress</strong>
+                    {tree.cherryPick
+                      ? ` — stopped at ${tree.cherryPick.hash.slice(0, 7)} ${tree.cherryPick.subject}` +
+                        (tree.cherryPick.remaining > 0
+                          ? ` (${tree.cherryPick.remaining} more after it)`
+                          : '')
+                      : ''}
+                    .{' '}
+                    {tree.files.some((file) => file.staged === 'conflicted')
+                      ? 'Resolve the conflicts in your editor and mark them resolved, then continue.'
+                      : 'Continue to commit it with its original message, or skip it.'}
+                  </span>
+                  {cherryResult?.status === 'failed' && cherryResult.error && (
+                    <span className="text-destructive" data-testid="git-cherry-pick-error">
+                      {cherryResult.error.message}
+                    </span>
+                  )}
+                  <span className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      disabled={busy || tree.files.some((file) => file.staged === 'conflicted')}
+                      onClick={() =>
+                        void mutate(async () =>
+                          setCherryResult(
+                            await unwrap(api().git.continueCherryPick(tree.repositoryRoot)),
+                          ),
+                        )
+                      }
+                    >
+                      Continue
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() =>
+                        void mutate(async () =>
+                          setCherryResult(
+                            await unwrap(api().git.skipCherryPick(tree.repositoryRoot)),
+                          ),
+                        )
+                      }
+                    >
+                      Skip this commit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => setDialog('abort-cherry-pick')}
+                    >
+                      Abort cherry-pick…
+                    </Button>
+                  </span>
                 </AlertDescription>
               </Alert>
             )}
+            {tree.inProgress &&
+              tree.inProgress !== 'merge' &&
+              tree.inProgress !== 'cherry-pick' && (
+                <Alert role="status" className="border-warning/40">
+                  <TriangleAlert className="text-warning" />
+                  <AlertDescription>
+                    {IN_PROGRESS_TEXT[tree.inProgress]} Finish or abort it in a terminal; ATLAS does
+                    not resolve conflicts for you.
+                  </AlertDescription>
+                </Alert>
+              )}
             {tree.truncated && (
               <p className="text-warning text-xs" role="status">
                 Only the first {tree.files.length} changed files are listed.
@@ -646,6 +735,41 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
                 }}
               >
                 Abort merge
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+      {tree && dialog === 'cherry-pick' && (
+        <CherryPickDialog
+          tree={tree}
+          onClose={() => {
+            setDialog(null);
+            void refresh();
+          }}
+        />
+      )}
+      {tree && dialog === 'abort-cherry-pick' && (
+        <AlertDialog open onOpenChange={(open) => !open && setDialog(null)}>
+          <AlertDialogContent data-testid="abort-cherry-pick-dialog">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Abort the cherry-pick?</AlertDialogTitle>
+              <AlertDialogDescription>
+                The branch goes back to its state before the cherry-pick, including commits it
+                already applied. Conflict resolutions made since are lost.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep going</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-white hover:bg-destructive/90"
+                onClick={() => {
+                  setDialog(null);
+                  setCherryResult(null);
+                  void mutate(() => unwrap(api().git.abortCherryPick(tree.repositoryRoot)));
+                }}
+              >
+                Abort cherry-pick
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

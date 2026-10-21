@@ -28,6 +28,7 @@ import {
   GitCreateBranchInputSchema,
   GitDiffInputSchema,
   GitFetchInputSchema,
+  GitCherryPickInputSchema,
   GitMergeInputSchema,
   GitOperationIdSchema,
   GitOperationLogQuerySchema,
@@ -44,6 +45,7 @@ import {
   type GitCommitResult,
   type GitCommitSuggestion,
   type GitFileDiff,
+  type GitCherryPickPreview,
   type GitMergePreview,
   type GitOperation,
   type GitOperationLogDetails,
@@ -237,6 +239,12 @@ export const ENGINE_METHOD_PARAMS = {
   'git.mergePreview': z.tuple([GitMergeInputSchema]),
   'git.merge': z.tuple([GitMergeInputSchema]),
   'git.abortMerge': z.tuple([GitRepositoryRootSchema]),
+  // The preview takes a repository and the source branch, like a merge preview.
+  'git.cherryPickPreview': z.tuple([GitMergeInputSchema]),
+  'git.cherryPick': z.tuple([GitCherryPickInputSchema]),
+  'git.continueCherryPick': z.tuple([GitRepositoryRootSchema]),
+  'git.skipCherryPick': z.tuple([GitRepositoryRootSchema]),
+  'git.abortCherryPick': z.tuple([GitRepositoryRootSchema]),
   'git.getProjectSettings': z.tuple([Id]),
   'git.setProjectSettings': z.tuple([Id, Unknown]),
   'terminals.closeAllInfo': z.tuple([]),
@@ -402,6 +410,11 @@ export interface EngineMethodResults {
   'git.mergePreview': GitMergePreview;
   'git.merge': GitOperation;
   'git.abortMerge': GitOperation;
+  'git.cherryPickPreview': GitCherryPickPreview;
+  'git.cherryPick': GitOperation;
+  'git.continueCherryPick': GitOperation;
+  'git.skipCherryPick': GitOperation;
+  'git.abortCherryPick': GitOperation;
   'git.getProjectSettings': StoredProjectGitSettings;
   'git.setProjectSettings': ProjectGitSettings;
   'terminals.closeAllInfo': { runningSessions: number; busySessions: number };

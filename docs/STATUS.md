@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-20 — PLAN-018 (fresh shell environment for commits).
+Last updated: 2026-10-21 — PLAN-019 (cherry-pick).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -14,7 +14,22 @@ started (C depends on SDD-004 B and SDD-005 B). PLAN-016 (persistent Git operati
 and reflog) is implemented and validated and awaits approval. SDD-006 Milestone B (Skills
 Hub, PLAN-017) is implemented and validated and awaits approval. PLAN-018 (commits use a
 fresh shell environment; ATLAS's development NODE_ENV no longer leaks) is implemented and
-awaits approval. Version 0.12.1 (schema v8).
+awaits approval. PLAN-019 (cherry-pick from another branch, keeping commits) is
+implemented and awaits approval. Version 0.13.0 (schema v8).
+
+## PLAN-019 — Cherry-pick
+
+Git view → Cherry-pick…: commits of another local or remote-tracking branch, already
+applied ones marked, applied in source order as normal commits (original message and
+author, optional `-x`); conflicts and empty commits stop with Continue, Skip and Abort in
+the Git view. Details: SDD-004 Part I, "Cherry-pick"; ADR-050.
+
+Validation (2026-10-21, macOS arm64, Node 24.18.0, Git 2.55.0): `pnpm test` 645/645
+(51 files), including real-repository tests for already-applied marks, source order,
+`-x`, remote-tracking sources, conflicts (continue, skip, abort restoring HEAD) and a commit
+that becomes empty; `pnpm test:e2e` 63/63 in two consecutive runs; clean build (renderer
+1,253 kB), typecheck, lint, format and audit clean. Staff review: no Critical or High
+findings; accepted by design: picked commits skip the project's commit checks (R1).
 
 ## PLAN-018 — Fresh shell environment for commits
 

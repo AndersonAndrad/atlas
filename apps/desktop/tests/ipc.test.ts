@@ -539,6 +539,22 @@ describe('desktop IPC handlers', () => {
       expect(
         await invoke(IPC_CHANNELS.gitPush, { repositoryRoot: workspace, force: true }),
       ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+      for (const commits of [[], ['HEAD'], ['abc']]) {
+        expect(
+          await invoke(IPC_CHANNELS.gitCherryPick, {
+            repositoryRoot: workspace,
+            branch: 'main',
+            commits,
+            recordOrigin: true,
+          }),
+        ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+      }
+      expect(
+        await invoke(IPC_CHANNELS.gitCherryPickPreview, {
+          repositoryRoot: path.join(temp.dir, 'elsewhere'),
+          branch: 'main',
+        }),
+      ).toMatchObject({ ok: false });
 
       const staged = await invoke<GitOperation>(IPC_CHANNELS.gitStage, {
         repositoryRoot: workspace,
