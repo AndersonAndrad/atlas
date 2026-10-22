@@ -550,3 +550,15 @@ superseded decisions are marked, not deleted.
   dependencies of the desktop package; everything else is bundled, so it moved to
   `devDependencies` and the app archive stays small. `node-pty` is a Node-API addon and is
   not rebuilt for Electron. macOS builds are ad-hoc signed and need "Open" the first time.
+
+## ADR-057 — The application is presented as A.T.L.A.S (PLAN-025)
+
+- **Decision**: One constant, `APP_DISPLAY_NAME = 'A.T.L.A.S'` (contracts, dependency-free
+  subpath), names the app in the window title, menus (`app.setName`), About, sidebar and
+  dialogs; electron-builder's `productName` is `A.T.L.A.S`. The app icon is also the window
+  icon and, from source, the Dock icon.
+- **Alternatives**: Renaming every "ATLAS" in explanatory text (rejected: less readable;
+  the developer chose the presented name only); renaming the bundle identifier, data folder
+  or CLI (would lose macOS permissions and existing data).
+- **Consequences**: An installed "ATLAS Control.app" stays until removed; both use the same
+  data. Running from source still shows "Electron" as the bold macOS menu-bar title.

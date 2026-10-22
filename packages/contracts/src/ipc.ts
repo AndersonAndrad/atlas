@@ -7,6 +7,8 @@ import type {
   UpdateProjectInput,
 } from './project.js';
 import type { AppInfo } from './app-info.js';
+// Dependency-free: the main process and preload read the display name from this subpath.
+export { APP_DISPLAY_NAME } from './app-info.js';
 import type {
   ProjectAction,
   ProjectQuickCommandSettings,

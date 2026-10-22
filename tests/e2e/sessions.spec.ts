@@ -141,7 +141,7 @@ test('restores sessions after a restart and shows CLI changes live', async ({ at
   await expect(page.getByTestId('session-card')).toHaveCount(1);
   await expect(page.getByTestId('session-card')).toContainText('From CLI');
 
-  // With ATLAS Control running, the CLI goes through its Engine and the view updates.
+  // With A.T.L.A.S running, the CLI goes through its Engine and the view updates.
   const id = (
     JSON.parse(atlas.cli('session', 'list', '--json')) as { session: { id: string } }[]
   )[0]!.session.id;

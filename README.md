@@ -35,7 +35,7 @@ from the GitHub **Release** created for a `v*` tag (`git tag v0.17.0 && git push
 
 The macOS app is not signed with a developer certificate or notarized yet. The first time,
 right-click the app and choose **Open**, or run
-`xattr -dr com.apple.quarantine "/Applications/ATLAS Control.app"`.
+`xattr -dr com.apple.quarantine "/Applications/A.T.L.A.S.app"`.
 
 Build the installer for the current system locally with `pnpm package` (output in
 `apps/desktop/dist`).
@@ -82,7 +82,7 @@ pnpm atlas session cancel <session-id> [--yes]
 Session commands use the running app's Engine when it is open (so it updates live) and the
 database directly otherwise.
 
-Terminal commands talk to the Engine of the running ATLAS Control app through an
+Terminal commands talk to the Engine of the running A.T.L.A.S app through an
 authenticated local socket; they fail with "The ATLAS Engine is not running" otherwise.
 Terminals opened from the CLI appear as tabs in the app.
 

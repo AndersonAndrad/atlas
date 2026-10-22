@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-21 — PLAN-024 (GitHub Actions and installers).
+Last updated: 2026-10-21 — PLAN-025 (A.T.L.A.S name and icon).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -23,7 +23,26 @@ awaits approval. PLAN-023 (quick commands, project action menus in Terminals, pr
 details in tabs; revision 2: commands enabled per project) is implemented and awaits
 approval. PLAN-024 (GitHub Actions: all checks on Linux and macOS, then Debian and macOS
 installers) is implemented; revision 2 pins pnpm 11.28.5 because 11.13.0 is a broken
-release the CI cannot install. Version 0.17.3 (schema v8).
+release the CI cannot install. PLAN-025 (the app is presented as A.T.L.A.S with its own
+icon) is implemented and awaits approval. Version 0.18.0 (schema v8).
+
+## PLAN-025 — A.T.L.A.S name and icon
+
+The application is presented as **A.T.L.A.S** wherever its name is shown: `A.T.L.A.S.app`,
+menu bar, Dock and ⌘Tab (packaged), window title, sidebar, About, application menu items,
+quit and start-up dialogs, CLI descriptions and messages that name the app. Explanatory
+text keeps "ATLAS"; the CLI (`atlas`), the bundle identifier (`dev.atlas.control`), the
+installer file names, the Linux package/command (`atlas-control`) and the data folder do
+not change. The window (Linux) and, when running from source on macOS, the Dock use the app
+icon (`apps/desktop/build/icon.png`). From source the bold macOS menu-bar title still reads
+"Electron" (it comes from Electron's bundle). Details: ADR-057.
+
+Validation (2026-10-21): macOS `pnpm test` 664/664 and `pnpm test:e2e` 70/70 twice (title,
+sidebar, About, `app.getName()` and the application menu say A.T.L.A.S); packaged
+`A.T.L.A.S.app` (CFBundleName/DisplayName A.T.L.A.S, same bundle identifier, app icon)
+opened a working terminal. Debian x64 container: all checks clean, E2E 69 passed + 1
+skipped, `.deb` installs to `/opt/A.T.L.A.S` with desktop entry `Name=A.T.L.A.S` and the
+1024 px icon.
 
 ## PLAN-024 — GitHub Actions and installers
 

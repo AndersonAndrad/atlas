@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AppInfo } from '@atlas/contracts';
-import { IPC_EVENT_CHANNELS, type AppCommand } from '@atlas/contracts/ipc';
+import { APP_DISPLAY_NAME, IPC_EVENT_CHANNELS, type AppCommand } from '@atlas/contracts/ipc';
 import { FileLogger, resolveDataDir } from '@atlas/engine';
 import { describeError } from '@atlas/shared';
 import {
@@ -20,6 +20,8 @@ import {
 import { EngineHostClient } from './engine-client';
 import { registerIpcHandlers } from './ipc';
 import { buildMenuTemplate } from './menu';
+// Copied next to the bundle by electron-vite; the window and the Dock show it (PLAN-025).
+import appIcon from '../../build/icon.png?asset';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const devServerUrl = process.env.ELECTRON_RENDERER_URL;
@@ -37,6 +39,8 @@ const dataDir = resolveDataDir({
 // Keep Chromium profile data inside the ATLAS data directory. This must happen
 // before the single-instance lock, which is scoped to the userData directory.
 app.setPath('userData', path.join(dataDir, 'electron'));
+// Menus (About, Hide, Quit) use this name, also when running from source as "Electron".
+app.setName(APP_DISPLAY_NAME);
 
 const logger = new FileLogger({
   filePath: path.join(dataDir, 'logs', 'atlas.log'),
@@ -89,7 +93,9 @@ function createMainWindow(): BrowserWindow {
     minWidth: 380,
     minHeight: 520,
     show: false,
-    title: 'ATLAS — Autonomous Task Leadership & Agent System',
+    title: `${APP_DISPLAY_NAME} — Autonomous Task Leadership & Agent System`,
+    // Linux and Windows show it in the taskbar; macOS uses the app bundle icon.
+    icon: appIcon,
     backgroundColor: '#0a0a0a',
     webPreferences: {
       preload: path.join(currentDir, '../preload/index.cjs'),
@@ -191,7 +197,7 @@ async function bootstrap(): Promise<void> {
       logger.error('Engine host keeps failing; giving up');
       dialog.showErrorBox(
         'ATLAS Engine stopped',
-        'The ATLAS Engine stopped repeatedly. Restart ATLAS to continue.',
+        `The ATLAS Engine stopped repeatedly. Restart ${APP_DISPLAY_NAME} to continue.`,
       );
     },
   });
@@ -213,7 +219,7 @@ async function bootstrap(): Promise<void> {
     Menu.buildFromTemplate(
       buildMenuTemplate({
         platform: process.platform,
-        appName: 'ATLAS',
+        appName: APP_DISPLAY_NAME,
         isDevelopment: !app.isPackaged,
         sendCommand: (command: AppCommand) =>
           sendToRenderer(IPC_EVENT_CHANNELS.appCommand, command),
@@ -228,7 +234,7 @@ async function bootstrap(): Promise<void> {
 async function appInfo(): Promise<AppInfo> {
   const status = await engine!.call('engine.status');
   return {
-    appName: 'ATLAS Control',
+    appName: APP_DISPLAY_NAME,
     desktopVersion: app.getVersion(),
     engineVersion: status.engineVersion,
     channel: app.isPackaged ? 'production' : 'development',
@@ -258,7 +264,7 @@ async function confirmQuit(): Promise<boolean> {
     defaultId: 1,
     cancelId: 1,
     message: `${count} terminal${count === 1 ? ' is' : 's are'} still running.`,
-    detail: 'Quitting ATLAS terminates every terminal process, including development servers.',
+    detail: `Quitting ${APP_DISPLAY_NAME} terminates every terminal process, including development servers.`,
   };
   const { response } = mainWindow
     ? await dialog.showMessageBox(mainWindow, options)
@@ -302,6 +308,8 @@ if (!app.requestSingleInstanceLock()) {
   app
     .whenReady()
     .then(async () => {
+      // A packaged app shows its bundle icon; from source the Dock would show Electron's.
+      if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(appIcon);
       await bootstrap();
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) mainWindow = createMainWindow();
@@ -309,7 +317,10 @@ if (!app.requestSingleInstanceLock()) {
     })
     .catch((error: unknown) => {
       logger.error('Failed to start ATLAS', { error: describeError(error) });
-      dialog.showErrorBox('ATLAS could not start', 'The application data could not be loaded.');
+      dialog.showErrorBox(
+        `${APP_DISPLAY_NAME} could not start`,
+        'The application data could not be loaded.',
+      );
       readyToQuit = true;
       app.exit(1);
     });

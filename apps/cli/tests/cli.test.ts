@@ -226,7 +226,7 @@ describe('atlas CLI', () => {
       const result = await run(['terminal', 'list']);
       expect(result.code).toBe(1);
       expect(result.err).toBe(
-        'Error: The ATLAS Engine is not running. Start (or restart) ATLAS Control and try again.\n',
+        'Error: The ATLAS Engine is not running. Start (or restart) A.T.L.A.S and try again.\n',
       );
     });
 
@@ -407,7 +407,7 @@ describe('atlas CLI', () => {
       ).toContain('The session could not be found.');
     });
 
-    it('goes through the running Engine so ATLAS Control sees changes live', async () => {
+    it('goes through the running Engine so A.T.L.A.S sees changes live', async () => {
       host = await startEngineHost({
         dataDir,
         component: 'test',

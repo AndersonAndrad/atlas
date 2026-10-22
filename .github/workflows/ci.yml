@@ -105,7 +105,7 @@ jobs:
         run: |
           deb=$(ls apps/desktop/dist/*.deb)
           dpkg-deb --info "$deb"
-          dpkg-deb --contents "$deb" | grep -q 'opt/ATLAS Control/atlas-control'
+          dpkg-deb --contents "$deb" | grep -q 'opt/A.T.L.A.S/atlas-control'
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: atlas-control-${{ matrix.name }}
@@ -134,5 +134,5 @@ jobs:
         run: |
           gh release create "$TAG" installers/* \
             --repo "$GITHUB_REPOSITORY" \
-            --title "ATLAS Control $TAG" \
+            --title "A.T.L.A.S $TAG" \
             --notes "Installers built after every check passed. macOS builds are not notarized yet: right-click the app and choose Open the first time."

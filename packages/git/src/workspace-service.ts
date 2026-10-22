@@ -516,8 +516,8 @@ export class GitWorkspaceService {
     if (checks.steps.length > 0 && this.options.stepRunner === undefined) {
       throw invalid(
         'preCommitSteps',
-        'This project has pre-commit steps, which only run in ATLAS Control. ' +
-          'Commit from ATLAS Control or remove the steps in the project settings.',
+        'This project has pre-commit steps, which only run in A.T.L.A.S. ' +
+          'Commit from A.T.L.A.S or remove the steps in the project settings.',
       );
     }
     const overlap = input.stage.filter((file) => input.unstage.includes(file));

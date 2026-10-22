@@ -1,14 +1,14 @@
-# Installers of ATLAS Control (PLAN-024): Debian (.deb, x64) and macOS (.dmg/.zip, arm64).
+# Installers of A.T.L.A.S (PLAN-024; name and icon PLAN-025): Debian (.deb, x64) and macOS (.dmg/.zip, arm64).
 # Builds are not signed with a developer certificate yet; macOS gets an ad-hoc signature.
 appId: dev.atlas.control
-productName: ATLAS Control
+productName: A.T.L.A.S
 copyright: Copyright © 2026 Anderson Andrade
 directories:
   output: dist
   buildResources: build
 extraMetadata:
   name: atlas-control
-  productName: ATLAS Control
+  productName: A.T.L.A.S
   homepage: https://github.com/AndersonAndrad/atlas
 # The bundles contain everything else; only the runtime `dependencies` of the desktop
 # package (node-pty and the headless xterm modules) are copied from node_modules.
@@ -43,7 +43,7 @@ linux:
   icon: build/icon.png
   executableName: atlas-control
   maintainer: Anderson Andrade
-  synopsis: ATLAS — terminals, Git and shared context for AI coding agents
+  synopsis: A.T.L.A.S — terminals, Git and shared context for AI coding agents
 deb:
   packageName: atlas-control
 publish: null

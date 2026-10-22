@@ -1,9 +1,9 @@
 {
   "name": "@atlas/desktop",
-  "version": "0.17.3",
+  "version": "0.18.0",
   "private": true,
   "type": "module",
-  "description": "ATLAS Control desktop application",
+  "description": "A.T.L.A.S desktop application",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",

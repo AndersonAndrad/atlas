@@ -12,6 +12,7 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react';
+import { APP_DISPLAY_NAME } from '@atlas/contracts';
 import atlasLogo from '@/assets/atlas-logo.svg';
 import { cn } from '@/lib/utils';
 
@@ -60,7 +61,7 @@ export function Sidebar({ view, onNavigate, version, onAbout }: SidebarProps) {
       className="bg-sidebar text-sidebar-foreground border-sidebar-border flex w-14 shrink-0 flex-col border-r lg:w-48"
       aria-label="Main navigation"
     >
-      <div className="flex h-12 items-center gap-2 px-3" aria-label="ATLAS">
+      <div className="flex h-12 items-center gap-2 px-3" aria-label={APP_DISPLAY_NAME}>
         {/* The artwork is 2:1 with empty margins; cover keeps its centered mark. */}
         <img
           src={atlasLogo}
@@ -69,7 +70,7 @@ export function Sidebar({ view, onNavigate, version, onAbout }: SidebarProps) {
           data-testid="atlas-logo"
           draggable={false}
         />
-        <span className="hidden font-semibold tracking-wide lg:inline">ATLAS</span>
+        <span className="hidden font-semibold tracking-wide lg:inline">{APP_DISPLAY_NAME}</span>
       </div>
       <ul className="flex flex-col gap-0.5 p-2">
         {NAV_ITEMS.map((item) => {
@@ -116,10 +117,10 @@ export function Sidebar({ view, onNavigate, version, onAbout }: SidebarProps) {
           type="button"
           className="text-muted-foreground hover:text-foreground mt-auto px-3 py-2 text-left text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
           onClick={onAbout}
-          title="About ATLAS"
+          title={`About ${APP_DISPLAY_NAME}`}
           data-testid="sidebar-version"
         >
-          <span className="hidden lg:inline">ATLAS </span>
+          <span className="hidden lg:inline">{APP_DISPLAY_NAME} </span>
           {version}
         </button>
       )}

@@ -1,3 +1,4 @@
+import { APP_DISPLAY_NAME } from '@atlas/contracts';
 import {
   Dialog,
   DialogContent,
@@ -14,7 +15,7 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent data-testid="about-dialog">
         <DialogHeader>
-          <DialogTitle>About {info?.appName ?? 'ATLAS'}</DialogTitle>
+          <DialogTitle>About {info?.appName ?? APP_DISPLAY_NAME}</DialogTitle>
           <DialogDescription>Autonomous Task Leadership &amp; Agent System</DialogDescription>
         </DialogHeader>
         {info ? (

@@ -213,7 +213,7 @@ test('shows Git details for projects and terminals, and plain folders without Gi
 
   // Branding: logo and short name in the sidebar, full name in the window title.
   await expect(page.getByTestId('atlas-logo')).toBeVisible();
-  await expect(page).toHaveTitle('ATLAS — Autonomous Task Leadership & Agent System');
+  await expect(page).toHaveTitle('A.T.L.A.S — Autonomous Task Leadership & Agent System');
 
   // Sidebar projects: commits to push/pull; nothing for plain folders.
   await openTerminals(page);
@@ -283,9 +283,21 @@ test('opens project details from a terminal and registers a standalone directory
 test('shows the real application and Engine versions', async ({ atlas }) => {
   const { app, page } = await atlas.launch();
   await expect(page.getByTestId('sidebar-version')).toContainText(`v${desktopVersion}-dev`);
+  // The application is presented as A.T.L.A.S (PLAN-025), also when run from source.
+  await expect(page.getByTestId('sidebar-version')).toContainText('A.T.L.A.S');
+  await expect(page.getByLabel('A.T.L.A.S', { exact: true })).toBeVisible();
+  expect(await app.evaluate(({ app: electronApp }) => electronApp.getName())).toBe('A.T.L.A.S');
+  const appMenu = await app.evaluate(({ Menu }) =>
+    Menu.getApplicationMenu()!.items.flatMap((item) => [
+      item.label,
+      ...(item.submenu?.items.map((sub) => sub.label) ?? []),
+    ]),
+  );
+  expect(appMenu).toContain('About A.T.L.A.S');
 
   await atlas.menu(app, 'app.about');
   const about = page.getByTestId('about-dialog');
+  await expect(about.getByRole('heading', { name: 'About A.T.L.A.S' })).toBeVisible();
   await expect(about.getByTestId('app-info-desktop-version')).toHaveText(desktopVersion);
   await expect(about.getByTestId('app-info-engine-version')).toHaveText(engineVersion);
   await expect(about.getByTestId('app-info-channel')).toHaveText('Development');

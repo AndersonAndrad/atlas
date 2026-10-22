@@ -66,7 +66,7 @@ export const USER_MESSAGES: Record<ErrorCode, string> = {
     'A folder with this name already exists and was not created by ATLAS. Nothing was changed.',
   QUICK_COMMAND_NOT_FOUND: 'The quick command could not be found. It may have been removed.',
   ENGINE_UNAVAILABLE:
-    'The ATLAS Engine is not running. Start (or restart) ATLAS Control and try again.',
+    'The ATLAS Engine is not running. Start (or restart) A.T.L.A.S and try again.',
   VALIDATION_FAILED: 'Some fields are invalid. Review them and try again.',
   INTERNAL_ERROR: 'An unexpected error occurred.',
 };

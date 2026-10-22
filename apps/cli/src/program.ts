@@ -211,7 +211,7 @@ export async function runCli(
 
   const terminal = program
     .command('terminal')
-    .description('Manage terminals of the running ATLAS Control Engine');
+    .description('Manage terminals of the running A.T.L.A.S Engine');
 
   terminal
     .command('list')
@@ -230,7 +230,7 @@ export async function runCli(
   terminal
     .command('open')
     .description(
-      'Open a terminal (shown in ATLAS Control): in a registered project, in a directory, ' +
+      'Open a terminal (shown in A.T.L.A.S): in a registered project, in a directory, ' +
         'or in the default working directory',
     )
     .option('-p, --project <id>', 'project id (starts in the project directory)')
@@ -331,7 +331,7 @@ export async function runCli(
     });
 
   /**
-   * Session commands go to the running Engine host (so ATLAS Control updates
+   * Session commands go to the running Engine host (so A.T.L.A.S updates
    * live); without one they use the same Engine services on the database.
    */
   const sessionCall = async <M extends EngineMethod>(

@@ -1029,7 +1029,7 @@ describe.skipIf(!gitAvailable)('GitWorkspaceService with real repositories', () 
       });
     });
 
-    it('explains that pre-commit steps need ATLAS Control when no step runner exists', async () => {
+    it('explains that pre-commit steps need A.T.L.A.S when no step runner exists', async () => {
       const dir = committed('safety-no-runner');
       write(dir, 'new.txt', 'new\n');
       const withoutRunner = new GitWorkspaceService({
@@ -1040,7 +1040,7 @@ describe.skipIf(!gitAvailable)('GitWorkspaceService with real repositories', () 
         withoutRunner.commit(await selection(dir, ['new.txt']), {}, checks(dir)),
       ).rejects.toMatchObject({
         code: 'VALIDATION_FAILED',
-        issues: [{ field: 'preCommitSteps', message: expect.stringContaining('ATLAS Control') }],
+        issues: [{ field: 'preCommitSteps', message: expect.stringContaining('A.T.L.A.S') }],
       });
     });
 
