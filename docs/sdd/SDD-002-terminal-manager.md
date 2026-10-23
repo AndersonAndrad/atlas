@@ -118,11 +118,21 @@ Shortcuts are application-menu accelerators (visible in the menu bar).
 | Clear terminal            | ⌘K           | Ctrl+Shift+K                |
 | Font size + / − / reset   | ⌘= / ⌘- / ⌘0 | Ctrl+= / Ctrl+- / Ctrl+0    |
 | Copy / Paste              | ⌘C / ⌘V      | Ctrl+Shift+C / Ctrl+Shift+V |
+| Paste (alternative)       | —            | Shift+Insert                |
+| Select all                | —            | Ctrl+Shift+A                |
 | Projects / Terminals view | ⌘1 / ⌘2      | Ctrl+Shift+1 / Ctrl+Shift+2 |
 | Close window              | ⇧⌘W          | (closing quits)             |
 
 Rename a tab by double-clicking it or pressing F2. On Windows/Linux, Ctrl+C, Ctrl+D,
 Ctrl+W, Ctrl+R, etc. are left to the shell.
+
+Clipboard (v0.19.0): the terminal context menu (right-click) offers Copy, Paste and Select
+all. Programs that capture the mouse (TUIs, AI CLIs) block plain drag selection; Option+drag
+on macOS and Shift+drag on Windows/Linux still select. Dropping files on a terminal types
+their shell-quoted paths followed by a space (never Enter). On Linux, selecting text fills
+the primary selection and a middle click pastes it, unless the program captures the mouse.
+Clipboard text is read and written by the main process; the renderer has no clipboard
+permission.
 
 ## Known platform limitations
 

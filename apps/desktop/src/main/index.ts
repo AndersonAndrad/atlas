@@ -212,7 +212,15 @@ async function bootstrap(): Promise<void> {
       mainWindow ? dialog.showOpenDialog(mainWindow, options) : dialog.showOpenDialog(options),
     subscriberId,
     appInfo,
-    writeClipboard: (text) => clipboard.writeText(text),
+    writeClipboard: async (text, target) => {
+      // The selection clipboard only exists on Linux; elsewhere there is nothing to write.
+      const board = target === 'selection' ? clipboard.selection : clipboard;
+      await board?.writeText(text);
+    },
+    readClipboard: async (target) => {
+      const board = target === 'selection' ? clipboard.selection : clipboard;
+      return board === undefined ? '' : board.readText();
+    },
   });
 
   Menu.setApplicationMenu(

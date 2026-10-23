@@ -226,6 +226,7 @@ export const IPC_CHANNELS = {
   gitSetProjectSettings: 'atlas:git:set-project-settings',
   appInfo: 'atlas:app:info',
   copyText: 'atlas:app:copy-text',
+  readText: 'atlas:app:read-text',
   contextOverview: 'atlas:context:overview',
   contextList: 'atlas:context:list',
   contextGlobal: 'atlas:context:global',
@@ -364,6 +365,13 @@ export type AppCommand = (typeof APP_COMMANDS)[number];
 
 export type Unsubscribe = () => void;
 
+/**
+ * System clipboard to use. `selection` is the X11/Wayland primary selection
+ * (select to copy, middle-click to paste); it only exists on Linux.
+ */
+export const CLIPBOARD_TARGETS = ['clipboard', 'selection'] as const;
+export type ClipboardTarget = (typeof CLIPBOARD_TARGETS)[number];
+
 export interface TerminalEventMessage {
   event: TerminalEvent;
   viewId?: string;
@@ -387,6 +395,10 @@ export interface AtlasApi {
     remove(id: string): Promise<IpcResult<null>>;
     select(id: string): Promise<IpcResult<null>>;
     getSelected(): Promise<IpcResult<ProjectDetails | null>>;
+  };
+  files: {
+    /** Absolute path of a file dropped into the window ('' when it has none). */
+    pathFor(file: File): string;
   };
   dialog: {
     /** `purpose` only changes the dialog title. */
@@ -647,7 +659,9 @@ export interface AtlasApi {
   app: {
     info(): Promise<IpcResult<AppInfo>>;
     /** Writes plain text to the system clipboard (works without document focus). */
-    copyText(text: string): Promise<IpcResult<null>>;
+    copyText(text: string, target?: ClipboardTarget): Promise<IpcResult<null>>;
+    /** Reads plain text from the system clipboard; non-text content reads as ''. */
+    readText(target?: ClipboardTarget): Promise<IpcResult<string>>;
     onCommand(listener: (command: AppCommand) => void): Unsubscribe;
     /** The Engine process restarted; terminal state must be reloaded. */
     onEngineRestarted(listener: () => void): Unsubscribe;

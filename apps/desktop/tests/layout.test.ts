@@ -149,3 +149,43 @@ describe('terminal input chunking', () => {
     expect(splitInput(large).every((chunk) => chunk.length <= 64 * 1024)).toBe(true);
   });
 });
+
+describe('terminal clipboard input', () => {
+  const key = (
+    code: string,
+    modifiers: Partial<Record<'ctrl' | 'shift' | 'alt' | 'meta', boolean>>,
+  ) => ({
+    code,
+    ctrlKey: modifiers.ctrl ?? false,
+    shiftKey: modifiers.shift ?? false,
+    altKey: modifiers.alt ?? false,
+    metaKey: modifiers.meta ?? false,
+  });
+
+  it('maps Ctrl+Shift+C/V/A and Shift+Insert, leaving Ctrl+C and Ctrl+V to the program', async () => {
+    const { clipboardShortcut } = await import('../src/renderer/src/terminal/state/input');
+    expect(clipboardShortcut(key('KeyC', { ctrl: true, shift: true }))).toBe('copy');
+    expect(clipboardShortcut(key('KeyV', { ctrl: true, shift: true }))).toBe('paste');
+    expect(clipboardShortcut(key('KeyA', { ctrl: true, shift: true }))).toBe('selectAll');
+    expect(clipboardShortcut(key('Insert', { shift: true }))).toBe('paste');
+    expect(clipboardShortcut(key('KeyC', { ctrl: true }))).toBeNull();
+    expect(clipboardShortcut(key('KeyV', { ctrl: true }))).toBeNull();
+    expect(clipboardShortcut(key('KeyC', { shift: true }))).toBeNull();
+    expect(clipboardShortcut(key('KeyC', { ctrl: true, shift: true, alt: true }))).toBeNull();
+    expect(clipboardShortcut(key('KeyV', { ctrl: true, shift: true, meta: true }))).toBeNull();
+    expect(clipboardShortcut(key('KeyT', { ctrl: true, shift: true }))).toBeNull();
+  });
+
+  it('quotes dropped paths as shell words without running them', async () => {
+    const { droppedPathsInput, quoteShellPath } =
+      await import('../src/renderer/src/terminal/state/input');
+    expect(quoteShellPath('/tmp/shot.png')).toBe('/tmp/shot.png');
+    expect(quoteShellPath('/tmp/my shot.png')).toBe(`'/tmp/my shot.png'`);
+    expect(quoteShellPath(`/tmp/it's $(rm -rf ~);.png`)).toBe(`'/tmp/it'\\''s $(rm -rf ~);.png'`);
+    expect(quoteShellPath('/tmp/imagem ção.png')).toBe(`'/tmp/imagem ção.png'`);
+    expect(droppedPathsInput(['/a.png', '', '/b c.jpg'])).toBe(`/a.png '/b c.jpg' `);
+    expect(droppedPathsInput([])).toBe('');
+    expect(droppedPathsInput(['', ''])).toBe('');
+    expect(droppedPathsInput(['/tmp/line\nbreak.png'])).toBe(`'/tmp/line\nbreak.png' `);
+  });
+});

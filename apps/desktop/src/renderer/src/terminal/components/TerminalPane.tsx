@@ -12,11 +12,14 @@ import {
   Waypoints,
   ChevronDown,
   ChevronUp,
+  ClipboardPaste,
+  Copy,
   Eraser,
   GitBranch,
   Info,
   RotateCcw,
   Search,
+  TextSelect,
   X,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -46,6 +49,9 @@ import { useTerminalGit } from '../hooks/useGitStatus';
 import { TerminalView } from '../state/terminal-view';
 import { endedSummary } from '../format';
 import { TerminalStatusDot } from './TerminalStatusDot';
+
+const isMac = navigator.userAgent.includes('Mac');
+const keys = (mac: string, other: string) => (isMac ? mac : other);
 
 export interface TerminalContextAction {
   action: 'view' | 'continue' | 'handoff' | 'attach' | 'summary';
@@ -112,6 +118,8 @@ export function TerminalPane({
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchMiss, setSearchMiss] = useState(false);
+  // Read when the context menu opens: xterm does not report selection to React.
+  const [menuHasSelection, setMenuHasSelection] = useState(false);
   const ended = isFinalTerminalStatus(session.status);
   const running = session.status === 'RUNNING';
   // Read at mount only; later changes are applied through the effects below.
@@ -323,7 +331,11 @@ export function TerminalPane({
         </div>
       )}
 
-      <ContextMenu>
+      <ContextMenu
+        onOpenChange={(open) => {
+          if (open) setMenuHasSelection(viewRef.current?.hasSelection() ?? false);
+        }}
+      >
         <ContextMenuTrigger asChild>
           <div
             className="terminal-host min-h-0 flex-1 px-2 pt-1"
@@ -338,6 +350,25 @@ export function TerminalPane({
             viewRef.current?.focus();
           }}
         >
+          <ContextMenuItem
+            disabled={!menuHasSelection}
+            onSelect={() => viewRef.current?.copySelection()}
+          >
+            <Copy />
+            Copy
+            <ContextMenuShortcut>{keys('⌘C', 'Ctrl+Shift+C')}</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem disabled={!running} onSelect={() => void viewRef.current?.paste()}>
+            <ClipboardPaste />
+            Paste
+            <ContextMenuShortcut>{keys('⌘V', 'Ctrl+Shift+V')}</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => viewRef.current?.selectAll()}>
+            <TextSelect />
+            Select all
+            {!isMac && <ContextMenuShortcut>Ctrl+Shift+A</ContextMenuShortcut>}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
           <ContextMenuItem disabled={snapshot === null} onSelect={onOpenGit}>
             <GitBranch />
             Open Git panel

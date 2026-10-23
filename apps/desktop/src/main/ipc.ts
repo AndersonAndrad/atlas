@@ -27,6 +27,7 @@ import {
   UpdateGitPreferencesSchema,
   ProjectGitSettingsSchema,
   ENGINE_METHOD_PARAMS,
+  CLIPBOARD_TARGETS,
   IPC_CHANNELS,
   IPC_SEND_CHANNELS,
   type EngineMethod,
@@ -52,6 +53,7 @@ import {
   type ImportSkillCollectionInput,
   type ImportSkillInput,
   type AppInfo,
+  type ClipboardTarget,
   type DirectoryChoice,
   type IpcResult,
 } from '@atlas/contracts';
@@ -82,7 +84,9 @@ export interface IpcDependencies {
   /** Version and environment details assembled by the main process. */
   appInfo: () => Promise<AppInfo>;
   /** Writes plain text to the system clipboard. */
-  writeClipboard: (text: string) => void;
+  writeClipboard: (text: string, target: ClipboardTarget) => Promise<void>;
+  /** Reads plain text from the system clipboard. */
+  readClipboard: (target: ClipboardTarget) => Promise<string>;
 }
 
 const NoArgs = z.tuple([]);
@@ -463,10 +467,23 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     return engine.call('skills.import', value, picked(value.path));
   });
 
-  handle(IPC_CHANNELS.copyText, z.tuple([z.string().max(1_000_000)]), async ([text]) => {
-    deps.writeClipboard(text as string);
-    return null;
-  });
+  const ClipboardTargetSchema = z.enum(CLIPBOARD_TARGETS).optional();
+  // Large enough for "Select all" over the maximum terminal scrollback (50,000 lines).
+  const COPY_TEXT_MAX_LENGTH = 16_000_000;
+  handle(
+    IPC_CHANNELS.copyText,
+    z.tuple([z.string().max(COPY_TEXT_MAX_LENGTH), ClipboardTargetSchema]),
+    async ([text, target]) => {
+      await deps.writeClipboard(
+        text as string,
+        (target as ClipboardTarget | undefined) ?? 'clipboard',
+      );
+      return null;
+    },
+  );
+  handle(IPC_CHANNELS.readText, z.tuple([ClipboardTargetSchema]), async ([target]) =>
+    deps.readClipboard((target as ClipboardTarget | undefined) ?? 'clipboard'),
+  );
 
   // Git workflow (SDD-004). The Engine only accepts repository roots it resolved
   // from registered projects or open terminals.

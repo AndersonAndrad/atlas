@@ -15,6 +15,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       terminalKeys: Object.keys((w.atlas as { terminals: object }).terminals).sort(),
       sessionKeys: Object.keys((w.atlas as { sessions: object }).sessions).sort(),
       aiKeys: Object.keys((w.atlas as { ai: object }).ai).sort(),
+      fileKeys: Object.keys((w.atlas as { files: object }).files).sort(),
       quickCommandKeys: Object.keys((w.atlas as { quickCommands: object }).quickCommands).sort(),
     };
   });
@@ -28,6 +29,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'app',
       'context',
       'dialog',
+      'files',
       'git',
       'groups',
       'projects',
@@ -38,6 +40,8 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
     ],
     // AI CLIs are only started or tracked; no command text crosses the bridge.
     aiKeys: ['attach', 'start'],
+    // Only the path of a file the user dropped; no filesystem access.
+    fileKeys: ['pathFor'],
     // Quick commands run by id: what runs is the stored command the user saw in the menu.
     quickCommandKeys: [
       'create',

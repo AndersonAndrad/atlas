@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-21 — PLAN-025 (A.T.L.A.S name and icon).
+Last updated: 2026-10-23 — PLAN-026 (terminal clipboard, selection and file drops).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -24,7 +24,26 @@ details in tabs; revision 2: commands enabled per project) is implemented and aw
 approval. PLAN-024 (GitHub Actions: all checks on Linux and macOS, then Debian and macOS
 installers) is implemented; revision 2 pins pnpm 11.28.5 because 11.13.0 is a broken
 release the CI cannot install. PLAN-025 (the app is presented as A.T.L.A.S with its own
-icon) is implemented and awaits approval. Version 0.18.0 (schema v8).
+icon) is implemented and awaits approval. PLAN-026 (terminal copy/paste on Linux, context
+menu Copy/Paste/Select all, file drops, Linux primary selection, forced selection while a
+program captures the mouse) is implemented and awaits approval. Version 0.19.0 (schema v8).
+
+## PLAN-026 — Terminal clipboard, selection and file drops
+
+- Right-click in a terminal offers Copy (enabled with a selection), Paste and Select all.
+- Windows/Linux: Ctrl+Shift+C copies, Ctrl+Shift+V and Shift+Insert paste, Ctrl+Shift+A
+  selects all. xterm consumed these keys before the Edit menu accelerators could run, so
+  they never worked there. Ctrl+C (interrupt) and Ctrl+V (image paste in AI CLIs) still
+  reach the program.
+- Programs that capture the mouse (TUIs, Claude Code, Codex) blocked plain drag selection;
+  Option+drag (macOS) and Shift+drag (elsewhere) now select.
+- Dropping files or images on a terminal types their shell-quoted paths and a space; nothing
+  runs by itself. Paths come from Electron's `webUtils.getPathForFile` in the preload.
+- Linux only: selecting fills the primary selection, a middle click pastes it (unless the
+  program captures the mouse).
+- Clipboard text is read and written by the main process (`atlas:app:read-text`,
+  `atlas:app:copy-text` with an optional `selection` target); the renderer still has no
+  clipboard permission.
 
 ## PLAN-025 — A.T.L.A.S name and icon
 

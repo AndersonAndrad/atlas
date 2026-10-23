@@ -1,3 +1,5 @@
+import { writeFileSync } from 'node:fs';
+import path from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import type { TerminalSession } from '@atlas/contracts';
 import { expect, test, openProjectTerminal } from './fixtures';
@@ -459,4 +461,144 @@ test('closing the window on macOS keeps terminals and reattaches on reopen', asy
   expect(
     await app.evaluate(() => (globalThis as { __atlasErrors?: string[] }).__atlasErrors),
   ).toEqual([]);
+});
+
+/** Prints a green word, so it is a span of its own that a double-click selects. */
+async function printWord(page: Page, pane: Locator, word: string) {
+  await run(page, pane, `printf "\\033[32m%s\\033[0m\\n" ${word}`);
+  const span = pane.locator('.xterm-rows span.xterm-fg-2', { hasText: word });
+  await expect(span).toBeVisible();
+  return span;
+}
+
+test('copies and pastes through the terminal context menu', async ({ atlas }) => {
+  atlas.cli('project', 'add', atlas.workspace('nova'));
+  const { app, page } = await atlas.launch();
+  await openTerminals(page);
+  await newTerminal(page, 'nova');
+  const pane = panes(page).first();
+  const menu = page.getByTestId('terminal-context-menu');
+
+  // Without a selection, Copy is disabled.
+  await expect.poll(() => screenText(pane), { timeout: 15_000 }).toMatch(/\$\s*$/m);
+  await pane.locator('.xterm-screen').click({ button: 'right' });
+  await expect(menu.getByRole('menuitem', { name: 'Copy' })).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
+  await page.keyboard.press('Escape');
+
+  const word = await printWord(page, pane, 'copy-me-42');
+  await word.dblclick({ force: true });
+  await expect(pane.locator('.xterm-selection div').first()).toBeVisible();
+  await word.click({ button: 'right', force: true });
+  await menu.getByRole('menuitem', { name: 'Copy' }).click();
+  await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe('copy-me-42');
+
+  await app.evaluate(({ clipboard }) => clipboard.writeText('echo "pasted-$((6 * 7))"'));
+  await pane.locator('.xterm-screen').click({ button: 'right' });
+  await menu.getByRole('menuitem', { name: 'Paste' }).click();
+  await expect(menu).toBeHidden();
+  await expect.poll(() => unwrappedText(pane)).toContain('echo "pasted-$((6 * 7))"');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => screenText(pane)).toContain('pasted-42');
+
+  // Select all, then copy: the whole screen reaches the clipboard.
+  await pane.locator('.xterm-screen').click({ button: 'right' });
+  await menu.getByRole('menuitem', { name: 'Select all' }).click();
+  await pane.locator('.xterm-screen').click({ button: 'right' });
+  await menu.getByRole('menuitem', { name: 'Copy' }).click();
+  await expect
+    .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+    .toContain('pasted-42');
+
+  // A dropped file types its quoted path (and no Enter); Electron only knows
+  // paths of real files, so the File comes from a file input.
+  const shot = path.join(atlas.workspace('drops'), "it's a shot.png");
+  writeFileSync(shot, 'png');
+  await page.evaluate(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.id = 'drop-source';
+    input.hidden = true;
+    document.body.append(input);
+  });
+  await page.locator('#drop-source').setInputFiles(shot);
+  await pane.getByTestId('terminal-host').evaluate((host) => {
+    const transfer = new DataTransfer();
+    transfer.items.add((document.getElementById('drop-source') as HTMLInputElement).files![0]!);
+    host.dispatchEvent(
+      new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true }),
+    );
+  });
+  await expect.poll(() => unwrappedText(pane)).toContain(`'${shot.replace("'", "'\\''")}'`);
+  await page.keyboard.press('Control+U');
+
+  // A file dropped without a path (e.g. from a web page) types nothing and
+  // never navigates the window away.
+  const prevented = await pane.getByTestId('terminal-host').evaluate((host) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['x'], 'shot.png', { type: 'image/png' }));
+    const drop = new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true });
+    host.dispatchEvent(drop);
+    return drop.defaultPrevented;
+  });
+  expect(prevented).toBe(true);
+  await expect(page.getByTestId('terminal-workspace')).toBeVisible();
+});
+
+test('selects text while a program captures the mouse', async ({ atlas }) => {
+  atlas.cli('project', 'add', atlas.workspace('nova'));
+  const { page } = await atlas.launch();
+  await openTerminals(page);
+  await newTerminal(page, 'nova');
+  const pane = panes(page).first();
+  const word = await printWord(page, pane, 'tui-word');
+
+  // Mouse reporting on, as TUIs and AI CLIs do; `read` swallows the reports.
+  await run(page, pane, `printf '\\033[?1000h'; read -r _; printf '\\033[?1000l'`);
+  await expect.poll(() => screenText(pane)).toContain("1000l'");
+  await word.dblclick({ force: true });
+  await expect(pane.locator('.xterm-selection div')).toHaveCount(0);
+  // Option+drag on macOS, Shift+drag elsewhere, forces a selection.
+  await word.dblclick({
+    force: true,
+    modifiers: [process.platform === 'darwin' ? 'Alt' : 'Shift'],
+  });
+  await expect(pane.locator('.xterm-selection div').first()).toBeVisible();
+  await page.keyboard.press('Enter');
+});
+
+test('uses Linux terminal clipboard shortcuts and the primary selection', async ({ atlas }) => {
+  test.skip(process.platform !== 'linux', 'Ctrl+Shift shortcuts and PRIMARY are Linux behavior');
+  atlas.cli('project', 'add', atlas.workspace('nova'));
+  const { app, page } = await atlas.launch();
+  await openTerminals(page);
+  await newTerminal(page, 'nova');
+  const pane = panes(page).first();
+
+  const word = await printWord(page, pane, 'shortcut-word');
+  await word.dblclick({ force: true });
+  await page.keyboard.press('Control+Shift+C');
+  await expect
+    .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe('shortcut-word');
+  // Selecting also fills the primary selection.
+  await expect
+    .poll(() => app.evaluate(({ clipboard }) => clipboard.selection?.readText()))
+    .toBe('shortcut-word');
+
+  await app.evaluate(({ clipboard }) => clipboard.writeText('echo "ctrl-$((2 + 3))"'));
+  await page.keyboard.press('Control+Shift+V');
+  await expect.poll(() => unwrappedText(pane)).toContain('echo "ctrl-$((2 + 3))"');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => screenText(pane)).toContain('ctrl-5');
+
+  // Middle click pastes the primary selection once.
+  await app.evaluate(({ clipboard }) => clipboard.selection?.writeText('echo "mid-$((3 * 3))"'));
+  await pane.locator('.xterm-screen').click({ button: 'middle' });
+  await expect.poll(() => unwrappedText(pane)).toContain('echo "mid-$((3 * 3))"');
+  expect(await unwrappedText(pane)).not.toContain('mid-$((3 * 3))"echo');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => screenText(pane)).toContain('mid-9');
 });

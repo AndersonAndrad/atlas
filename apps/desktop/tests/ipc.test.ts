@@ -98,7 +98,11 @@ describe('desktop IPC handlers', () => {
       logger: noopLogger,
       subscriberId: () => 'desktop-1-0',
       appInfo: async () => ({ desktopVersion: '0.4.0' }) as never,
-      writeClipboard: (text: string) => copied.push(text),
+      writeClipboard: async (text: string, target: string) => {
+        copied.push(target === 'clipboard' ? text : `${target}:${text}`);
+      },
+      readClipboard: async (target: string) =>
+        target === 'selection' ? 'primary text' : 'clipboard text',
       isTrustedSender: () => trusted,
       showOpenDialog: async () =>
         pickedPath === undefined
@@ -335,10 +339,33 @@ describe('desktop IPC handlers', () => {
         data: null,
       });
       expect(copied).toEqual(['CONFLICT (content)']);
+      expect(await invoke(IPC_CHANNELS.copyText, 'picked', 'selection')).toEqual({
+        ok: true,
+        data: null,
+      });
+      expect(copied).toEqual(['CONFLICT (content)', 'selection:picked']);
       expect(await invoke(IPC_CHANNELS.copyText, 42)).toMatchObject({
         ok: false,
         error: { code: 'VALIDATION_FAILED' },
       });
+      expect(await invoke(IPC_CHANNELS.copyText, 'x', 'find')).toMatchObject({
+        ok: false,
+        error: { code: 'VALIDATION_FAILED' },
+      });
+    });
+
+    it('reads clipboard text through the main process', async () => {
+      expect(await invoke(IPC_CHANNELS.readText)).toEqual({ ok: true, data: 'clipboard text' });
+      expect(await invoke(IPC_CHANNELS.readText, 'selection')).toEqual({
+        ok: true,
+        data: 'primary text',
+      });
+      expect(await invoke(IPC_CHANNELS.readText, 'files')).toMatchObject({
+        ok: false,
+        error: { code: 'VALIDATION_FAILED' },
+      });
+      trusted = false;
+      expect(await invoke(IPC_CHANNELS.readText)).toMatchObject({ ok: false });
     });
 
     it('exposes application information from the main process', async () => {

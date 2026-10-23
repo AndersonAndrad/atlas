@@ -1,9 +1,14 @@
-import type { TerminalEvent, TerminalFontFamily, TerminalPreferences } from '@atlas/contracts';
+import type {
+  ClipboardTarget,
+  TerminalEvent,
+  TerminalFontFamily,
+  TerminalPreferences,
+} from '@atlas/contracts';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { Terminal, type ITheme } from '@xterm/xterm';
 import { unwrap } from '@/api';
-import { splitInput } from './input';
+import { clipboardShortcut, droppedPathsInput, splitInput } from './input';
 import { onViewOutput } from './terminal-events';
 
 type OutputEvent = Extract<TerminalEvent, { type: 'output' }>;
@@ -44,6 +49,13 @@ const THEME: ITheme = {
 };
 
 const RESIZE_DEBOUNCE_MS = 60;
+/** Selection changes while dragging; the primary selection is written once it settles. */
+const PRIMARY_SELECTION_DEBOUNCE_MS = 150;
+const MIDDLE_BUTTON = 1;
+
+const IS_MAC = navigator.userAgent.includes('Mac');
+/** Only Linux has a primary selection (select to copy, middle-click to paste). */
+const HAS_PRIMARY_SELECTION = navigator.userAgent.includes('Linux');
 
 let viewCounter = 0;
 
@@ -72,6 +84,7 @@ export class TerminalView {
   private pending: OutputEvent[] = [];
   private lastSeq = 0;
   private resizeTimer: ReturnType<typeof setTimeout> | undefined;
+  private selectionTimer: ReturnType<typeof setTimeout> | undefined;
   private acceptsInput: boolean;
 
   constructor(private readonly options: TerminalViewOptions) {
@@ -84,6 +97,9 @@ export class TerminalView {
       scrollback: options.preferences.scrollback,
       theme: THEME,
       macOptionIsMeta: false,
+      // Programs that capture the mouse (TUIs, AI CLIs) block plain drag
+      // selection; Option+drag (Shift+drag elsewhere) still selects text.
+      macOptionClickForcesSelection: true,
       allowTransparency: false,
     });
     this.terminal.loadAddon(this.fit);
@@ -103,6 +119,7 @@ export class TerminalView {
       for (const chunk of splitInput(data)) window.atlas.terminals.write(sessionId, chunk);
     });
     this.cleanups.push(() => input.dispose());
+    this.setUpClipboard(container);
 
     const observer = new ResizeObserver(() => this.scheduleResize());
     observer.observe(container);
@@ -146,6 +163,30 @@ export class TerminalView {
     this.terminal.focus();
   }
 
+  hasSelection(): boolean {
+    return this.terminal.hasSelection();
+  }
+
+  /** Copies the selected text to the clipboard; false when nothing is selected. */
+  copySelection(): boolean {
+    const text = this.terminal.getSelection();
+    if (text === '') return false;
+    void window.atlas.app.copyText(text);
+    return true;
+  }
+
+  /** Pastes clipboard text as typed input (bracketed when the program asks for it). */
+  async paste(target: ClipboardTarget = 'clipboard'): Promise<void> {
+    if (!this.acceptsInput) return;
+    const result = await window.atlas.app.readText(target);
+    if (!result.ok || result.data === '' || this.disposed || !this.acceptsInput) return;
+    this.terminal.paste(result.data);
+  }
+
+  selectAll(): void {
+    this.terminal.selectAll();
+  }
+
   /** Clears the screen and scrollback here and in the Engine mirror. */
   clear(): void {
     this.terminal.clear();
@@ -168,6 +209,7 @@ export class TerminalView {
     if (this.disposed) return;
     this.disposed = true;
     if (this.resizeTimer !== undefined) clearTimeout(this.resizeTimer);
+    if (this.selectionTimer !== undefined) clearTimeout(this.selectionTimer);
     for (const cleanup of this.cleanups.splice(0)) cleanup();
     void window.atlas.terminals.detach(this.options.sessionId, this.viewId);
     this.terminal.dispose();
@@ -187,6 +229,83 @@ export class TerminalView {
         window.atlas.terminals.acknowledge(this.options.sessionId, this.viewId, length);
       }
     });
+  }
+
+  /**
+   * Copy and paste shortcuts, dropped files and the Linux primary selection.
+   * On macOS, Cmd+C/Cmd+V reach xterm through the Edit menu. Elsewhere xterm
+   * consumes Ctrl+Shift+C/V before the menu sees them, so they are handled here;
+   * Ctrl+C and Ctrl+V still reach the program (interrupt, image paste in CLIs).
+   */
+  private setUpClipboard(container: HTMLElement): void {
+    if (!IS_MAC) {
+      this.terminal.attachCustomKeyEventHandler((event) => this.handleClipboardKey(event));
+    }
+
+    const onDragOver = (event: DragEvent) => {
+      if (!event.dataTransfer?.types.includes('Files')) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = this.acceptsInput ? 'copy' : 'none';
+    };
+    const onDrop = (event: DragEvent) => {
+      const files = event.dataTransfer?.files;
+      if (files === undefined || files.length === 0) return;
+      // Without this, Chromium tries to open the file in the window.
+      event.preventDefault();
+      if (!this.acceptsInput) return;
+      const text = droppedPathsInput(Array.from(files, (file) => window.atlas.files.pathFor(file)));
+      if (text === '') return;
+      this.terminal.paste(text);
+      this.terminal.focus();
+    };
+    container.addEventListener('dragover', onDragOver);
+    container.addEventListener('drop', onDrop);
+    this.cleanups.push(() => {
+      container.removeEventListener('dragover', onDragOver);
+      container.removeEventListener('drop', onDrop);
+    });
+
+    if (!HAS_PRIMARY_SELECTION) return;
+    const selection = this.terminal.onSelectionChange(() => {
+      if (this.selectionTimer !== undefined) clearTimeout(this.selectionTimer);
+      this.selectionTimer = setTimeout(() => {
+        this.selectionTimer = undefined;
+        const text = this.terminal.getSelection();
+        if (text !== '') void window.atlas.app.copyText(text, 'selection');
+      }, PRIMARY_SELECTION_DEBOUNCE_MS);
+    });
+    this.cleanups.push(() => selection.dispose());
+    // Programs with mouse reporting (vim, htop…) receive the middle click instead.
+    const ownsMiddleClick = (event: MouseEvent) =>
+      event.button === MIDDLE_BUTTON && this.terminal.modes.mouseTrackingMode === 'none';
+    // Canceling both events stops Chromium's own paste, so text is pasted once.
+    const onMiddleDown = (event: MouseEvent) => {
+      if (ownsMiddleClick(event)) event.preventDefault();
+    };
+    const onMiddleUp = (event: MouseEvent) => {
+      if (!ownsMiddleClick(event)) return;
+      event.preventDefault();
+      this.terminal.focus();
+      void this.paste('selection');
+    };
+    container.addEventListener('mousedown', onMiddleDown, true);
+    container.addEventListener('mouseup', onMiddleUp, true);
+    this.cleanups.push(() => {
+      container.removeEventListener('mousedown', onMiddleDown, true);
+      container.removeEventListener('mouseup', onMiddleUp, true);
+    });
+  }
+
+  /** Returns false (and cancels the event) for the shortcuts handled here. */
+  private handleClipboardKey(event: KeyboardEvent): boolean {
+    const action = clipboardShortcut(event);
+    if (action === null) return true;
+    event.preventDefault();
+    if (event.type !== 'keydown') return false;
+    if (action === 'copy') this.copySelection();
+    else if (action === 'paste') void this.paste();
+    else this.selectAll();
+    return false;
   }
 
   private scheduleResize(): void {

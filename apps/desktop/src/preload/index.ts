@@ -7,7 +7,7 @@ import {
   type SessionChangedEvent,
   type TerminalEventMessage,
 } from '@atlas/contracts/ipc';
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
 
 /** Subscribes to a main-process event without exposing the IpcRendererEvent. */
 function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
@@ -21,6 +21,10 @@ function subscribe<T>(channel: string, listener: (payload: T) => void): () => vo
 // Only typed, purpose-specific calls are exposed. The renderer never receives
 // ipcRenderer, Node.js APIs, filesystem or database handles.
 const api: AtlasApi = {
+  files: {
+    // Sandboxed renderers cannot see paths of dropped files; Electron exposes them here only.
+    pathFor: (file) => webUtils.getPathForFile(file),
+  },
   projects: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.listProjects),
     get: (id) => ipcRenderer.invoke(IPC_CHANNELS.getProject, id),
@@ -229,7 +233,8 @@ const api: AtlasApi = {
   },
   app: {
     info: () => ipcRenderer.invoke(IPC_CHANNELS.appInfo),
-    copyText: (text) => ipcRenderer.invoke(IPC_CHANNELS.copyText, text),
+    copyText: (text, target) => ipcRenderer.invoke(IPC_CHANNELS.copyText, text, target),
+    readText: (target) => ipcRenderer.invoke(IPC_CHANNELS.readText, target),
     onCommand: (listener) => subscribe<AppCommand>(IPC_EVENT_CHANNELS.appCommand, listener),
     onEngineRestarted: (listener) =>
       subscribe<undefined>(IPC_EVENT_CHANNELS.engineRestarted, () => listener()),
