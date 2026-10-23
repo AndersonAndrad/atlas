@@ -406,6 +406,31 @@ Full description: `docs/sdd/SDD-006-context-intelligence-and-skills.md`, Part I-
 Picked paths are tracked by the desktop main process, which passes `explicit` to the
 Engine; sync folders must be picked or suggested.
 
+### Usage and limits (SDD-008 Milestone B)
+
+Full description: `docs/sdd/SDD-008-multi-account-and-routing.md`.
+
+```text
+ Usage view ─► usage.* (Engine) ─► UsageService (packages/usage)
+                                    ├─ profiles: ~/.claude, ~/.claude-<name>, ~/.codex, ~/.codex-<name>,
+                                    │   CLAUDE_CONFIG_DIR / CODEX_HOME, folders picked by the user
+                                    ├─ CodexAppServerReader: `codex app-server` (account/read,
+                                    │   account/rateLimits/read, account/usage/read), CODEX_HOME per profile
+                                    ├─ ClaudeAuthStatusReader: `claude auth status --json`
+                                    ├─ SqliteUsageRepository (migration v9)
+                                    └─ aggregation: windows (current/stale/reset), daily, calendar weeks
+ claude wrapper (ATLAS terminals) ─► --settings statusLine = <data>/bin/atlas-statusline
+   atlas-statusline ─► <data>/usage/claude/<run>/{config-dir,status.json}
+   ClaudeStatusInbox (5 s poll) ─► UsageService.recordClaudeStatus
+```
+
+The Engine host collects due profiles every minute (interval set by the user, default 10
+min; each profile at most once a minute). The wrapper skips the status line when the
+profile or the project has one, or when the user turned it off (the
+`<data>/usage/claude-status-line-off` list). The default profile runs its CLI without
+`CLAUDE_CONFIG_DIR`/`CODEX_HOME`, because Claude Code keeps `.claude.json` in HOME only
+then.
+
 ### Project context of a terminal
 
 `Engine.terminalProjectContext` reports the associated project and the deepest registered
@@ -537,7 +562,8 @@ terminals running as standalone terminals (SDD-003 §2).
   Schema v4: ATLAS Sessions (additive). Schema v5: Shared Context with FTS5 (additive).
   Schema v6: context retrieval — required entries, task branch and budget,
   reconciliation runs (additive). Schema v7: Git operation and command log (additive).
-  Schema v8: Skills Hub (additive).
+  Schema v8: Skills Hub (additive). Schema v9: usage profiles, limit window snapshots,
+  daily usage, session progress (additive).
 - Data dir: macOS `~/Library/Application Support/ATLAS`, Windows `%APPDATA%\ATLAS`, Linux
   `$XDG_DATA_HOME/atlas`; `ATLAS_DATA_DIR` overrides.
 

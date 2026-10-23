@@ -45,11 +45,13 @@ import {
   UpdateProjectInputSchema,
   parseInput,
   AddSkillSourceSchema,
+  AddUsageProfileSchema,
   ImportSkillCollectionSchema,
   ImportSkillSchema,
   InspectSkillSchema,
   SkillSyncTargetsSchema,
   type AddSkillSourceInput,
+  type AddUsageProfileInput,
   type ImportSkillCollectionInput,
   type ImportSkillInput,
   type AppInfo,
@@ -98,6 +100,7 @@ const DIRECTORY_PURPOSES = [
   'default-directory',
   'session',
   'skill',
+  'usage-profile',
 ] as const;
 type DirectoryPurpose = (typeof DIRECTORY_PURPOSES)[number];
 const ChoosePurposeArgs = z.union([z.tuple([]), z.tuple([z.enum(DIRECTORY_PURPOSES)])]);
@@ -107,6 +110,7 @@ const DIALOG_TITLES: Record<DirectoryPurpose, string> = {
   'default-directory': 'Select default terminal directory',
   session: 'Select session workspace',
   skill: 'Select a skill folder or a folder of skills',
+  'usage-profile': 'Select a Claude Code or Codex configuration folder',
 };
 const TerminalArgs = z.tuple([TerminalIdSchema]);
 const SessionArgs = z.tuple([AtlasSessionIdSchema]);
@@ -438,6 +442,23 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     const value = input as AddSkillSourceInput;
     return engine.call('skills.addSource', value, picked(value.path));
   });
+  // Usage (SDD-008 Milestone B): a profile folder must come from the native picker.
+  handle(IPC_CHANNELS.usageAddProfile, z.tuple([AddUsageProfileSchema]), ([input]) => {
+    const value = input as AddUsageProfileInput;
+    return engine.call('usage.addProfile', value, picked(value.directory));
+  });
+  const usageChannels: [string, EngineMethod][] = [
+    [IPC_CHANNELS.usageOverview, 'usage.overview'],
+    [IPC_CHANNELS.usageRefresh, 'usage.refresh'],
+    [IPC_CHANNELS.usageUpdateProfile, 'usage.updateProfile'],
+    [IPC_CHANNELS.usageRemoveProfile, 'usage.removeProfile'],
+    [IPC_CHANNELS.usageSetSettings, 'usage.setSettings'],
+  ];
+  for (const [channel, method] of usageChannels) {
+    handle(channel, ENGINE_METHOD_PARAMS[method] as unknown as z.ZodType<unknown[]>, (args) =>
+      (engine.call as (name: string, ...params: unknown[]) => Promise<unknown>)(method, ...args),
+    );
+  }
   handle(IPC_CHANNELS.skillsInspect, z.tuple([InspectSkillSchema.shape.path]), ([folder]) =>
     engine.call('skills.inspect', { path: folder as string }, picked(folder as string)),
   );

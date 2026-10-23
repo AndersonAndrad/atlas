@@ -199,10 +199,10 @@ test('displays unavailable directories and allows relocating them', async ({ atl
 test('future sections are visibly unavailable', async ({ atlas }) => {
   const { page } = await atlas.launch();
   const nav = page.getByRole('navigation', { name: 'Main navigation' });
-  for (const available of ['Projects', 'Terminals', 'Sessions', 'Skills', 'Settings']) {
+  for (const available of ['Projects', 'Terminals', 'Sessions', 'Skills', 'Usage', 'Settings']) {
     await expect(nav.getByRole('button', { name: available })).toBeEnabled();
   }
-  for (const section of ['Agents', 'Accounts', 'Usage']) {
+  for (const section of ['Agents', 'Accounts']) {
     await expect(
       nav.getByRole('button', { name: `${section} (not available yet)` }),
     ).toBeDisabled();

@@ -7,6 +7,7 @@ const projects = [
   'packages/terminal',
   'packages/persistence',
   'packages/skills',
+  'packages/usage',
   'apps/engine',
   'apps/cli',
 ];

@@ -24,6 +24,8 @@ export const ERROR_CODES = [
   'SKILL_REJECTED',
   'SKILL_SYNC_CONFLICT',
   'QUICK_COMMAND_NOT_FOUND',
+  'USAGE_PROFILE_NOT_FOUND',
+  'USAGE_PROFILE_UNAUTHORIZED',
   'ENGINE_UNAVAILABLE',
   'VALIDATION_FAILED',
   'INTERNAL_ERROR',
@@ -65,6 +67,9 @@ export const USER_MESSAGES: Record<ErrorCode, string> = {
   SKILL_SYNC_CONFLICT:
     'A folder with this name already exists and was not created by ATLAS. Nothing was changed.',
   QUICK_COMMAND_NOT_FOUND: 'The quick command could not be found. It may have been removed.',
+  USAGE_PROFILE_NOT_FOUND: 'The account profile could not be found. It may have been removed.',
+  USAGE_PROFILE_UNAUTHORIZED:
+    'This folder cannot be used as an account profile. Choose it in the folder picker.',
   ENGINE_UNAVAILABLE:
     'The ATLAS Engine is not running. Start (or restart) A.T.L.A.S and try again.',
   VALIDATION_FAILED: 'Some fields are invalid. Review them and try again.',

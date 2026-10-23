@@ -10,6 +10,7 @@
     { "path": "packages/sessions" },
     { "path": "packages/context" },
     { "path": "packages/skills" },
+    { "path": "packages/usage" },
     { "path": "packages/persistence" },
     { "path": "apps/engine" },
     { "path": "apps/cli" }

@@ -74,7 +74,67 @@ const CODEX_SUBCOMMANDS = [
   'help',
 ];
 
-function wrapperScript(cli: (typeof WRAPPED_CLIS)[number]): string {
+/** The ATLAS status line command (PLAN-027), next to the wrappers. */
+export const STATUS_LINE_SCRIPT = 'atlas-statusline';
+/** Claude profile directories (one per line) whose sessions keep their own status line. */
+export const STATUS_LINE_OFF_FILE = 'claude-status-line-off';
+
+const shellQuote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
+
+/**
+ * Saves the status line input Claude Code gives it (the only documented source of plan
+ * limits) for ATLAS to read, and prints nothing. Runs inside Claude Code sessions.
+ */
+export const STATUS_LINE_SCRIPT_CONTENT = `#!/bin/sh
+# ATLAS status line (PLAN-027): keeps what Claude Code reports for the ATLAS usage view.
+if [ -z "\${ATLAS_USAGE_RUN_DIR-}" ] || [ ! -d "$ATLAS_USAGE_RUN_DIR" ]; then
+  cat >/dev/null
+  exit 0
+fi
+umask 077
+atlas_tmp="$ATLAS_USAGE_RUN_DIR/.status.$$"
+head -c 262144 >"$atlas_tmp" && mv -f "$atlas_tmp" "$ATLAS_USAGE_RUN_DIR/status.json"
+rm -f "$atlas_tmp"
+exit 0
+`;
+
+/**
+ * PLAN-027: Claude Code reports plan limits only to a status line, so ATLAS sessions use
+ * the ATLAS one, unless the profile or the project already has a status line, or the user
+ * turned it off for the profile in ATLAS, or the session was started with its own
+ * `--settings`. The run folder tells ATLAS which profile it is.
+ */
+function claudeUsageBlock(binDir: string): string {
+  const settings = JSON.stringify({
+    statusLine: {
+      type: 'command',
+      command: shellQuote(path.join(binDir, STATUS_LINE_SCRIPT)),
+      padding: 0,
+    },
+  });
+  // A session started with its own --settings keeps them unchanged.
+  return `atlas_own_settings=
+for atlas_arg in "$@"; do
+  case $atlas_arg in --settings|--settings=*) atlas_own_settings=1 ;; esac
+done
+if [ -z "$atlas_own_settings" ] && [ -n "\${ATLAS_USAGE_DIR-}" ] && [ -d "$ATLAS_USAGE_DIR/claude" ]; then
+  atlas_config_dir=\${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+  atlas_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+  if ! grep -Fxq -- "$atlas_config_dir" "$ATLAS_USAGE_DIR/${STATUS_LINE_OFF_FILE}" 2>/dev/null &&
+    ! grep -qs '"statusLine"' "$atlas_config_dir/settings.json" "$atlas_config_dir/settings.local.json" \\
+      "$atlas_root/.claude/settings.json" "$atlas_root/.claude/settings.local.json"; then
+    ATLAS_USAGE_RUN_DIR="$ATLAS_USAGE_DIR/claude/$(date +%Y%m%dT%H%M%S)-$$"
+    if mkdir -m 700 "$ATLAS_USAGE_RUN_DIR" 2>/dev/null &&
+      printf '%s\\n' "$atlas_config_dir" >"$ATLAS_USAGE_RUN_DIR/config-dir"; then
+      export ATLAS_USAGE_RUN_DIR
+      set -- --settings ${shellQuote(settings)} "$@"
+    fi
+  fi
+fi
+`;
+}
+
+function wrapperScript(cli: (typeof WRAPPED_CLIS)[number], binDir: string): string {
   // The project folder holds the checkpoint, so both CLIs may write there.
   const extra =
     cli === 'claude'
@@ -82,7 +142,7 @@ function wrapperScript(cli: (typeof WRAPPED_CLIS)[number]): string {
       : // Not valid TOML, so Codex uses the raw text as the value (documented behavior).
         `-c "developer_instructions=${INSTRUCTION}" --add-dir "$ATLAS_PROJECT_DIR"`;
   const subcommands = cli === 'claude' ? CLAUDE_SUBCOMMANDS : CODEX_SUBCOMMANDS;
-  const passthrough = `case "\${1-}" in\n  ${subcommands.join('|')}|--version|-v|--help|-h) exec "$real" "$@" ;;\nesac\n`;
+  const passthrough = `case "\${1-}" in\n  ${subcommands.join('|')}|--version|-v|--help|-h) exec "$real" "$@" ;;\nesac\n${cli === 'claude' ? claudeUsageBlock(binDir) : ''}`;
   return `#!/bin/sh
 # ATLAS wrapper for ${cli} (PLAN-014, PLAN-021). In a project's ATLAS terminal it asks the
 # LLM to read the ATLAS project configuration first and to keep a checkpoint, and tells
@@ -194,6 +254,7 @@ export class ProjectConfigStore {
   readonly binDir: string;
   private readonly logger: Logger;
   private readonly queues = new Map<string, Promise<unknown>>();
+  private statusLineWrite: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly options: {
@@ -340,6 +401,27 @@ export class ProjectConfigStore {
     return path.join(this.options.dataDir, 'context', 'events');
   }
 
+  /** Usage data the wrappers and the ATLAS status line leave for the Engine (PLAN-027). */
+  get usageDir(): string {
+    return path.join(this.options.dataDir, 'usage');
+  }
+
+  /** Claude profiles whose ATLAS sessions keep their own status line (read by the wrapper). */
+  writeStatusLineOff(directories: readonly string[]): Promise<void> {
+    if (this.options.platform === 'win32') return Promise.resolve();
+    const lines = directories.filter((directory) => !directory.includes('\n'));
+    // Writes are serialized: they share the temporary file, and the last list wins.
+    const write = this.statusLineWrite.then(async () => {
+      await mkdir(this.usageDir, { recursive: true, mode: 0o700 });
+      const file = path.join(this.usageDir, STATUS_LINE_OFF_FILE);
+      const temporary = `${file}.${process.pid}.tmp`;
+      await writeFile(temporary, lines.map((line) => `${line}\n`).join(''), { mode: 0o600 });
+      await rename(temporary, file);
+    });
+    this.statusLineWrite = write.catch(() => undefined);
+    return write;
+  }
+
   private get zshDir(): string {
     return path.join(this.options.dataDir, 'shell', 'zsh');
   }
@@ -354,6 +436,7 @@ export class ProjectConfigStore {
       variables.PATH = `${this.binDir}${path.delimiter}${base.PATH ?? ''}`;
       variables.ATLAS_BIN = this.binDir;
       variables.ATLAS_EVENTS_DIR = this.eventsDir;
+      variables.ATLAS_USAGE_DIR = this.usageDir;
       // zsh reads ATLAS's start-up files, which run the user's and keep the wrappers first.
       variables.ATLAS_ZDOTDIR = this.zshDir;
       variables.ATLAS_USER_ZDOTDIR =
@@ -382,10 +465,15 @@ export class ProjectConfigStore {
     await mkdir(this.binDir, { recursive: true, mode: 0o700 });
     for (const cli of WRAPPED_CLIS) {
       const file = path.join(this.binDir, cli);
-      await writeFile(`${file}.tmp`, wrapperScript(cli), { mode: 0o755 });
+      await writeFile(`${file}.tmp`, wrapperScript(cli, this.binDir), { mode: 0o755 });
       await chmod(`${file}.tmp`, 0o755);
       await rename(`${file}.tmp`, file);
     }
+    const statusLine = path.join(this.binDir, STATUS_LINE_SCRIPT);
+    await writeFile(`${statusLine}.tmp`, STATUS_LINE_SCRIPT_CONTENT, { mode: 0o755 });
+    await chmod(`${statusLine}.tmp`, 0o755);
+    await rename(`${statusLine}.tmp`, statusLine);
+    await mkdir(path.join(this.usageDir, 'claude'), { recursive: true, mode: 0o700 });
     await mkdir(this.zshDir, { recursive: true, mode: 0o700 });
     for (const [name, content] of Object.entries(ZSH_FILES)) {
       await writeFile(path.join(this.zshDir, name), content, { mode: 0o644 });

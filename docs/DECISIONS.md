@@ -562,3 +562,21 @@ superseded decisions are marked, not deleted.
   or CLI (would lose macOS permissions and existing data).
 - **Consequences**: An installed "ATLAS Control.app" stays until removed; both use the same
   data. Running from source still shows "Electron" as the bold macOS menu-bar title.
+
+## ADR-058 — Usage comes only from supported provider interfaces (PLAN-027)
+
+- **Decision**: Codex limits and daily tokens are read with `codex app-server`
+  (`account/rateLimits/read`, `account/usage/read`, `account/read`), which runs no model.
+  Claude Code limits are read only from the documented status line input, by giving ATLAS
+  sessions (wrapper, `--settings`) a status line that saves it for ATLAS and prints nothing.
+  Profiles are configuration folders (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`); the developer's
+  convention `~/.<cli>-<name>` is detected. Windows are shown separately (session and weekly
+  side by side), never merged; a reset is assumed only when the provider's reset time passed.
+- **Alternatives**: Reading the CLIs' session files (undocumented formats); starting a
+  provider session to read limits (spends quota); building Milestone A first (the developer
+  asked for limits first).
+- **Consequences**: Claude Code limits exist only for Pro/Max plans and only after a session
+  in an ATLAS terminal got its first answer; between sessions they age and are marked. The
+  app-server protocol is experimental: unexpected answers show "unavailable" with a reason,
+  never numbers. Claude daily activity covers ATLAS sessions only (API time, list-price cost
+  as an estimate); the status line's token fields are the context window, not usage.

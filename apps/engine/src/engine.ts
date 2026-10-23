@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access, chmod, mkdir, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, readdir, stat, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -33,6 +33,7 @@ import {
   SqliteSessionRepository,
   SqliteSettingsRepository,
   SqliteSkillRepository,
+  SqliteUsageRepository,
   SqliteTerminalGroupRepository,
   SqliteTerminalSessionRepository,
   getSchemaVersion,
@@ -89,9 +90,12 @@ import {
   type PreCommitStepRunner,
 } from '@atlas/git';
 import { NodeSkillFileSystem, SkillsHub } from '@atlas/skills';
+import { UsageService } from '@atlas/usage';
 import { createGitExecutor, createGitRunner } from './git/git-runner.js';
 import { captureLoginShellEnvironment } from './adapters/login-shell-environment.js';
 import { LlmSessionTracker } from './llm-session-tracker.js';
+import { ClaudeAuthStatusReader, CodexAppServerReader } from './adapters/usage-cli.js';
+import { ClaudeStatusInbox } from './usage-inbox.js';
 import { QuickCommandStore } from './quick-commands.js';
 import { RepositoryWatcher } from './git/repository-watcher.js';
 import { GIT_SHUTDOWN_TIMEOUT_MS } from './shutdown-timing.js';
@@ -148,6 +152,8 @@ export interface Engine {
   readonly gitOperationLog: GitOperationLog;
   /** Skills Hub (SDD-006 Milestone B). */
   readonly skills: SkillsHub;
+  /** Account profiles, provider limits and daily usage (SDD-008 Milestone B). */
+  readonly usage: UsageService;
   /** Automatic recording of LLM sessions in ATLAS terminals (PLAN-021). */
   readonly llmSessions: LlmSessionTracker;
   /** The user's quick commands and each project's choice of them (PLAN-023). */
@@ -240,6 +246,8 @@ export interface Engine {
 const CONTEXT_FILE_BUDGET_TOKENS = 12_000;
 /** How long a wrapper check (an interactive shell start) is reused. */
 const WRAPPER_CHECK_TTL_MS = 60_000;
+/** Usage collection checks which profiles are due this often (PLAN-027). */
+const USAGE_SCHEDULE_MS = 60_000;
 
 /** Version of the @atlas/engine package when running from its build output. */
 function packageVersion(): string {
@@ -520,6 +528,76 @@ export function createEngine(options: EngineOptions = {}): Engine {
         })),
     logger,
   });
+  // Provider CLIs are found on the Engine's PATH, then on the user's login shell PATH
+  // (a desktop app started from the Dock or a launcher has a minimal PATH).
+  let loginShellPath: Promise<string> | null = null;
+  const cliSearchPath = async () => {
+    loginShellPath ??= captureLoginShellEnvironment({
+      shell: userShell,
+      platform,
+      env: Object.fromEntries(
+        Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+      ),
+      cwd: homeDirectory,
+    })
+      .then((fresh) => fresh.PATH ?? '')
+      .catch(() => {
+        // Read again next time: start-up files can be slow once (PLAN-018 R2).
+        loginShellPath = null;
+        return '';
+      });
+    return [env.PATH ?? '', await loginShellPath].filter(Boolean).join(path.delimiter);
+  };
+  const usageCli = {
+    env,
+    home: homeDirectory,
+    searchPath: cliSearchPath,
+    excludeDirectory: projectConfig.binDir,
+  };
+  const usage = new UsageService({
+    repository: new SqliteUsageRepository(db),
+    settings,
+    codex: new CodexAppServerReader(usageCli),
+    claudeAuth: new ClaudeAuthStatusReader(usageCli),
+    home: homeDirectory,
+    env,
+    listHomeDirectories: async () => {
+      try {
+        return (await readdir(homeDirectory, { withFileTypes: true }))
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => entry.name);
+      } catch {
+        return [];
+      }
+    },
+    isDirectory: async (directory) =>
+      (await stat(directory).catch(() => null))?.isDirectory() ?? false,
+    clock,
+    generateId: randomUUID,
+    logger,
+    // Only the Engine host writes the file the wrappers read.
+    onProfilesChanged: (profiles) => {
+      if (!ownsExecution) return;
+      void projectConfig
+        .writeStatusLineOff(UsageService.statusLineDisabled(profiles))
+        .catch((error: unknown) =>
+          logger.warn('Status line settings could not be written', { error: describeError(error) }),
+        );
+    },
+  });
+  const usageInbox = new ClaudeStatusInbox({
+    directory: path.join(projectConfig.usageDir, 'claude'),
+    usage,
+    now: () => clock.now(),
+    logger,
+  });
+  let usageTimer: ReturnType<typeof setInterval> | undefined;
+  const collectUsage = () =>
+    void usage
+      .refreshDue()
+      .catch((error: unknown) =>
+        logger.warn('Usage collection failed', { error: describeError(error) }),
+      );
   const projectGitSettings = new ProjectGitSettingsStore(settings, logger);
   const quickCommands = new QuickCommandStore({ store: settings, generateId: randomUUID, logger });
 
@@ -807,6 +885,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
     gitOperations,
     gitOperationLog,
     skills,
+    usage,
     llmSessions,
     quickCommands,
     gitPreferences,
@@ -994,6 +1073,26 @@ export function createEngine(options: EngineOptions = {}): Engine {
             llmSessions.terminalClosed(event.session.id);
           }
         });
+        // Usage is informative: failures are logged and never stop the Engine.
+        try {
+          await projectConfig.writeStatusLineOff(
+            UsageService.statusLineDisabled(await usage.syncProfiles()),
+          );
+        } catch (error) {
+          logger.warn('Status line settings could not be written', {
+            error: describeError(error),
+          });
+        }
+        try {
+          await usageInbox.start();
+        } catch (error) {
+          logger.warn('Claude Code usage collection is unavailable', {
+            error: describeError(error),
+          });
+        }
+        collectUsage();
+        usageTimer = setInterval(collectUsage, USAGE_SCHEDULE_MS);
+        usageTimer.unref?.();
       }
     },
     removeProject: async (id) => {
@@ -1058,7 +1157,11 @@ export function createEngine(options: EngineOptions = {}): Engine {
         projects.resolveAvailableDirectory(directory),
       ),
     shutdown: async () => {
-      if (ownsExecution) await llmSessions.close();
+      if (ownsExecution) {
+        if (usageTimer !== undefined) clearInterval(usageTimer);
+        await usageInbox.close();
+        await llmSessions.close();
+      }
       // New Git operations are refused (a push that would follow a finishing commit
       // settles as cancelled), queued ones and running pre-commit steps are cancelled;
       // commits and pushes that cannot be interrupted get a bounded time to finish.

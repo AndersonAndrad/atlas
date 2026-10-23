@@ -374,7 +374,14 @@ test('LLMs typed in a project terminal are told to read the ATLAS project config
   const received = readFileSync(args, 'utf8').trimEnd().split('\n');
   expect(received[0]).toBe('--append-system-prompt');
   expect(received[1]).toContain(path.join(projectDir, id!, 'project-config.json'));
-  expect(received.slice(2)).toEqual(['--add-dir', path.join(projectDir, id!), 'hello']);
+  // The ATLAS status line (PLAN-027) comes before the user's own arguments.
+  expect(received.slice(2)).toEqual([
+    '--add-dir',
+    path.join(projectDir, id!),
+    '--settings',
+    expect.stringContaining('atlas-statusline'),
+    'hello',
+  ]);
 });
 
 test('records an LLM session typed in a terminal, with its checkpoint and Git changes (PLAN-021)', async ({

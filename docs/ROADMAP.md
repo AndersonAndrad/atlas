@@ -13,15 +13,19 @@
 | M6a       | SDD-006 A     | Context retrieval: ranking, budgets, freshness, deduplication, cache, health, preview          | Implemented — awaiting approval       |
 | M6b       | SDD-006 B     | Skills Hub: registry, discovery, compatibility, activation, versioning, UI                     | Implemented — awaiting approval       |
 | M6c       | SDD-006 C     | Execution packages, role-specific preparation, provider switching (after SDD-004 B, SDD-005 B) | Not started (blocked)                 |
-| M3c       | TBD           | Provider accounts (Claude, Codex) and usage tracking                                           | Not started                           |
+| M8a       | SDD-008 A     | Multi-account management: authentication, permissions, selection per session and agent         | Not started (minimal profiles in B)   |
+| M8b       | SDD-008 B     | Usage and limits: provider limit windows, daily and weekly history, account profiles           | Implemented — awaiting approval       |
+| M8c       | SDD-008 C     | Intelligence Router: policies, limit-aware routing, authorized fallback                        | Not started (after A and B)           |
 | M4        | TBD           | Agents and multi-agent orchestration                                                           | Not started                           |
 | M5        | TBD           | Skills Hub and Context Engine                                                                  | Not started                           |
 | M6        | PLAN-024      | Packaging and CI release pipeline (done); signing, notarization, auto-update (not started)     | Partially implemented                 |
 
 Notes:
 
-- Sidebar entries for Sessions, Agents, Skills, Accounts, Usage and Settings exist only as
-  disabled placeholders until their specifications are implemented.
+- Sidebar entries for Agents and Accounts exist only as disabled placeholders until their
+  specifications are implemented.
+- SDD-008 Milestone B was implemented before Milestone A at the developer's request
+  (PLAN-027): it brings only a minimal profile registry that Milestone A extends.
 - Per SDD-003 §11, Milestone B will not begin until Milestone A is validated and approved.
 - Per SDD-004 §15, Milestone B (provider execution) begins only after Milestone A is
   validated and approved, with its own plan. Candidate Git follow-ups: hunk staging, syntax

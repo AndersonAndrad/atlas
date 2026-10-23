@@ -44,6 +44,15 @@ import type {
   SkillTemplate,
   UpdateSkillSyncTargets,
 } from './skills.js';
+import type {
+  AddUsageProfileInput,
+  UpdateUsageProfileInput,
+  UpdateUsageSettingsInput,
+  UsageOverview,
+  UsageOverviewQuery,
+  UsageProfile,
+  UsageSettings,
+} from './usage.js';
 
 import type {
   AiProvider,
@@ -286,6 +295,12 @@ export const IPC_CHANNELS = {
   skillsSyncApply: 'atlas:skills:sync-apply',
   skillsSyncHistory: 'atlas:skills:sync-history',
   skillsSyncRollback: 'atlas:skills:sync-rollback',
+  usageOverview: 'atlas:usage:overview',
+  usageRefresh: 'atlas:usage:refresh',
+  usageAddProfile: 'atlas:usage:add-profile',
+  usageUpdateProfile: 'atlas:usage:update-profile',
+  usageRemoveProfile: 'atlas:usage:remove-profile',
+  usageSetSettings: 'atlas:usage:set-settings',
   aiStart: 'atlas:ai:start',
   quickCommandsList: 'atlas:quick-commands:list',
   quickCommandsCreate: 'atlas:quick-commands:create',
@@ -403,7 +418,8 @@ export interface AtlasApi {
   dialog: {
     /** `purpose` only changes the dialog title. */
     chooseDirectory(
-      purpose?: 'project' | 'terminal' | 'default-directory' | 'session' | 'skill',
+      purpose?:
+        'project' | 'terminal' | 'default-directory' | 'session' | 'skill' | 'usage-profile',
     ): Promise<IpcResult<DirectoryChoice>>;
   };
   terminals: {
@@ -632,6 +648,17 @@ export interface AtlasApi {
     syncApply(provider: AiProvider): Promise<IpcResult<SkillSyncResult>>;
     syncHistory(): Promise<IpcResult<SkillSyncBatch[]>>;
     syncRollback(batchId: string): Promise<IpcResult<{ restored: string[]; skipped: string[] }>>;
+  };
+  /** Account profiles, provider limits and daily usage (SDD-008 Milestone B). */
+  usage: {
+    overview(query?: UsageOverviewQuery): Promise<IpcResult<UsageOverview>>;
+    /** Collects now; one profile or all. Each profile is collected at most once a minute. */
+    refresh(profileId: string | null): Promise<IpcResult<null>>;
+    /** `directory` must come from the folder picker (`dialog.chooseDirectory('usage-profile')`). */
+    addProfile(input: AddUsageProfileInput): Promise<IpcResult<UsageProfile>>;
+    updateProfile(id: string, changes: UpdateUsageProfileInput): Promise<IpcResult<UsageProfile>>;
+    removeProfile(id: string): Promise<IpcResult<null>>;
+    setSettings(changes: UpdateUsageSettingsInput): Promise<IpcResult<UsageSettings>>;
   };
   /** Individual AI CLI sessions started or tracked by ATLAS. */
   /** Named shell commands run in a new project terminal (PLAN-023). */

@@ -24,6 +24,7 @@ export type AppView =
   | 'sessions'
   | 'skills'
   | 'quick-commands'
+  | 'usage'
   | 'settings';
 
 interface NavItem {
@@ -43,7 +44,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'skills', label: 'Skills', icon: Sparkles, view: 'skills' },
   { id: 'quick-commands', label: 'Quick commands', icon: Zap, view: 'quick-commands' },
   { id: 'accounts', label: 'Accounts', icon: KeyRound },
-  { id: 'usage', label: 'Usage', icon: ChartColumn },
+  { id: 'usage', label: 'Usage', icon: ChartColumn, view: 'usage' },
   { id: 'settings', label: 'Settings', icon: Settings, view: 'settings' },
 ];
 

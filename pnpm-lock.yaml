@@ -189,6 +189,9 @@ importers:
       '@atlas/terminal':
         specifier: workspace:*
         version: link:../../packages/terminal
+      '@atlas/usage':
+        specifier: workspace:*
+        version: link:../../packages/usage
       '@xterm/addon-serialize':
         specifier: 0.14.0
         version: 0.14.0
@@ -257,6 +260,9 @@ importers:
       '@atlas/terminal':
         specifier: workspace:*
         version: link:../terminal
+      '@atlas/usage':
+        specifier: workspace:*
+        version: link:../usage
 
   packages/projects:
     dependencies:
@@ -301,6 +307,18 @@ importers:
       '@atlas/shared':
         specifier: workspace:*
         version: link:../shared
+
+  packages/usage:
+    dependencies:
+      '@atlas/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@atlas/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
 
 packages:
 

@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-23 — PLAN-026 (terminal clipboard, selection and file drops).
+Last updated: 2026-10-23 — PLAN-027 (SDD-008 Milestone B: usage and limits).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -26,7 +26,21 @@ installers) is implemented; revision 2 pins pnpm 11.28.5 because 11.13.0 is a br
 release the CI cannot install. PLAN-025 (the app is presented as A.T.L.A.S with its own
 icon) is implemented and awaits approval. PLAN-026 (terminal copy/paste on Linux, context
 menu Copy/Paste/Select all, file drops, Linux primary selection, forced selection while a
-program captures the mouse) is implemented and awaits approval. Version 0.19.0 (schema v8).
+program captures the mouse) is implemented and awaits approval. PLAN-027 (SDD-008 Milestone
+B: account profiles, provider limit windows, daily and weekly usage) is implemented and
+awaits approval; SDD-008 Milestones A and C are not started. Version 0.20.0 (schema v9).
+
+## PLAN-027 — SDD-008 Milestone B: usage and limits
+
+- Usage view: per account profile, the current session (5h) and weekly windows side by
+  side with percentage, reset time, source and age; history with a daily chart and weekly
+  totals; filters; refresh and automatic refresh (default 10 min).
+- Profiles: `~/.claude`, `~/.claude-<name>`, `~/.codex`, `~/.codex-<name>`, the
+  environment's folders, and folders picked by the user (minimal registry; Milestone A
+  extends it).
+- Codex: `codex app-server` account reads (no model runs). Claude Code: the documented status
+  line input, saved by the ATLAS status line in sessions started in ATLAS terminals.
+- Details, capabilities and limitations: `docs/sdd/SDD-008-multi-account-and-routing.md`.
 
 ## PLAN-026 — Terminal clipboard, selection and file drops
 

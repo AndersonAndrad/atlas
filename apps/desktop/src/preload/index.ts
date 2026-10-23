@@ -227,6 +227,15 @@ const api: AtlasApi = {
     run: (input) => ipcRenderer.invoke(IPC_CHANNELS.quickCommandsRun, input),
     projectActions: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.projectsActions, projectId),
   },
+  usage: {
+    overview: (query) => ipcRenderer.invoke(IPC_CHANNELS.usageOverview, query ?? {}),
+    refresh: (profileId) => ipcRenderer.invoke(IPC_CHANNELS.usageRefresh, profileId),
+    addProfile: (input) => ipcRenderer.invoke(IPC_CHANNELS.usageAddProfile, input),
+    updateProfile: (id, changes) =>
+      ipcRenderer.invoke(IPC_CHANNELS.usageUpdateProfile, id, changes),
+    removeProfile: (id) => ipcRenderer.invoke(IPC_CHANNELS.usageRemoveProfile, id),
+    setSettings: (changes) => ipcRenderer.invoke(IPC_CHANNELS.usageSetSettings, changes),
+  },
   ai: {
     start: (input) => ipcRenderer.invoke(IPC_CHANNELS.aiStart, input),
     attach: (input) => ipcRenderer.invoke(IPC_CHANNELS.aiAttach, input),

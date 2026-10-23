@@ -1,6 +1,6 @@
 {
   "name": "@atlas/persistence",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -19,6 +19,7 @@
     "@atlas/sessions": "workspace:*",
     "@atlas/skills": "workspace:*",
     "@atlas/shared": "workspace:*",
-    "@atlas/terminal": "workspace:*"
+    "@atlas/terminal": "workspace:*",
+    "@atlas/usage": "workspace:*"
   }
 }

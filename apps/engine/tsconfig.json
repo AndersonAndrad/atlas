@@ -15,6 +15,7 @@
     { "path": "../../packages/terminal" },
     { "path": "../../packages/sessions" },
     { "path": "../../packages/context" },
-    { "path": "../../packages/skills" }
+    { "path": "../../packages/skills" },
+    { "path": "../../packages/usage" }
   ]
 }

@@ -46,7 +46,8 @@ export const test = base.extend<{ atlas: AtlasHarness }>({
     const tempRoot = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'atlas-e2e-')));
     const dataDir = path.join(tempRoot, 'data');
     const apps: ElectronApplication[] = [];
-    // Inherit the environment, but never a dev-server URL, and isolate all ATLAS data.
+    // Inherit the environment, but never a dev-server URL or the user's provider profile
+    // folders (CLAUDE_CONFIG_DIR, CODEX_HOME), and isolate all ATLAS data.
     // Shells run with an empty HOME and plain bash so no user dotfiles are loaded.
     const home = path.join(tempRoot, 'home');
     mkdirSync(home);
@@ -63,7 +64,8 @@ export const test = base.extend<{ atlas: AtlasHarness }>({
         ZDOTDIR: home,
       }).filter(
         (entry): entry is [string, string] =>
-          entry[1] !== undefined && entry[0] !== 'ELECTRON_RENDERER_URL',
+          entry[1] !== undefined &&
+          !['ELECTRON_RENDERER_URL', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'].includes(entry[0]),
       ),
     );
 

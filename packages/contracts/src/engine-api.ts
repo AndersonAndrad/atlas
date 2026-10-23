@@ -140,6 +140,16 @@ import {
   type SkillTemplate,
 } from './skills.js';
 import {
+  AddUsageProfileSchema,
+  UpdateUsageProfileSchema,
+  UpdateUsageSettingsSchema,
+  UsageOverviewQuerySchema,
+  UsageProfileIdSchema,
+  type UsageOverview,
+  type UsageProfile,
+  type UsageSettings,
+} from './usage.js';
+import {
   AtlasSessionIdSchema,
   ListSessionsInputSchema,
   SessionActionSchema,
@@ -351,6 +361,12 @@ export const ENGINE_METHOD_PARAMS = {
   'skills.syncApply': z.tuple([z.enum(AI_PROVIDERS)]),
   'skills.syncHistory': z.tuple([]),
   'skills.syncRollback': z.tuple([SkillIdSchema]),
+  'usage.overview': z.tuple([UsageOverviewQuerySchema]),
+  'usage.refresh': z.tuple([UsageProfileIdSchema.nullable()]),
+  'usage.addProfile': z.tuple([AddUsageProfileSchema, z.boolean()]),
+  'usage.updateProfile': z.tuple([UsageProfileIdSchema, UpdateUsageProfileSchema]),
+  'usage.removeProfile': z.tuple([UsageProfileIdSchema]),
+  'usage.setSettings': z.tuple([UpdateUsageSettingsSchema]),
 } as const;
 
 export type EngineMethod = keyof typeof ENGINE_METHOD_PARAMS;
@@ -529,6 +545,12 @@ export interface EngineMethodResults {
   'skills.syncApply': SkillSyncResult;
   'skills.syncHistory': SkillSyncBatch[];
   'skills.syncRollback': { restored: string[]; skipped: string[] };
+  'usage.overview': UsageOverview;
+  'usage.refresh': null;
+  'usage.addProfile': UsageProfile;
+  'usage.updateProfile': UsageProfile;
+  'usage.removeProfile': null;
+  'usage.setSettings': UsageSettings;
 }
 
 export type EngineMethodParams<M extends EngineMethod> = z.input<(typeof ENGINE_METHOD_PARAMS)[M]>;
@@ -578,6 +600,8 @@ export const CLI_ENGINE_METHODS: readonly EngineMethod[] = [
   'skills.syncApply',
   'skills.syncHistory',
   'skills.syncRollback',
+  // Usage: reading only; changes are made in the app.
+  'usage.overview',
   'engine.status',
   'terminals.list',
   'terminals.get',

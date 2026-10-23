@@ -468,6 +468,21 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     'skills.syncApply': ([provider]: [AiProvider]) => skills.syncApply(provider),
     'skills.syncHistory': () => skills.syncHistory(),
     'skills.syncRollback': ([batchId]: [string]) => skills.syncRollback(batchId),
+    // Usage (SDD-008 Milestone B). `explicit`: the folder was chosen in the native picker.
+    'usage.overview': ([query]: [unknown]) => engine.usage.overview(query),
+    'usage.refresh': async ([profileId]: [string | null]) => {
+      await engine.usage.refresh(profileId);
+      return null;
+    },
+    'usage.addProfile': ([input, explicit]: [unknown, boolean], scope) =>
+      engine.usage.addProfile(input, scope === 'cli' || explicit),
+    'usage.updateProfile': ([id, changes]: [string, unknown]) =>
+      engine.usage.updateProfile(id, changes),
+    'usage.removeProfile': async ([id]: [string]) => {
+      await engine.usage.removeProfile(id);
+      return null;
+    },
+    'usage.setSettings': ([changes]: [unknown]) => engine.usage.updateSettings(changes),
     'sessions.getSettings': () => engine.sessionSettings.get(),
     'sessions.setSettings': ([input]: [unknown]) => engine.sessionSettings.update(input),
   };

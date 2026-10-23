@@ -501,4 +501,66 @@ export const MIGRATIONS: readonly Migration[] = [
       ) STRICT;
     `,
   },
+  {
+    version: 9,
+    name: 'usage_profiles',
+    // Account profiles and usage observations (SDD-008 Milestone B). Additive. Profiles
+    // are provider configuration directories; no credential is stored here.
+    sql: `
+      CREATE TABLE usage_profiles (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        provider TEXT NOT NULL CHECK (provider IN ('claude', 'codex')),
+        display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 80),
+        directory TEXT NOT NULL CHECK (length(directory) > 0),
+        origin TEXT NOT NULL CHECK (origin IN ('detected', 'added')),
+        status TEXT NOT NULL
+          CHECK (status IN ('CONNECTED', 'DISCONNECTED', 'AUTH_REQUIRED', 'LIMITED', 'UNKNOWN')),
+        plan TEXT,
+        status_line_enabled INTEGER NOT NULL DEFAULT 1 CHECK (status_line_enabled IN (0, 1)),
+        hidden INTEGER NOT NULL DEFAULT 0 CHECK (hidden IN (0, 1)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_used_at TEXT,
+        last_sync_at TEXT,
+        last_error TEXT CHECK (last_error IS NULL OR json_valid(last_error)),
+        UNIQUE (provider, directory)
+      ) STRICT;
+
+      -- Cumulative snapshots of provider limit windows.
+      CREATE TABLE usage_window_snapshots (
+        profile_id TEXT NOT NULL REFERENCES usage_profiles (id) ON DELETE CASCADE,
+        window_key TEXT NOT NULL CHECK (length(window_key) BETWEEN 1 AND 200),
+        kind TEXT NOT NULL CHECK (kind IN ('session', 'weekly', 'other')),
+        label TEXT NOT NULL,
+        used_percent REAL NOT NULL CHECK (used_percent BETWEEN 0 AND 100),
+        window_minutes INTEGER,
+        resets_at TEXT,
+        observed_at TEXT NOT NULL,
+        source TEXT NOT NULL,
+        PRIMARY KEY (profile_id, window_key, observed_at)
+      ) STRICT;
+
+      -- Daily totals: provider reports replace a day, ATLAS increments add to it.
+      CREATE TABLE usage_daily (
+        profile_id TEXT NOT NULL REFERENCES usage_profiles (id) ON DELETE CASCADE,
+        date TEXT NOT NULL CHECK (length(date) = 10),
+        metric TEXT NOT NULL,
+        source TEXT NOT NULL,
+        unit TEXT NOT NULL,
+        is_estimated INTEGER NOT NULL CHECK (is_estimated IN (0, 1)),
+        value REAL NOT NULL CHECK (value >= 0),
+        PRIMARY KEY (profile_id, date, metric, source)
+      ) STRICT;
+
+      -- Last cumulative value per session, so repeated snapshots are counted once.
+      CREATE TABLE usage_session_progress (
+        profile_id TEXT NOT NULL REFERENCES usage_profiles (id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL,
+        metric TEXT NOT NULL,
+        value REAL NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (profile_id, session_id, metric)
+      ) STRICT;
+    `,
+  },
 ];
