@@ -98,8 +98,24 @@ add profile, rename, hide/show, remove, status line toggle.
   weekly windows and daily history. Claude limits need a real session in an ATLAS terminal
   (manual check pending: it uses quota).
 
+### Terminal header (PLAN-031, v0.23.0)
+
+While Claude Code runs in an ATLAS terminal, the pane header shows `<provider>-<name>: N%`
+for the session (5h) window of its profile (the name from the Usage view; the default
+profile shows only the provider), green below 70%, yellow from 70%, red from 90% (the
+rounded value shown decides the color), `—` when the window was reset or nothing was
+reported yet. The wrapper writes `terminal-id` (from `ATLAS_TERMINAL_ID`) into the run
+folder; the run is open while the process whose id ends the folder name lives (the wrapper,
+or Claude Code itself when the wrapper `exec`s it). A run seen ended never reopens, so a
+reused process id does not bring it back. The inbox publishes the `llm-usage` lifecycle
+event when the open run of a terminal changes or a status arrives; the renderer re-reads
+`terminals.llmUsage`. Codex is out of scope (no status line; developer decision Q1).
+
 ### Known limitations
 
+- The terminal header updates only when Claude Code refreshes its status line (activity);
+  an idle session can show a value a few minutes old (R1, acknowledged), and opening or
+  closing Claude Code is noticed within about 5 seconds.
 - Claude Code limits only from ATLAS sessions, Pro/Max plans, after the first answer.
 - Claude activity outside ATLAS is not counted; a session resumed in ATLAS after running
   elsewhere adds its earlier API time once.

@@ -46,6 +46,7 @@ import type {
 } from './skills.js';
 import type {
   AddUsageProfileInput,
+  TerminalLlmUsage,
   UpdateUsageProfileInput,
   UpdateUsageSettingsInput,
   UsageOverview,
@@ -202,6 +203,7 @@ export const IPC_CHANNELS = {
   moveTerminal: 'atlas:terminals:move',
   terminalProjectContext: 'atlas:terminals:project-context',
   terminalGit: 'atlas:terminals:git',
+  terminalLlmUsage: 'atlas:terminals:llm-usage',
   registerTerminalProject: 'atlas:terminals:register-project',
 
   listGroups: 'atlas:groups:list',
@@ -475,6 +477,8 @@ export interface AtlasApi {
     move(id: string, groupId: string | null, position: number): Promise<IpcResult<TerminalSession>>;
     projectContext(id: string): Promise<IpcResult<TerminalProjectContext>>;
     git(id: string): Promise<IpcResult<TerminalGitContext>>;
+    /** The LLM open in the terminal and its session window; null when none is open. */
+    llmUsage(id: string): Promise<IpcResult<TerminalLlmUsage | null>>;
     /** Registers the terminal's current directory (known by the Engine) as a project. */
     registerProject(
       id: string,

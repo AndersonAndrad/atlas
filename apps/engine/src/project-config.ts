@@ -102,7 +102,8 @@ exit 0
  * PLAN-027: Claude Code reports plan limits only to a status line, so ATLAS sessions use
  * the ATLAS one, unless the profile or the project already has a status line, or the user
  * turned it off for the profile in ATLAS, or the session was started with its own
- * `--settings`. The run folder tells ATLAS which profile it is.
+ * `--settings`. The run folder tells ATLAS which profile it is and, in an ATLAS terminal,
+ * which terminal; its name ends with the wrapper's process id (the run is open while it lives).
  */
 function claudeUsageBlock(binDir: string): string {
   const settings = JSON.stringify({
@@ -124,7 +125,12 @@ if [ -z "$atlas_own_settings" ] && [ -n "\${ATLAS_USAGE_DIR-}" ] && [ -d "$ATLAS
     ! grep -qs '"statusLine"' "$atlas_config_dir/settings.json" "$atlas_config_dir/settings.local.json" \\
       "$atlas_root/.claude/settings.json" "$atlas_root/.claude/settings.local.json"; then
     ATLAS_USAGE_RUN_DIR="$ATLAS_USAGE_DIR/claude/$(date +%Y%m%dT%H%M%S)-$$"
+    # PLAN-031: the terminal shows the session usage while this run is open. config-dir is
+    # written last: ATLAS reads the run once it exists, so terminal-id is complete by then.
     if mkdir -m 700 "$ATLAS_USAGE_RUN_DIR" 2>/dev/null &&
+      { [ -z "\${ATLAS_TERMINAL_ID-}" ] ||
+        printf '%s\\n' "$ATLAS_TERMINAL_ID" >"$ATLAS_USAGE_RUN_DIR/terminal-id" 2>/dev/null ||
+        true; } &&
       printf '%s\\n' "$atlas_config_dir" >"$ATLAS_USAGE_RUN_DIR/config-dir"; then
       export ATLAS_USAGE_RUN_DIR
       set -- --settings ${shellQuote(settings)} "$@"

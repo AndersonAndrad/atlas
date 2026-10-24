@@ -147,6 +147,7 @@ import {
   UsageProfileIdSchema,
   type UsageOverview,
   type UsageProfile,
+  type TerminalLlmUsage,
   type UsageSettings,
 } from './usage.js';
 import {
@@ -228,6 +229,7 @@ export const ENGINE_METHOD_PARAMS = {
   'terminals.move': z.tuple([TerminalId, GroupId.nullable(), Position]),
   'terminals.projectContext': z.tuple([TerminalId]),
   'terminals.git': z.tuple([TerminalId]),
+  'terminals.llmUsage': z.tuple([TerminalId]),
   'terminals.registerProject': z.tuple([TerminalId, Unknown]),
   'terminals.detachProject': z.tuple([Id]),
   'terminals.terminate': z.tuple([TerminalId]),
@@ -445,6 +447,7 @@ export interface EngineMethodResults {
   'terminals.move': TerminalSession;
   'terminals.projectContext': TerminalProjectContext;
   'terminals.git': TerminalGitContext;
+  'terminals.llmUsage': TerminalLlmUsage | null;
   'terminals.registerProject': { project: Project; session: TerminalSession };
   'terminals.detachProject': null;
   'terminals.terminate': TerminalSession;

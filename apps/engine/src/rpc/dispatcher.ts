@@ -151,6 +151,7 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
       terminals().move(id, groupId, position),
     'terminals.projectContext': ([id]: [string]) => engine.terminalProjectContext(id),
     'terminals.git': ([id]: [string]) => engine.terminalGit(id),
+    'terminals.llmUsage': ([id]: [string]) => engine.terminalLlmUsage(id),
     'terminals.registerProject': ([id, input]: [string, unknown]) =>
       engine.registerProjectFromTerminal(id, input),
     'terminals.detachProject': async ([projectId]: [string]) => {

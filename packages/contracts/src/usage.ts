@@ -147,6 +147,21 @@ export interface UsageOverview {
   profiles: UsageProfileReport[];
 }
 
+/**
+ * The LLM open in a terminal and its session window (PLAN-031): shown next to the Git
+ * state while the CLI runs. The percentage is the profile's latest provider report, so
+ * every terminal using the same account shows the same value.
+ */
+export interface TerminalLlmUsage {
+  providerId: AiProvider;
+  /** The profile's id, or null when the Usage view has not registered it yet. */
+  profileId: string | null;
+  /** The same name as in the Usage view. */
+  displayName: string;
+  /** The session (5h) window; null until the provider reports one. */
+  session: LimitWindow | null;
+}
+
 export const UsageProfileIdSchema = z.uuid();
 
 export const UsageOverviewQuerySchema = z.strictObject({

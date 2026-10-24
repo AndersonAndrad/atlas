@@ -420,8 +420,10 @@ Full description: `docs/sdd/SDD-008-multi-account-and-routing.md`.
                                     ├─ SqliteUsageRepository (migration v9)
                                     └─ aggregation: windows (current/stale/reset), daily, calendar weeks
  claude wrapper (ATLAS terminals) ─► --settings statusLine = <data>/bin/atlas-statusline
-   atlas-statusline ─► <data>/usage/claude/<run>/{config-dir,status.json}
+   atlas-statusline ─► <data>/usage/claude/<run>/{config-dir,terminal-id,status.json}
    ClaudeStatusInbox (5 s poll) ─► UsageService.recordClaudeStatus
+     └─ open run per terminal (process alive) ─► 'llm-usage' event ─► terminals.llmUsage
+        ─► pane header chip `claude-<name>: N%` (PLAN-031)
 ```
 
 The Engine host collects due profiles every minute (interval set by the user, default 10

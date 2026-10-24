@@ -47,9 +47,11 @@ import { ActionDot } from '@/components/git/ActionDot';
 import { GitBadges } from '@/components/git/GitBadges';
 import { pendingGitActions } from '@/components/git/git-format';
 import { useTerminalGit } from '../hooks/useGitStatus';
+import { useTerminalLlmUsage } from '../hooks/useTerminalLlmUsage';
 import { TerminalView } from '../state/terminal-view';
 import { endedSummary } from '../format';
 import { TerminalStatusDot } from './TerminalStatusDot';
+import { LlmUsageBadge } from './LlmUsageBadge';
 
 const isMac = navigator.userAgent.includes('Mac');
 const keys = (mac: string, other: string) => (isMac ? mac : other);
@@ -109,6 +111,7 @@ export function TerminalPane({
   const git = useTerminalGit(session.id, session.currentCwd, session.status === 'RUNNING');
   const snapshot = git.context?.git.state === 'repository' ? git.context.git.snapshot : null;
   const operations = useGitOperations(snapshot?.repositoryRoot ?? null);
+  const llmUsage = useTerminalLlmUsage(session.id, session.status === 'RUNNING');
   // Failures open the panel by themselves only in the Git view.
   const operationsSheet = useOperationsSheet(operations, false);
   const directoryTip =
@@ -212,6 +215,7 @@ export function TerminalPane({
           </span>
         )}
         {snapshot && <GitBadges snapshot={snapshot} />}
+        {llmUsage && <LlmUsageBadge usage={llmUsage} />}
         <span className="ml-auto flex items-center gap-0.5">
           {snapshot && (
             <DropdownMenu>

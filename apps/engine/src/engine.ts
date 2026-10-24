@@ -21,6 +21,7 @@ import {
   type Project,
   type ProjectConfigView,
   type TerminalGitContext,
+  type TerminalLlmUsage,
   type TerminalPreferences,
   type TerminalProjectContext,
   type TerminalSession,
@@ -245,6 +246,8 @@ export interface Engine {
   projectGit(projectId: string): Promise<GitStatus>;
   /** Git state following a terminal's current working directory. */
   terminalGit(terminalId: string): Promise<TerminalGitContext>;
+  /** The LLM open in the terminal and its session window (PLAN-031); null when none. */
+  terminalLlmUsage(terminalId: string): Promise<TerminalLlmUsage | null>;
   /** Associated and matching registered projects of a terminal. */
   terminalProjectContext(terminalId: string): Promise<TerminalProjectContext>;
   /** Registers the terminal's current directory as a project and associates it. */
@@ -648,6 +651,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
     usage,
     now: () => clock.now(),
     logger,
+    onChange: () => terminals?.publish({ type: 'llm-usage' }),
   });
   let usageTimer: ReturnType<typeof setInterval> | undefined;
   const collectUsage = () =>
@@ -1251,6 +1255,11 @@ export function createEngine(options: EngineOptions = {}): Engine {
         cwdSource: session.cwdSource,
         git: await inspectAndWatch(session.currentCwd),
       };
+    },
+    terminalLlmUsage: async (terminalId) => {
+      requireTerminals().getById(terminalId);
+      const run = usageInbox.openRun(terminalId);
+      return run === null ? null : usage.claudeSessionUsage(run.configDirectory);
     },
     terminalProjectContext: async (terminalId) => {
       const session = requireTerminals().getById(terminalId);

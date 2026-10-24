@@ -263,6 +263,50 @@ describe('UsageService with SQLite (SDD-008 Milestone B)', () => {
     expect(report.profile.lastSyncAt).toBe(now.toISOString());
   });
 
+  it('describes the session window of the profile open in a terminal (PLAN-031)', async () => {
+    const directory = path.join(home, '.claude-my');
+    expect(await usage.claudeSessionUsage(directory)).toEqual({
+      providerId: 'claude',
+      profileId: null,
+      displayName: 'my',
+      session: null,
+    });
+    // Reading does not register the profile: only the Usage view and sessions do.
+    expect(await usage.claudeSessionUsage(directory)).toMatchObject({ profileId: null });
+
+    const resetsAt = Math.floor(now.getTime() / 1000) + 3600;
+    await usage.recordClaudeStatus({
+      configDirectory: `${directory}/`,
+      observedAt: now,
+      status: parseClaudeStatus(
+        {
+          session_id: 's1',
+          rate_limits: {
+            five_hour: { used_percentage: 74, resets_at: resetsAt },
+            seven_day: { used_percentage: 15 },
+          },
+        },
+        now.toISOString(),
+      ),
+    });
+    const my = await profile('claude', '-my');
+    await usage.updateProfile(my.id, { displayName: 'personal' });
+    expect(await usage.claudeSessionUsage(directory)).toEqual({
+      providerId: 'claude',
+      profileId: my.id,
+      displayName: 'personal',
+      session: expect.objectContaining({
+        key: 'five_hour',
+        kind: 'session',
+        usedPercent: 74,
+        state: 'current',
+      }),
+    });
+
+    now = new Date(now.getTime() + 2 * 3600_000);
+    expect((await usage.claudeSessionUsage(directory)).session).toMatchObject({ state: 'reset' });
+  });
+
   it('only accepts picked folders, hides detected profiles and removes added ones', async () => {
     const folder = path.join(temp.dir, 'team-claude');
     mkdirSync(folder);
@@ -365,6 +409,90 @@ describe('Claude Code status inbox', () => {
   });
 });
 
+describe('Claude Code runs open in terminals (PLAN-031)', () => {
+  let temp: ReturnType<typeof createTempDir>;
+  let alive: Set<number>;
+  let changes: number;
+  let inbox: ClaudeStatusInbox;
+  const terminal = 'aaaaaaaa-0000-4000-8000-000000000001';
+  const other = 'aaaaaaaa-0000-4000-8000-000000000002';
+
+  beforeEach(() => {
+    temp = createTempDir();
+    alive = new Set();
+    changes = 0;
+    inbox = new ClaudeStatusInbox({
+      directory: temp.dir,
+      usage: { recordClaudeStatus: async () => {} },
+      isProcessAlive: (pid) => alive.has(pid),
+      onChange: () => (changes += 1),
+      logger: { debug() {}, info() {}, warn() {}, error() {} },
+    });
+  });
+  afterEach(() => temp.cleanup());
+
+  const run = (name: string, configDir: string, terminalId?: string) => {
+    const folder = path.join(temp.dir, name);
+    mkdirSync(folder);
+    writeFileSync(path.join(folder, 'config-dir'), `${configDir}\n`);
+    if (terminalId !== undefined)
+      writeFileSync(path.join(folder, 'terminal-id'), `${terminalId}\n`);
+    return folder;
+  };
+
+  it('follows the latest run whose wrapper is alive in each terminal', async () => {
+    run('20261023T120000-11', '/home/ana/.claude-my', terminal);
+    run('20261023T120100-12', '/home/ana/.claude-work', terminal.toUpperCase());
+    run('20261023T120000-13', '/home/ana/.claude', other);
+    run('20261023T120000-14', '/home/ana/.claude'); // a wrapper from before PLAN-031
+    run('20261023T120000-15', '/home/ana/.claude', '../not-an-id');
+    alive = new Set([11, 12, 13, 14, 15]);
+
+    await inbox.scan();
+    expect(inbox.openRun(terminal)).toEqual({ configDirectory: '/home/ana/.claude-work' });
+    expect(inbox.openRun(other)).toEqual({ configDirectory: '/home/ana/.claude' });
+    expect(changes).toBe(1);
+    await inbox.scan();
+    expect(changes).toBe(1); // nothing moved, nothing reported
+
+    // The newer session ended: the older one, still running, is shown again.
+    alive.delete(12);
+    await inbox.scan();
+    expect(inbox.openRun(terminal)).toEqual({ configDirectory: '/home/ana/.claude-my' });
+    expect(changes).toBe(2);
+
+    // A process id reused after the end does not reopen the run.
+    alive.add(12);
+    alive.delete(11);
+    alive.delete(13);
+    await inbox.scan();
+    expect(inbox.openRun(terminal)).toBeNull();
+    expect(inbox.openRun(other)).toBeNull();
+    expect(changes).toBe(3);
+  });
+
+  it('reports new usage while a run is open and ignores runs without a profile yet', async () => {
+    const folder = run('20261023T120000-21', '/home/ana/.claude-my', terminal);
+    mkdirSync(path.join(temp.dir, '20261023T120000-22')); // config-dir not written yet
+    alive = new Set([21, 22]);
+    await inbox.scan();
+    expect(changes).toBe(1);
+
+    writeFileSync(path.join(folder, 'status.json'), JSON.stringify({ session_id: 's' }));
+    await inbox.scan();
+    expect(changes).toBe(2);
+
+    writeFileSync(
+      path.join(temp.dir, '20261023T120000-22', 'config-dir'),
+      'relative/folder\n', // never trusted
+    );
+    writeFileSync(path.join(temp.dir, '20261023T120000-22', 'terminal-id'), other);
+    await inbox.scan();
+    expect(inbox.openRun(other)).toBeNull();
+    expect(changes).toBe(2);
+  });
+});
+
 describe.skipIf(!posix)('Claude wrapper with the ATLAS status line (PLAN-027)', () => {
   let temp: ReturnType<typeof createTempDir>;
   let store: ProjectConfigStore;
@@ -438,6 +566,20 @@ done
     expect(readFileSync(path.join(store.usageDir, STATUS_LINE_OFF_FILE), 'utf8')).toBe('/c\n');
     await store.writeStatusLineOff(['/b', 'bad\nline']);
     expect(readFileSync(path.join(store.usageDir, STATUS_LINE_OFF_FILE), 'utf8')).toBe('/b\n');
+  });
+
+  it('names the ATLAS terminal of the run, and only in ATLAS terminals (PLAN-031)', () => {
+    const terminalId = 'aaaaaaaa-0000-4000-8000-000000000001';
+    runClaude(['-p', 'x'], { ATLAS_TERMINAL_ID: terminalId });
+    const [run] = runs();
+    const folder = path.join(store.usageDir, 'claude', run!);
+    expect(readFileSync(path.join(folder, 'terminal-id'), 'utf8')).toBe(`${terminalId}\n`);
+    // The folder name ends with the wrapper's process id: the run is open while it lives.
+    expect(run).toMatch(/^\d{8}T\d{6}-\d+$/);
+
+    runClaude(['-p', 'y']);
+    const second = runs().find((name) => name !== run)!;
+    expect(existsSync(path.join(store.usageDir, 'claude', second, 'terminal-id'))).toBe(false);
   });
 
   it('uses the default folder when CLAUDE_CONFIG_DIR is unset', () => {

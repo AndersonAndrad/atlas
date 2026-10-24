@@ -143,3 +143,44 @@ test('explains where profiles come from when there are none', async ({ atlas }) 
   await openUsage(page);
   await expect(page.getByTestId('usage-empty')).toContainText('~/.claude-work');
 });
+
+test('shows the session usage of the Claude Code account open in a terminal', async ({ atlas }) => {
+  mkdirSync(path.join(atlas.root, 'home', '.claude-my'), { recursive: true });
+  // A stand-in for Claude Code: answers the ATLAS status line once, then stays open.
+  writeFileSync(
+    path.join(atlas.binDir, 'claude'),
+    [
+      '#!/bin/sh',
+      'resets=$(( $(date +%s) + 3600 ))',
+      `printf '{"session_id":"e2e","rate_limits":{"five_hour":{"used_percentage":74,"resets_at":%s}}}' "$resets" | "$ATLAS_BIN/atlas-statusline"`,
+      'echo FAKE CLAUDE OPEN',
+      'sleep 120',
+    ].join('\n'),
+  );
+  chmodSync(path.join(atlas.binDir, 'claude'), 0o755);
+  const { page } = await atlas.launch();
+
+  await page
+    .getByRole('navigation', { name: 'Main navigation' })
+    .getByRole('button', { name: 'Terminals' })
+    .click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).first().click();
+  const pane = page.getByTestId('terminal-pane').first();
+  await expect
+    .poll(() => pane.locator('.xterm-rows').innerText(), { timeout: 15_000 })
+    .toMatch(/\$\s*$/m);
+  await expect(pane.getByTestId('llm-usage')).toHaveCount(0);
+  await pane.locator('.xterm-screen').click();
+  await page.keyboard.type('CLAUDE_CONFIG_DIR="$HOME/.claude-my" claude');
+  await page.keyboard.press('Enter');
+
+  const badge = pane.getByTestId('llm-usage');
+  await expect(badge).toHaveText('claude-my: 74%', { timeout: 20_000 });
+  // 70% to 89%: yellow; the tooltip names the window and when it resets.
+  await expect(badge).toHaveAttribute('data-tone', 'high');
+  await expect(badge).toHaveAttribute('aria-label', /74% of the current session \(5h\) used/);
+
+  // Once Claude Code exits, the terminal no longer shows it.
+  await page.keyboard.press('Control+C');
+  await expect(badge).toHaveCount(0, { timeout: 20_000 });
+});

@@ -1,5 +1,6 @@
 import type {
   LimitWindow,
+  TerminalLlmUsage,
   UsageMetric,
   UsageProfile,
   UsageProfileReport,
@@ -120,4 +121,29 @@ export function dateRange(days: number, today: Date): string[] {
     dates.push(`${day.getFullYear()}-${month}-${date}`);
   }
   return dates;
+}
+
+/**
+ * Short name of a profile, as the user's CLI aliases name it: `claude` for the default
+ * profile, `claude-<name>` otherwise (the name is the one in the Usage view).
+ */
+export function profileLabel(providerId: UsageProfile['providerId'], displayName: string): string {
+  return displayName === 'default' ? providerId : `${providerId}-${displayName}`;
+}
+
+/** Tooltip text: profile, session usage, reset time and how fresh the value is. */
+export function llmUsageDescription(usage: TerminalLlmUsage, now: Date): string {
+  const profile = `${PROVIDER_LABELS[usage.providerId]} · ${usage.displayName}`;
+  const { session } = usage;
+  if (session === null) return `${profile}: no session usage reported yet.`;
+  if (session.state === 'reset') {
+    return `${profile}: the session window was reset ${relativeTime(session.resetsAt!, now)}; waiting for a new reading.`;
+  }
+  return [
+    `${profile}: ${Math.round(session.usedPercent)}% of the ${session.label.toLowerCase()} used`,
+    session.resetsAt === null ? null : `resets ${formatReset(session.resetsAt)}`,
+    `observed ${relativeTime(session.observedAt, now)}${session.state === 'stale' ? ', may be outdated' : ''}`,
+  ]
+    .filter((part) => part !== null)
+    .join(' · ');
 }

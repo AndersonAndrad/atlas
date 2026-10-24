@@ -626,3 +626,17 @@ superseded decisions are marked, not deleted.
   acknowledged) but now warns first; on macOS closing the window keeps the Engine running.
   Dismissing deletes. Native notifications, deduplication windows, priorities, preferences
   and Quiet Mode are left to Milestones B and C.
+
+## ADR-061 — The terminal header shows the open LLM's session usage from the inbox (PLAN-031)
+
+- **Decision**: The Claude wrapper names the ATLAS terminal in the usage run folder
+  (`terminal-id`). The Claude status inbox keeps, per terminal, the latest run whose process
+  (the folder name's suffix) is alive, and publishes an `llm-usage` lifecycle event when that
+  changes or a status arrives. `terminals.llmUsage` returns the profile's name from the Usage
+  view and its latest session window, so all terminals on one account show the same value.
+- **Alternatives**: only the run's own `status.json` (rejected: stale when another terminal
+  uses the same account); keep showing the last account after the CLI exits (rejected: the
+  developer asked for the open LLM only); an `ended` marker written by the wrapper (not
+  needed: process liveness also covers killed terminals, and the wrapper keeps `exec`).
+- **Consequences**: No schema change. Values change only when Claude Code refreshes its
+  status line. Codex needs its own run tracking and is left to a later plan.

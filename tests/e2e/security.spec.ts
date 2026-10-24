@@ -115,6 +115,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'getPreferences',
       'git',
       'list',
+      'llmUsage',
       'move',
       'onEvent',
       'projectContext',

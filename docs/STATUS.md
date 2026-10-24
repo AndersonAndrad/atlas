@@ -1,7 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-23 — PLAN-030 (SDD-009 Milestone A: notification center, background
-commits).
+Last updated: 2026-10-23 — PLAN-031 (session usage of the open LLM in the terminal header).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -33,7 +32,20 @@ awaits approval; SDD-008 Milestones A and C are not started. PLAN-028 (SDD-007 M
 Preflight local validation) is implemented and awaits approval; SDD-007 Milestones B and C
 are not started. PLAN-030 (SDD-009 Milestone A: notification center with Git and Preflight
 events; commits run in the background) is implemented and awaits approval; SDD-009
-Milestones B and C are not started. Version 0.22.0 (schema v11).
+Milestones B and C are not started. PLAN-031 (the terminal header shows the Claude Code
+account open in it with its session usage) is implemented and awaits approval. Version
+0.23.0 (schema v11).
+
+## PLAN-031 — Session usage of the open LLM in the terminal header
+
+- While Claude Code runs in an ATLAS terminal, the pane header shows its account and the
+  session (5h) window next to the Git chips, e.g. `claude-my: 26%`: green below 70%, yellow
+  from 70%, red from 90%. The name is the profile's name in the Usage view (`claude` for the
+  default profile); the tooltip shows the reset time and how old the value is.
+- The value is the account's latest provider report, so terminals using the same account
+  agree. It updates when Claude Code refreshes its status line (activity), not while idle.
+- Codex is not shown yet (no status line; planned separately).
+- Details: `docs/sdd/SDD-008-multi-account-and-routing.md` (PLAN-031), ADR-061.
 
 ## PLAN-030 — SDD-009 Milestone A: notifications and background commits
 

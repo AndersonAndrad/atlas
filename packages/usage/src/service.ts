@@ -7,6 +7,7 @@ import {
   UsageOverviewQuerySchema,
   parseInput,
   type AiProvider,
+  type TerminalLlmUsage,
   type UsageDayValue,
   type UsageMetric,
   type UsageOverview,
@@ -217,6 +218,34 @@ export class UsageService {
       });
     }
     return { generatedAt: now.toISOString(), settings, profiles: reports };
+  }
+
+  /**
+   * Name and session window of the Claude Code profile at `configDirectory`, for the
+   * terminal where it is open (PLAN-031). Read only: an unknown profile is not created.
+   */
+  async claudeSessionUsage(configDirectory: string): Promise<TerminalLlmUsage> {
+    const directory = path.resolve(configDirectory);
+    const profile = await this.options.repository.findProfileByDirectory('claude', directory);
+    if (profile === null) {
+      return {
+        providerId: 'claude',
+        profileId: null,
+        displayName: profileName('claude', directory),
+        session: null,
+      };
+    }
+    const windows = presentWindows(
+      await this.options.repository.latestWindows(profile.id),
+      this.options.clock.now(),
+      CLAUDE_STALE_AFTER_MS,
+    );
+    return {
+      providerId: 'claude',
+      profileId: profile.id,
+      displayName: profile.displayName,
+      session: windows.find((window) => window.kind === 'session') ?? null,
+    };
   }
 
   // Collection -----------------------------------------------------------------

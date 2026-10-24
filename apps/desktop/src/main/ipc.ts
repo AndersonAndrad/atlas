@@ -274,6 +274,9 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
   handle(IPC_CHANNELS.terminalGit, TerminalArgs, ([id]) =>
     engine.call('terminals.git', id as string),
   );
+  handle(IPC_CHANNELS.terminalLlmUsage, TerminalArgs, ([id]) =>
+    engine.call('terminals.llmUsage', id as string),
+  );
   handle(
     IPC_CHANNELS.registerTerminalProject,
     z.tuple([TerminalIdSchema, z.unknown()]),
