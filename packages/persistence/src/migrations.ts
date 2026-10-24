@@ -613,4 +613,30 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX preflight_runs_workspace ON preflight_runs (workspace_id, started_at);
     `,
   },
+  {
+    version: 11,
+    name: 'notifications',
+    // Notification center history (SDD-009 Milestone A). Additive. Only short summaries
+    // are stored: never command output.
+    sql: `
+      CREATE TABLE notifications (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        type TEXT NOT NULL
+          CHECK (type IN ('INFO', 'SUCCESS', 'WARNING', 'ERROR', 'ACTION_REQUIRED')),
+        category TEXT NOT NULL CHECK (length(category) BETWEEN 1 AND 40),
+        title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 120),
+        message TEXT NOT NULL CHECK (length(message) <= 500),
+        project_id TEXT,
+        source_name TEXT,
+        session_id TEXT,
+        task_id TEXT,
+        -- A validated internal destination (JSON), or NULL.
+        action TEXT CHECK (action IS NULL OR json_valid(action)),
+        read_at TEXT,
+        created_at TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX notifications_created ON notifications (created_at);
+      CREATE INDEX notifications_unread ON notifications (read_at, created_at);
+    `,
+  },
 ];

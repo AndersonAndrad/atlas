@@ -19,6 +19,9 @@
 | M8a       | SDD-008 A     | Multi-account management: authentication, permissions, selection per session and agent         | Not started (minimal profiles in B)   |
 | M8b       | SDD-008 B     | Usage and limits: provider limit windows, daily and weekly history, account profiles           | Implemented — awaiting approval       |
 | M8c       | SDD-008 C     | Intelligence Router: policies, limit-aware routing, authorized fallback                        | Not started (after A and B)           |
+| M9a       | SDD-009 A     | Notification center: bell, history, toasts, Git and Preflight events, background commits       | Implemented — awaiting approval       |
+| M9b       | SDD-009 B     | Native notifications, background task events, agent events, deduplication, priorities          | Not started (after A is validated)    |
+| M9c       | SDD-009 C     | Notification preferences, per-project overrides, Quiet Mode, configurable retention            | Not started (after B)                 |
 | M4        | TBD           | Agents and multi-agent orchestration                                                           | Not started                           |
 | M5        | TBD           | Skills Hub and Context Engine                                                                  | Not started                           |
 | M6        | PLAN-024      | Packaging and CI release pipeline (done); signing, notarization, auto-update (not started)     | Partially implemented                 |
@@ -27,6 +30,8 @@ Notes:
 
 - Sidebar entries for Agents and Accounts exist only as disabled placeholders until their
   specifications are implemented.
+- SDD-009 Milestone A includes the Git and Preflight event sources (FR-915, nominally
+  Milestone B) at the developer's request (PLAN-030 Q2), so the center reports real work.
 - SDD-008 Milestone B was implemented before Milestone A at the developer's request
   (PLAN-027): it brings only a minimal profile registry that Milestone A extends.
 - Per SDD-003 §11, Milestone B will not begin until Milestone A is validated and approved.

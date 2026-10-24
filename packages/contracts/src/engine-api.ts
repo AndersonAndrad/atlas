@@ -167,6 +167,12 @@ import {
   type PreflightWorkspaceDetails,
 } from './preflight.js';
 import {
+  NotificationIdSchema,
+  NotificationListQuerySchema,
+  type BackgroundWork,
+  type NotificationList,
+} from './notification.js';
+import {
   AtlasSessionIdSchema,
   ListSessionsInputSchema,
   SessionActionSchema,
@@ -399,6 +405,12 @@ export const ENGINE_METHOD_PARAMS = {
   'preflight.run': z.tuple([PreflightRunIdSchema]),
   'preflight.output': z.tuple([PreflightOutputQuerySchema]),
   'preflight.report': z.tuple([PreflightRunIdSchema]),
+  'notifications.list': z.tuple([NotificationListQuerySchema]),
+  'notifications.markRead': z.tuple([NotificationIdSchema]),
+  'notifications.markAllRead': z.tuple([]),
+  'notifications.remove': z.tuple([NotificationIdSchema]),
+  'notifications.clear': z.tuple([]),
+  'engine.backgroundWork': z.tuple([]),
 } as const;
 
 export type EngineMethod = keyof typeof ENGINE_METHOD_PARAMS;
@@ -598,6 +610,12 @@ export interface EngineMethodResults {
   'preflight.run': PreflightRun;
   'preflight.output': PreflightOutputPage;
   'preflight.report': string;
+  'notifications.list': NotificationList;
+  'notifications.markRead': null;
+  'notifications.markAllRead': null;
+  'notifications.remove': null;
+  'notifications.clear': null;
+  'engine.backgroundWork': BackgroundWork;
 }
 
 export type EngineMethodParams<M extends EngineMethod> = z.input<(typeof ENGINE_METHOD_PARAMS)[M]>;

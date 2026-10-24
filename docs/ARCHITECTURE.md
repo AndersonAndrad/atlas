@@ -453,6 +453,26 @@ Full description: `docs/sdd/SDD-007-preflight-and-quality-gates.md`.
 Workspaces are registered projects or folders picked in the native dialog; requests use
 ids. Results are local and say where they ran; they never claim a GitHub-hosted CI result.
 
+### Notifications (SDD-009 Milestone A)
+
+Full description: `docs/sdd/SDD-009-notifications.md`.
+
+```text
+ Git operation finished ─┐   Preflight run finished ─┐
+                         ▼                           ▼
+       gitOperationNotification / preflightRunNotification (packages/notifications)
+                         ▼
+       NotificationService ─► SqliteNotificationRepository (migration v11, retention)
+                         └─► lifecycle event { type: 'notifications' } ─► renderer
+                               (bell + panel in the application bar, toasts)
+```
+
+Only the Engine host publishes. Publishing never throws, so a notification can never fail
+the operation it reports. Destinations are validated internal targets (a Git operation or
+a Preflight run), never commands or URLs. Commits run in the background: the commit dialog
+hands the running commit to the Git operations panel. Quitting asks first while Git
+operations or Preflight runs are in progress (`engine.backgroundWork`).
+
 ### Project context of a terminal
 
 `Engine.terminalProjectContext` reports the associated project and the deepest registered
@@ -586,7 +606,7 @@ terminals running as standalone terminals (SDD-003 §2).
   reconciliation runs (additive). Schema v7: Git operation and command log (additive).
   Schema v8: Skills Hub (additive). Schema v9: usage profiles, limit window snapshots,
   daily usage, session progress (additive). Schema v10: Preflight workspaces,
-  authorizations and runs (additive).
+  authorizations and runs (additive). Schema v11: notifications (additive).
 - Data dir: macOS `~/Library/Application Support/ATLAS`, Windows `%APPDATA%\ATLAS`, Linux
   `$XDG_DATA_HOME/atlas`; `ATLAS_DATA_DIR` overrides.
 

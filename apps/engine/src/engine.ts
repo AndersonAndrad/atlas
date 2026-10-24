@@ -9,8 +9,10 @@ import {
   parseInput,
   type AiSession,
   type AttachTerminalInput,
+  type BackgroundWork,
   type ContextTarget,
   type GitCommitContext,
+  type GitOperation,
   type StartAiSessionInput,
   type StartedAiSession,
   type GitRepositoryEntry,
@@ -35,6 +37,7 @@ import {
   SqliteSkillRepository,
   SqliteUsageRepository,
   SqlitePreflightRepository,
+  SqliteNotificationRepository,
   SqliteTerminalGroupRepository,
   SqliteTerminalSessionRepository,
   getSchemaVersion,
@@ -93,6 +96,11 @@ import {
 import { NodeSkillFileSystem, SkillsHub } from '@atlas/skills';
 import { UsageService } from '@atlas/usage';
 import { PreflightService } from '@atlas/preflight';
+import {
+  NotificationService,
+  gitOperationNotification,
+  preflightRunNotification,
+} from '@atlas/notifications';
 import { createGitExecutor, createGitRunner } from './git/git-runner.js';
 import { captureLoginShellEnvironment } from './adapters/login-shell-environment.js';
 import { LlmSessionTracker } from './llm-session-tracker.js';
@@ -162,6 +170,10 @@ export interface Engine {
   readonly usage: UsageService;
   /** Local validation of projects and folders (SDD-007 Milestone A). */
   readonly preflight: PreflightService;
+  /** Notification center (SDD-009 Milestone A). */
+  readonly notifications: NotificationService;
+  /** Work that stops when the Engine stops; the desktop asks before quitting. */
+  backgroundWork(): BackgroundWork;
   /** Automatic recording of LLM sessions in ATLAS terminals (PLAN-021). */
   readonly llmSessions: LlmSessionTracker;
   /** The user's quick commands and each project's choice of them (PLAN-023). */
@@ -436,12 +448,50 @@ export function createEngine(options: EngineOptions = {}): Engine {
     now: () => clock.now(),
     logger,
   });
+  const notifications = new NotificationService({
+    repository: new SqliteNotificationRepository(db),
+    clock,
+    generateId: randomUUID,
+    logger,
+    onChange: (created) => terminals?.publish({ type: 'notifications', created }),
+  });
+  /** Project of a known repository, from the last discovery (no Git command runs). */
+  const repositorySource = async (repositoryRoot: string) => {
+    const projectId = knownRepositories.get(repositoryRoot)?.projectIds[0] ?? null;
+    const project = projectId === null ? null : await projects.findById(projectId);
+    return {
+      projectId: project?.id ?? null,
+      sourceName: project?.name ?? path.basename(repositoryRoot),
+    };
+  };
+  /** Finished operations already reported, so a repeated change never notifies twice. */
+  const notifiedOperations = new Set<string>();
+  const notifyGitOperation = async (operation: GitOperation) => {
+    if (notifiedOperations.has(operation.id)) return;
+    notifiedOperations.add(operation.id);
+    if (notifiedOperations.size > 500) {
+      notifiedOperations.delete(notifiedOperations.values().next().value!);
+    }
+    const input = gitOperationNotification(
+      operation,
+      await repositorySource(operation.repositoryRoot),
+    );
+    if (input !== null) await notifications.publish(input);
+  };
   const gitOperations = new GitOperationCoordinator({
     generateId: randomUUID,
     now: () => clock.now(),
     logger,
     journal: gitOperationLog,
-    onChange: (operation) => terminals?.publish({ type: 'git-operation', operation }),
+    onChange: (operation) => {
+      terminals?.publish({ type: 'git-operation', operation });
+      // Only clients that own processes report background work; the CLI's are its own.
+      if (ownsExecution && operation.finishedAt !== null) {
+        void notifyGitOperation(operation).catch((error: unknown) =>
+          logger.warn('Git notification failed', { error: describeError(error) }),
+        );
+      }
+    },
   });
   const userShell = env.SHELL ?? (platform === 'darwin' ? '/bin/zsh' : '/bin/sh');
   // Commits start from what a new terminal starts from (`terminalEnvironment` above) and
@@ -642,6 +692,13 @@ export function createEngine(options: EngineOptions = {}): Engine {
     clock,
     generateId: randomUUID,
     logger,
+    onRunFinished: (run, workspace) => {
+      const input = preflightRunNotification(run, {
+        projectId: run.projectId,
+        sourceName: workspace.name,
+      });
+      if (input !== null) void notifications.publish(input);
+    },
   });
   const projectGitSettings = new ProjectGitSettingsStore(settings, logger);
   const quickCommands = new QuickCommandStore({ store: settings, generateId: randomUUID, logger });
@@ -932,6 +989,14 @@ export function createEngine(options: EngineOptions = {}): Engine {
     skills,
     usage,
     preflight,
+    notifications,
+    backgroundWork: () => ({
+      gitOperations: gitOperations
+        .list()
+        .filter((operation) => operation.status === 'queued' || operation.status === 'running')
+        .length,
+      preflightRuns: preflight.activeRunCount(),
+    }),
     llmSessions,
     quickCommands,
     gitPreferences,

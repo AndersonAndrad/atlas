@@ -445,6 +445,27 @@ describe.skipIf(!posix)('Engine Preflight', { timeout: 30_000 }, () => {
     expect(
       (await engine.preflight.output({ runId: run.id, position: 1, after: -1 })).lines,
     ).toContainEqual(expect.objectContaining({ stream: 'err', text: 'broken' }));
+    // The finished run is reported in the notification center, leading back to it.
+    let notified = await engine.notifications.list();
+    for (let attempt = 0; attempt < 100 && notified.items.length === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      notified = await engine.notifications.list();
+    }
+    expect(notified).toMatchObject({
+      unread: 1,
+      items: [
+        {
+          type: 'ERROR',
+          category: 'PREFLIGHT',
+          title: 'Preflight failed',
+          message: 'All: 1 of 2 checks passed, 1 failed.',
+          projectId: project.id,
+          sourceName: 'W',
+          action: { type: 'preflight-run', workspaceId: preflight.id, runId: run.id },
+        },
+      ],
+    });
+    expect(engine.backgroundWork()).toEqual({ gitOperations: 0, preflightRuns: 0 });
 
     await engine.shutdown();
     engine = open(path.join(temp.dir, 'data'));
@@ -461,6 +482,8 @@ describe.skipIf(!posix)('Engine Preflight', { timeout: 30_000 }, () => {
     expect(
       (await engine.preflight.plan(selection)).checks.every((item) => item.authorization === null),
     ).toBe(true);
+    // Notifications survive the restart.
+    expect((await engine.notifications.list()).items.map((item) => item.taskId)).toEqual([run.id]);
   });
 
   it('cancels a running check and marks runs interrupted by an Engine stop', async () => {
@@ -480,10 +503,15 @@ describe.skipIf(!posix)('Engine Preflight', { timeout: 30_000 }, () => {
       if ((await engine.preflight.run(run.id)).results[0]!.status === 'RUNNING') break;
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
+    // Quitting would stop it: the desktop asks first.
+    expect(engine.backgroundWork().preflightRuns).toBe(1);
     await engine.preflight.cancel(run.id);
     const cancelled = await finished(run.id);
     expect(cancelled.status).toBe('CANCELLED');
     expect(cancelled.results.map((result) => result.status)).toEqual(['CANCELLED', 'CANCELLED']);
+    // A run the user cancelled is not reported.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect((await engine.notifications.list()).items).toEqual([]);
 
     // A run left RUNNING by a crashed Engine is closed on the next start.
     const second = await engine.preflight.start({ ...selection, authorizations });

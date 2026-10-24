@@ -9,6 +9,7 @@ const projects = [
   'packages/skills',
   'packages/usage',
   'packages/preflight',
+  'packages/notifications',
   'apps/engine',
   'apps/cli',
 ];

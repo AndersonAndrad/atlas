@@ -46,6 +46,39 @@ async function openOperations(page: Page) {
   return sheet;
 }
 
+/**
+ * Commits run in the background (PLAN-030): the dialog closes and the operations panel
+ * opens on the commit. Waits for its outcome, then closes the panel unless asked not to.
+ */
+async function backgroundCommit(
+  page: Page,
+  {
+    status = 'succeeded',
+    push,
+    keepOpen = false,
+  }: {
+    status?: 'succeeded' | 'failed';
+    push?: 'succeeded' | 'failed';
+    keepOpen?: boolean;
+  } = {},
+) {
+  await expect(page.getByTestId('commit-dialog')).toBeHidden({ timeout: 15_000 });
+  const sheet = page.getByTestId('git-operations-sheet');
+  await expect(sheet).toBeVisible();
+  const operation = sheet.locator('[data-testid="git-operation"][data-kind="commit"]').first();
+  await expect(operation).toHaveAttribute('data-status', status, { timeout: 20_000 });
+  if (push) {
+    await expect(
+      sheet.locator('[data-testid="git-operation"][data-kind="push"]').first(),
+    ).toHaveAttribute('data-status', push, { timeout: 20_000 });
+  }
+  if (!keepOpen) {
+    await page.keyboard.press('Escape');
+    await expect(sheet).toBeHidden();
+  }
+  return { sheet, operation };
+}
+
 /** Opens the Git view's Actions menu (PLAN-020). */
 async function openActions(page: Page) {
   // A menu still closing (after Escape) would be matched instead of the new one.
@@ -115,7 +148,7 @@ test('inspects, stages and commits with Conventional Commits, then pushes', asyn
   await expect(dialog.getByTestId('commit-validation-badge')).toHaveText('Conventional');
 
   await dialog.getByRole('button', { name: 'Commit & Push' }).click();
-  await expect(dialog).toBeHidden({ timeout: 15_000 });
+  await backgroundCommit(page, { push: 'succeeded' });
   expect(git('log', '-1', '--format=%B').trim()).toBe(
     'docs(readme): describe the change\n\nRefs: #12',
   );
@@ -266,7 +299,7 @@ test('commit checks never inherit the NODE_ENV of ATLAS development builds', asy
   const dialog = page.getByTestId('commit-dialog');
   await dialog.getByLabel('Commit message').fill('docs(readme): fresh environment');
   await dialog.getByRole('button', { name: 'Commit', exact: true }).click();
-  await expect(dialog).toBeHidden({ timeout: 20_000 });
+  await backgroundCommit(page);
   expect(git('log', '-1', '--format=%s').trim()).toBe('docs(readme): fresh environment');
   expect(readFileSync(out, 'utf8')).toBe('unset');
 });
@@ -294,14 +327,22 @@ test('includes unstaged files only when chosen and reports hook failures', async
   await expect(dialog.getByTestId('commit-validation-badge')).toHaveText('Conventional');
   await dialog.getByRole('button', { name: 'Commit', exact: true }).click();
 
-  const failure = dialog.getByTestId('commit-failure');
-  await expect(failure).toContainText('remains staged', { timeout: 15_000 });
+  // The commit ran in the background; its failure shows in the operations panel.
+  const { sheet, operation: failure } = await backgroundCommit(page, {
+    status: 'failed',
+    keepOpen: true,
+  });
+  await expect(failure).toContainText('remains staged');
   await failure.getByText('Git output').click();
   await expect(failure.getByTestId('git-operation-output')).toContainText(
     'lint failed in README.md',
   );
   expect(git('log', '-1', '--format=%s').trim()).toBe('feat: auth');
   expect(git('diff', '--cached', '--name-only').trim()).toBe('README.md');
+  // "Edit commit" reopens the dialog with the same message to try again.
+  await sheet.getByRole('button', { name: 'Edit commit' }).click();
+  await expect(dialog.getByLabel('Commit message')).toHaveValue('docs: update README.md');
+  await page.keyboard.press('Escape');
 });
 
 test('fetches, pulls fast-forward only and manages branches', async ({ atlas }) => {
@@ -474,7 +515,8 @@ test('persists commit checks and blocks a commit until they pass', async ({ atla
   await dialog.getByLabel('Commit message').fill('Updated readme');
   await expect(dialog.getByTestId('commit-checks')).toContainText('Tests');
   await dialog.getByRole('button', { name: 'Commit', exact: true }).click();
-  await expect(dialog.getByTestId('commit-failure')).toContainText('Nothing was committed.');
+  const { operation: failed } = await backgroundCommit(page, { status: 'failed', keepOpen: true });
+  await expect(failed).toContainText('Nothing was committed.');
   expect(git('rev-parse', 'HEAD')).toBe(head);
   expect(git('diff', '--cached', '--name-only').trim()).toBe('');
   await page.keyboard.press('Escape');
@@ -490,7 +532,7 @@ test('persists commit checks and blocks a commit until they pass', async ({ atla
   await dialog.getByLabel('Include README.md', { exact: true }).click();
   await dialog.getByLabel('Commit message').fill('Updated readme');
   await dialog.getByRole('button', { name: 'Commit', exact: true }).click();
-  await expect(dialog).toBeHidden();
+  await backgroundCommit(page);
   expect(git('log', '-1', '--format=%s').trim()).toBe('Updated readme');
 });
 
@@ -674,22 +716,11 @@ test('keeps the commit and shows the push failure when pushing fails', async ({ 
   await dialog.getByLabel('Commit message').fill('docs: update readme');
   await dialog.getByRole('button', { name: 'Commit & Push' }).click();
 
-  const result = dialog.getByTestId('commit-result');
-  await expect(result.locator('[data-testid="git-operation"][data-kind="commit"]')).toHaveAttribute(
-    'data-status',
-    'succeeded',
-    { timeout: 15_000 },
-  );
-  await expect(result.locator('[data-testid="git-operation"][data-kind="push"]')).toHaveAttribute(
-    'data-status',
-    'failed',
-    { timeout: 15_000 },
-  );
+  // Both outcomes show in the operations panel; the commit is kept.
+  const { sheet } = await backgroundCommit(page, { push: 'failed', keepOpen: true });
   expect(git('log', '-1', '--format=%s').trim()).toBe('docs: update readme');
-  // Committing again is not offered; closing keeps the commit.
-  await expect(dialog.getByRole('button', { name: 'Commit', exact: true })).toHaveCount(0);
-  await dialog.getByRole('button', { name: 'Close', exact: true }).first().click();
-  await expect(dialog).toBeHidden();
+  // The commit succeeded: editing it again is not offered.
+  await expect(sheet.getByRole('button', { name: 'Edit commit' })).toHaveCount(0);
 });
 
 test('commits listed staged files while other changes are not all listed', async ({ atlas }) => {
@@ -715,7 +746,7 @@ test('commits listed staged files while other changes are not all listed', async
   await expect(dialog.getByTestId('commit-file-count')).toHaveText('1 file');
   await dialog.getByLabel('Commit message').fill('docs: update readme');
   await dialog.getByRole('button', { name: 'Commit', exact: true }).click();
-  await expect(dialog).toBeHidden({ timeout: 15_000 });
+  await backgroundCommit(page);
   expect(git('log', '-1', '--format=%s').trim()).toBe('docs: update readme');
   expect(git('diff', '--cached', '--name-only').trim()).toBe('');
 });
@@ -758,7 +789,7 @@ test('refuses commits while the stored commit checks are invalid', async ({ atla
   await dialog.getByLabel('Commit message').fill('docs: update readme');
   await expect(dialog.getByTestId('commit-settings-invalid')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Commit', exact: true }).click();
-  await expect(dialog).toBeHidden({ timeout: 15_000 });
+  await backgroundCommit(page);
   expect(git('log', '-1', '--format=%s').trim()).toBe('docs: update readme');
 });
 
@@ -801,7 +832,7 @@ test('refuses commits while the stored Git preferences are invalid', async ({ at
   await dialog.getByLabel('Commit message').fill('docs: update readme');
   await expect(dialog.getByTestId('commit-preferences-invalid')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Commit', exact: true }).click();
-  await expect(dialog).toBeHidden({ timeout: 15_000 });
+  await backgroundCommit(page);
   expect(git('log', '-1', '--format=%s').trim()).toBe('docs: update readme');
 });
 
@@ -880,7 +911,7 @@ test('shows commits to push and pull on the buttons and merges with a manual com
   await expect(commit.getByLabel('Commit message')).toHaveValue("Merge branch 'feature'");
   await expect(commit.getByTestId('commit-validation-badge')).toHaveText('Merge commit');
   await commit.getByRole('button', { name: 'Commit', exact: true }).click();
-  await expect(commit).toBeHidden({ timeout: 15_000 });
+  await backgroundCommit(page);
   expect(git('log', '-1', '--format=%P').trim().split(' ')).toHaveLength(2);
   expect(git('log', '-1', '--format=%s').trim()).toBe("Merge branch 'feature'");
   await expect(page.getByTestId('git-merge-banner')).toHaveCount(0);

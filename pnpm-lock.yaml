@@ -192,6 +192,9 @@ importers:
       '@atlas/preflight':
         specifier: workspace:*
         version: link:../../packages/preflight
+      '@atlas/notifications':
+        specifier: workspace:*
+        version: link:../../packages/notifications
       '@atlas/usage':
         specifier: workspace:*
         version: link:../../packages/usage
@@ -237,6 +240,15 @@ importers:
         specifier: workspace:*
         version: link:../shared
 
+  packages/notifications:
+    dependencies:
+      '@atlas/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@atlas/shared':
+        specifier: workspace:*
+        version: link:../shared
+
   packages/persistence:
     dependencies:
       '@atlas/context':
@@ -266,6 +278,9 @@ importers:
       '@atlas/preflight':
         specifier: workspace:*
         version: link:../preflight
+      '@atlas/notifications':
+        specifier: workspace:*
+        version: link:../notifications
       '@atlas/usage':
         specifier: workspace:*
         version: link:../usage

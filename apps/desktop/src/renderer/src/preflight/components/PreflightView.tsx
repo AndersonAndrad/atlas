@@ -76,6 +76,9 @@ import { RunPanel } from './RunPanel';
 export interface PreflightOpenRequest {
   projectId?: string;
   terminalId?: string;
+  /** A run to show, e.g. from a notification. */
+  workspaceId?: string;
+  runId?: string;
   nonce: number;
 }
 
@@ -121,6 +124,8 @@ export function PreflightView({
     api().preflight.workspaces(),
   );
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  /** The run a request asked for; shown instead of the newest one. */
+  const [requestedRun, setRequestedRun] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -128,6 +133,7 @@ export function PreflightView({
     const workspace = await unwrap(api().preflight.openProject(projectId));
     setWorkspacesTick((value) => value + 1);
     setWorkspaceId(workspace.id);
+    setRequestedRun(null);
   }, []);
 
   useEffect(() => {
@@ -136,6 +142,12 @@ export function PreflightView({
     void (async () => {
       setError(null);
       setNotice(null);
+      if (request.workspaceId !== undefined) {
+        setWorkspacesTick((value) => value + 1);
+        setWorkspaceId(request.workspaceId);
+        setRequestedRun(request.runId ?? null);
+        return;
+      }
       try {
         let projectId = request.projectId ?? null;
         if (projectId === null && request.terminalId !== undefined) {
@@ -163,7 +175,10 @@ export function PreflightView({
     setError(null);
     try {
       if (value.startsWith(PROJECT_PREFIX)) await openProject(value.slice(PROJECT_PREFIX.length));
-      else setWorkspaceId(value);
+      else {
+        setWorkspaceId(value);
+        setRequestedRun(null);
+      }
     } catch (caught) {
       setError(errorMessage(caught));
     }
@@ -178,6 +193,7 @@ export function PreflightView({
       const workspace = await unwrap(api().preflight.addFolder(folder));
       setWorkspacesTick((value) => value + 1);
       setWorkspaceId(workspace.id);
+      setRequestedRun(null);
     } catch (caught) {
       setError(errorMessage(caught));
     }
@@ -224,10 +240,12 @@ export function PreflightView({
           </div>
         ) : (
           <WorkspacePanel
-            key={current.id}
+            key={`${current.id}:${requestedRun ?? ''}`}
             workspace={current}
+            runId={requestedRun}
             onRemoved={() => {
               setWorkspaceId(null);
+              setRequestedRun(null);
               setWorkspacesTick((value) => value + 1);
             }}
           />
@@ -284,9 +302,12 @@ function EnvironmentStatus() {
 
 function WorkspacePanel({
   workspace,
+  runId,
   onRemoved,
 }: {
   workspace: PreflightWorkspace;
+  /** Run to show first; the newest one otherwise. */
+  runId: string | null;
   onRemoved: () => void;
 }) {
   const [tick, setTick] = useState(0);
@@ -320,19 +341,19 @@ function WorkspacePanel({
     return () => clearInterval(timer);
   }, [run?.id, run?.status]);
 
-  // The workspace's newest run is shown when the panel opens.
+  // The requested run, else the workspace's newest one, is shown when the panel opens.
   useEffect(() => {
     void (async () => {
       try {
-        const [latest] = await unwrap(
-          api().preflight.runs({ workspaceId: workspace.id, limit: 1 }),
-        );
-        if (latest) setRun(await unwrap(api().preflight.run(latest.id)));
+        const shown =
+          runId ??
+          (await unwrap(api().preflight.runs({ workspaceId: workspace.id, limit: 1 })))[0]?.id;
+        if (shown !== undefined) setRun(await unwrap(api().preflight.run(shown)));
       } catch {
         // History is optional here.
       }
     })();
-  }, [workspace.id]);
+  }, [workspace.id, runId]);
 
   async function save(next: PreflightConfig): Promise<string[]> {
     try {

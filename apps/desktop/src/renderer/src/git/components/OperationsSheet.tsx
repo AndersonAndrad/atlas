@@ -15,7 +15,10 @@ import { isActive } from '../format';
 import { OperationHistory, ReflogList } from './OperationHistory';
 import { OperationsPanel } from './OperationsPanel';
 
-/** Failures that open the panel by themselves; commit failures are shown in their dialog. */
+/**
+ * Failures that open the panel by themselves. Commits open it when they start; their
+ * failure is notified, so it never pops up over another view (e.g. a terminal).
+ */
 const AUTO_OPEN: ReadonlySet<GitOperationKind> = new Set(['fetch', 'pull', 'push']);
 
 /**
@@ -117,6 +120,8 @@ interface OperationsSheetProps {
   operations: GitOperation[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  editableCommit?: string | null;
+  onEditCommit?: () => void;
 }
 
 /**
@@ -129,6 +134,8 @@ export function OperationsSheet({
   operations,
   open,
   onOpenChange,
+  editableCommit,
+  onEditCommit,
 }: OperationsSheetProps) {
   // History and reflog reload when an operation finishes while the panel is open.
   const refreshKey = operations.find((operation) => !isActive(operation))?.id ?? '';
@@ -149,7 +156,11 @@ export function OperationsSheet({
             <TabsTrigger value="reflog">Reflog</TabsTrigger>
           </TabsList>
           <TabsContent value="recent">
-            <OperationsPanel operations={operations} />
+            <OperationsPanel
+              operations={operations}
+              editableCommit={editableCommit ?? null}
+              {...(onEditCommit ? { onEditCommit } : {})}
+            />
           </TabsContent>
           <TabsContent value="history">
             {open && <OperationHistory repositoryRoot={repositoryRoot} refreshKey={refreshKey} />}

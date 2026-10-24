@@ -1,6 +1,7 @@
 # ATLAS Status
 
-Last updated: 2026-10-23 — PLAN-028 (SDD-007 Milestone A: Preflight local validation).
+Last updated: 2026-10-23 — PLAN-030 (SDD-009 Milestone A: notification center, background
+commits).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -30,7 +31,23 @@ program captures the mouse) is implemented and awaits approval. PLAN-027 (SDD-00
 B: account profiles, provider limit windows, daily and weekly usage) is implemented and
 awaits approval; SDD-008 Milestones A and C are not started. PLAN-028 (SDD-007 Milestone A:
 Preflight local validation) is implemented and awaits approval; SDD-007 Milestones B and C
-are not started. Version 0.21.0 (schema v10).
+are not started. PLAN-030 (SDD-009 Milestone A: notification center with Git and Preflight
+events; commits run in the background) is implemented and awaits approval; SDD-009
+Milestones B and C are not started. Version 0.22.0 (schema v11).
+
+## PLAN-030 — SDD-009 Milestone A: notifications and background commits
+
+- Bell with the unread count at the top right of every view; panel with history, All/Unread,
+  mark read, mark all read, delete and clear all; toasts at the bottom right.
+- Finished commits, pushes, pulls and cherry-picks, failed merges and fetches, and finished
+  Preflight runs are notified once, stored in SQLite (schema v11, retention 1,000 / 30 days
+  after read) and survive restarts. Clicking opens the Git operation or the Preflight run.
+- The commit dialog closes once the commit started; the operations panel shows its steps
+  and a failed commit offers "Edit commit" with the same message.
+- Quitting asks first while Git operations or Preflight runs are in progress.
+- PLAN-029: the redaction timing test measures the fastest of three runs, so a busy machine
+  no longer fails it.
+- Details and limitations: `docs/sdd/SDD-009-notifications.md`, ADR-060.
 
 ## PLAN-028 — SDD-007 Milestone A: Preflight
 

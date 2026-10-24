@@ -481,7 +481,18 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     [IPC_CHANNELS.preflightOutput, 'preflight.output'],
     [IPC_CHANNELS.preflightReport, 'preflight.report'],
   ];
-  for (const [channel, method] of [...usageChannels, ...preflightChannels]) {
+  const notificationChannels: [string, EngineMethod][] = [
+    [IPC_CHANNELS.notificationsList, 'notifications.list'],
+    [IPC_CHANNELS.notificationsMarkRead, 'notifications.markRead'],
+    [IPC_CHANNELS.notificationsMarkAllRead, 'notifications.markAllRead'],
+    [IPC_CHANNELS.notificationsRemove, 'notifications.remove'],
+    [IPC_CHANNELS.notificationsClear, 'notifications.clear'],
+  ];
+  for (const [channel, method] of [
+    ...usageChannels,
+    ...preflightChannels,
+    ...notificationChannels,
+  ]) {
     handle(channel, ENGINE_METHOD_PARAMS[method] as unknown as z.ZodType<unknown[]>, (args) =>
       (engine.call as (name: string, ...params: unknown[]) => Promise<unknown>)(method, ...args),
     );

@@ -1,4 +1,4 @@
-import type { GitOperation, GitRemote } from '@atlas/contracts';
+import type { GitCommitResult, GitOperation, GitRemote } from '@atlas/contracts';
 import {
   ArrowDown,
   ArrowUp,
@@ -71,6 +71,9 @@ import { CherryPickDialog } from './CherryPickDialog';
 export interface GitOpenRequest {
   projectId?: string;
   terminalId?: string;
+  repositoryRoot?: string;
+  /** Also open the operations panel (e.g. from a notification). */
+  operations?: boolean;
   nonce: number;
 }
 
@@ -159,11 +162,15 @@ export function GitView({ request, onRequestHandled, onOpenPreflight }: GitViewP
       : repositories?.find(
           (entry) =>
             (pending.projectId !== undefined && entry.projectIds.includes(pending.projectId)) ||
-            (pending.terminalId !== undefined && entry.terminalIds.includes(pending.terminalId)),
+            (pending.terminalId !== undefined && entry.terminalIds.includes(pending.terminalId)) ||
+            (pending.repositoryRoot !== undefined &&
+              entry.repositoryRoot === pending.repositoryRoot),
         );
+  const [showOperations, setShowOperations] = useState(false);
   if (requested !== undefined) {
     setPending(null);
     setChosenRoot(requested.repositoryRoot);
+    if (pending?.operations === true) setShowOperations(true);
   }
 
   const known = (root: string | null | undefined) =>
@@ -181,6 +188,33 @@ export function GitView({ request, onRequestHandled, onOpenPreflight }: GitViewP
   const [dialog, setDialog] = useState<GitDialog>(null);
   // Results shown in a dialog (e.g. Commit & Push) do not also open the panel on top of it.
   const operationsSheet = useOperationsSheet(operations, dialog === null);
+  if (showOperations) {
+    setShowOperations(false);
+    operationsSheet.setOpen(true);
+  }
+  /**
+   * Message of the last commit sent to the background, offered again by "Edit commit"
+   * when it failed; cleared once it succeeded.
+   */
+  const [commitDraft, setCommitDraft] = useState<{ root: string; message: string } | null>(null);
+  const commitInBackground = (root: string, request: Promise<GitCommitResult>, message: string) => {
+    setDialog(null);
+    setCommitDraft({ root, message });
+    operationsSheet.setOpen(true);
+    // Its outcome shows in the operations panel and as a notification.
+    request
+      .then(
+        (outcome) => {
+          if (outcome.commit.status === 'succeeded') {
+            setCommitDraft((current) => (current?.message === message ? null : current));
+          }
+        },
+        () => undefined,
+      )
+      .finally(() => void refresh());
+  };
+  const latestCommit = operations.find((operation) => operation.kind === 'commit');
+  const editableCommit = latestCommit?.status === 'failed' ? latestCommit.id : null;
   const selection = selected?.root === repositoryRoot ? selected.selection : null;
   const remotes = loadedRemotes?.root === repositoryRoot ? loadedRemotes.remotes : null;
   // A selection whose file no longer has changes in that area is dropped.
@@ -698,6 +732,14 @@ export function GitView({ request, onRequestHandled, onOpenPreflight }: GitViewP
         <CommitDialog
           tree={tree}
           preferences={preferences}
+          initialMessage={
+            commitDraft?.root === tree.repositoryRoot && editableCommit !== null
+              ? commitDraft.message
+              : undefined
+          }
+          onStarted={(request, message) =>
+            commitInBackground(tree.repositoryRoot, request, message)
+          }
           onClose={() => setDialog(null)}
           onDone={() => {
             setDialog(null);
@@ -718,6 +760,11 @@ export function GitView({ request, onRequestHandled, onOpenPreflight }: GitViewP
           operations={operations}
           open={operationsSheet.open}
           onOpenChange={operationsSheet.setOpen}
+          editableCommit={editableCommit}
+          onEditCommit={() => {
+            operationsSheet.setOpen(false);
+            setDialog('commit');
+          }}
         />
       )}
       {tree && dialog === 'merge' && (

@@ -253,6 +253,13 @@ const api: AtlasApi = {
     output: (query) => ipcRenderer.invoke(IPC_CHANNELS.preflightOutput, query),
     report: (runId) => ipcRenderer.invoke(IPC_CHANNELS.preflightReport, runId),
   },
+  notifications: {
+    list: (query) => ipcRenderer.invoke(IPC_CHANNELS.notificationsList, query),
+    markRead: (id) => ipcRenderer.invoke(IPC_CHANNELS.notificationsMarkRead, id),
+    markAllRead: () => ipcRenderer.invoke(IPC_CHANNELS.notificationsMarkAllRead),
+    remove: (id) => ipcRenderer.invoke(IPC_CHANNELS.notificationsRemove, id),
+    clear: () => ipcRenderer.invoke(IPC_CHANNELS.notificationsClear),
+  },
   ai: {
     start: (input) => ipcRenderer.invoke(IPC_CHANNELS.aiStart, input),
     attach: (input) => ipcRenderer.invoke(IPC_CHANNELS.aiAttach, input),

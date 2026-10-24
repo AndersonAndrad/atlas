@@ -162,10 +162,17 @@ export function OperationResult({ operation }: { operation: GitOperation }) {
 
 interface OperationsPanelProps {
   operations: GitOperation[];
+  /** Id of a failed commit that can be edited and tried again. */
+  editableCommit?: string | null;
+  onEditCommit?: () => void;
 }
 
 /** Recent Git operations of the repository, newest first. */
-export function OperationsPanel({ operations }: OperationsPanelProps) {
+export function OperationsPanel({
+  operations,
+  editableCommit,
+  onEditCommit,
+}: OperationsPanelProps) {
   if (operations.length === 0) {
     return <p className="text-muted-foreground px-1 text-xs">No Git operations yet.</p>;
   }
@@ -188,6 +195,11 @@ export function OperationsPanel({ operations }: OperationsPanelProps) {
               }
             >
               Cancel
+            </Button>
+          )}
+          {operation.id === editableCommit && onEditCommit && (
+            <Button variant="outline" size="xs" onClick={onEditCommit}>
+              Edit commit
             </Button>
           )}
         </li>

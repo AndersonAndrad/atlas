@@ -17,6 +17,7 @@
     { "path": "../../packages/context" },
     { "path": "../../packages/skills" },
     { "path": "../../packages/usage" },
-    { "path": "../../packages/preflight" }
+    { "path": "../../packages/preflight" },
+    { "path": "../../packages/notifications" }
   ]
 }

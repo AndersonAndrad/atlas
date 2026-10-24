@@ -30,6 +30,7 @@ export const ERROR_CODES = [
   'PREFLIGHT_UNAUTHORIZED',
   'PREFLIGHT_AUTHORIZATION_REQUIRED',
   'PREFLIGHT_BUSY',
+  'NOTIFICATION_NOT_FOUND',
   'ENGINE_UNAVAILABLE',
   'VALIDATION_FAILED',
   'INTERNAL_ERROR',
@@ -81,6 +82,7 @@ export const USER_MESSAGES: Record<ErrorCode, string> = {
   PREFLIGHT_AUTHORIZATION_REQUIRED:
     'Some checks need your authorization before they run. Review them and try again.',
   PREFLIGHT_BUSY: 'A Preflight run is already in progress for this workspace.',
+  NOTIFICATION_NOT_FOUND: 'The notification could not be found. It may have been deleted.',
   ENGINE_UNAVAILABLE:
     'The ATLAS Engine is not running. Start (or restart) A.T.L.A.S and try again.',
   VALIDATION_FAILED: 'Some fields are invalid. Review them and try again.',

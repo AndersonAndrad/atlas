@@ -21,6 +21,7 @@ import {
 import { EngineHostClient } from './engine-client';
 import { registerIpcHandlers } from './ipc';
 import { buildMenuTemplate } from './menu';
+import { quitWarning } from './quit-warning';
 // Copied next to the bundle by electron-vite; the window and the Dock show it (PLAN-025).
 import appIcon from '../../build/icon.png?asset';
 
@@ -271,18 +272,20 @@ async function appInfo(): Promise<AppInfo> {
 
 /** Asks before quitting when terminals are running. Resolves to true to quit. */
 async function confirmQuit(): Promise<boolean> {
-  const info = await engine
-    ?.call('terminals.closeAllInfo')
-    .catch(() => ({ runningSessions: 0, busySessions: 0 }));
-  if (info === undefined || info.runningSessions === 0) return true;
-  const count = info.runningSessions;
+  if (engine === undefined) return true;
+  // An Engine that does not answer has nothing to confirm; quitting must stay possible.
+  const [info, work] = await Promise.all([
+    engine.call('terminals.closeAllInfo').catch(() => ({ runningSessions: 0, busySessions: 0 })),
+    engine.call('engine.backgroundWork').catch(() => ({ gitOperations: 0, preflightRuns: 0 })),
+  ]);
+  const warning = quitWarning(info.runningSessions, work, APP_DISPLAY_NAME);
+  if (warning === null) return true;
   const options = {
     type: 'warning' as const,
     buttons: ['Quit', 'Cancel'],
     defaultId: 1,
     cancelId: 1,
-    message: `${count} terminal${count === 1 ? ' is' : 's are'} still running.`,
-    detail: `Quitting ${APP_DISPLAY_NAME} terminates every terminal process, including development servers.`,
+    ...warning,
   };
   const { response } = mainWindow
     ? await dialog.showMessageBox(mainWindow, options)
@@ -291,7 +294,8 @@ async function confirmQuit(): Promise<boolean> {
 }
 
 /**
- * Quitting terminates every terminal process (they do not outlive the Engine).
+ * Quitting terminates every terminal process, Git operation and Preflight run (they do
+ * not outlive the Engine).
  * After confirmation the Engine stops gracefully before the app exits.
  */
 async function quitGracefully(): Promise<void> {

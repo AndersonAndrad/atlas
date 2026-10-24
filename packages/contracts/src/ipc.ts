@@ -68,6 +68,7 @@ import type {
   PreflightWorkspace,
   PreflightWorkspaceDetails,
 } from './preflight.js';
+import type { NotificationList, NotificationListQuery } from './notification.js';
 
 import type {
   AiProvider,
@@ -332,6 +333,11 @@ export const IPC_CHANNELS = {
   preflightRun: 'atlas:preflight:run',
   preflightOutput: 'atlas:preflight:output',
   preflightReport: 'atlas:preflight:report',
+  notificationsList: 'atlas:notifications:list',
+  notificationsMarkRead: 'atlas:notifications:mark-read',
+  notificationsMarkAllRead: 'atlas:notifications:mark-all-read',
+  notificationsRemove: 'atlas:notifications:remove',
+  notificationsClear: 'atlas:notifications:clear',
   aiStart: 'atlas:ai:start',
   quickCommandsList: 'atlas:quick-commands:list',
   quickCommandsCreate: 'atlas:quick-commands:create',
@@ -721,6 +727,16 @@ export interface AtlasApi {
     output(query: PreflightOutputQuery): Promise<IpcResult<PreflightOutputPage>>;
     /** A Markdown report of the run. */
     report(runId: string): Promise<IpcResult<string>>;
+  };
+  /** Notification center (SDD-009 Milestone A); changes arrive as `notifications` events. */
+  notifications: {
+    list(query: NotificationListQuery): Promise<IpcResult<NotificationList>>;
+    markRead(id: string): Promise<IpcResult<null>>;
+    markAllRead(): Promise<IpcResult<null>>;
+    /** Deletes the notification. */
+    remove(id: string): Promise<IpcResult<null>>;
+    /** Deletes every notification. */
+    clear(): Promise<IpcResult<null>>;
   };
   /** Individual AI CLI sessions started or tracked by ATLAS. */
   /** Named shell commands run in a new project terminal (PLAN-023). */

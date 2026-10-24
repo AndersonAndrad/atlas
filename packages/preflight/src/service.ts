@@ -74,6 +74,8 @@ export interface PreflightServiceOptions {
   clock: { now(): Date };
   generateId: () => string;
   logger: Logger;
+  /** Called once a run finished and was saved; must not throw. */
+  onRunFinished?: (run: PreflightRun, workspace: PreflightWorkspace) => void;
 }
 
 /** What one check of a run will execute, resolved from the configuration and the files. */
@@ -413,6 +415,11 @@ export class PreflightService {
   }
 
   /** Runs left running by an Engine that stopped are reported as cancelled. */
+  /** Runs in progress; they stop when the Engine stops. */
+  activeRunCount(): number {
+    return this.active.size;
+  }
+
   async recover(): Promise<void> {
     const interrupted = await this.options.repository.interruptRunning(this.now());
     if (interrupted.length > 0) {
@@ -786,6 +793,11 @@ export class PreflightService {
       this.active.delete(run.id);
       this.activeByWorkspace.delete(workspace.id);
       await this.prune(workspace.id);
+      try {
+        this.options.onRunFinished?.(structuredClone(run), workspace);
+      } catch (error) {
+        this.options.logger.warn('Preflight run listener failed', { error: describeError(error) });
+      }
     }
   }
 

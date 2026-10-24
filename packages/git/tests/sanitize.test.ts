@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { redactCredentials, redactTail, sanitizeGitOutput } from '../src/index.js';
 
+/** Fastest of three runs, so a busy machine pausing one run does not fail a linear-time check. */
 const elapsed = (action: () => unknown) => {
-  const started = performance.now();
-  action();
-  return performance.now() - started;
+  let fastest = Number.POSITIVE_INFINITY;
+  for (let run = 0; run < 3; run += 1) {
+    const started = performance.now();
+    action();
+    fastest = Math.min(fastest, performance.now() - started);
+  }
+  return fastest;
 };
 
 describe('redactCredentials', () => {

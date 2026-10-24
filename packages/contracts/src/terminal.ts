@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ProjectIdSchema, WorkspacePathSchema } from './project.js';
 import type { GitOperation } from './git.js';
+import type { AtlasNotification } from './notification.js';
 
 export const TERMINAL_STATUSES = [
   'CREATED',
@@ -220,7 +221,9 @@ export type TerminalEvent =
   /** Git state of a repository may have changed; clients re-request snapshots. */
   | { type: 'git'; repositoryRoot: string }
   /** Progress or outcome of a Git operation started by any client. */
-  | { type: 'git-operation'; operation: GitOperation };
+  | { type: 'git-operation'; operation: GitOperation }
+  /** Notifications changed; `created` is set when one was just published (for a toast). */
+  | { type: 'notifications'; created: AtlasNotification | null };
 
 export const TERMINAL_FONT_FAMILIES = ['system', 'menlo', 'sf-mono', 'monaco', 'courier'] as const;
 export type TerminalFontFamily = (typeof TERMINAL_FONT_FAMILIES)[number];

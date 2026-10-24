@@ -31,6 +31,7 @@ import {
   type EngineMethod,
   type EngineMethodResults,
   type GitCommitInput,
+  type NotificationListQuery,
   type GitCreateBranchInput,
   type GitDiffInput,
   type GitFetchInput,
@@ -507,6 +508,24 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     'preflight.run': ([runId]: [string]) => engine.preflight.run(runId),
     'preflight.output': ([query]: [unknown]) => engine.preflight.output(query),
     'preflight.report': ([runId]: [string]) => engine.preflight.report(runId),
+    'notifications.list': ([query]: [NotificationListQuery]) => engine.notifications.list(query),
+    'notifications.markRead': async ([id]: [string]) => {
+      await engine.notifications.markAsRead(id);
+      return null;
+    },
+    'notifications.markAllRead': async () => {
+      await engine.notifications.markAllAsRead();
+      return null;
+    },
+    'notifications.remove': async ([id]: [string]) => {
+      await engine.notifications.dismiss(id);
+      return null;
+    },
+    'notifications.clear': async () => {
+      await engine.notifications.clear();
+      return null;
+    },
+    'engine.backgroundWork': () => engine.backgroundWork(),
     'sessions.getSettings': () => engine.sessionSettings.get(),
     'sessions.setSettings': ([input]: [unknown]) => engine.sessionSettings.update(input),
   };

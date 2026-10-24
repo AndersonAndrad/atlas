@@ -605,3 +605,24 @@ superseded decisions are marked, not deleted.
   Side-effect detection is a pattern list and the digest does not cover files a command
   calls. act runs were validated only with a fake binary until act is installed. Milestone B
   must design its own stale-result rules on top of the fingerprint.
+
+## ADR-060 — Notifications are an Engine service fed by finished operations (PLAN-030)
+
+- **Decision**: The notification center (SDD-009 Milestone A) is a `NotificationService` in
+  the Engine host with a SQLite table (migration v11). Git operations and Preflight runs
+  publish one notification when they finish, mapped by pure functions that copy only short
+  summaries, never command output. Changes reach the renderer on the existing Engine
+  lifecycle event channel. Destinations are a closed, validated union (Git operation,
+  Preflight run). Publishing never throws. Commits run in the background: the commit dialog
+  closes once the Engine started the commit and the Git operations panel shows it. Quitting
+  asks first while Git operations or Preflight runs are in progress.
+- **Alternatives**: a JSON file store (rejected: SQLite and migrations already exist);
+  polling the Engine (rejected: the event channel exists); free-form `{ type, targetId }`
+  actions (rejected: not validatable); a toast library such as `sonner` (rejected: a new
+  dependency for a small component); keeping the commit dialog open until the steps finish
+  (the blocking behaviour the developer asked to remove); the bell in each view's header
+  (rejected: collides with the Git view's top-right actions; Q1).
+- **Consequences**: Every view is 40 px shorter. Quitting still stops background work (R1,
+  acknowledged) but now warns first; on macOS closing the window keeps the Engine running.
+  Dismissing deletes. Native notifications, deduplication windows, priorities, preferences
+  and Quiet Mode are left to Milestones B and C.

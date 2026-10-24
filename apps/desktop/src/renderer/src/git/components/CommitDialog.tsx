@@ -65,7 +65,15 @@ interface CommitDialogProps {
   /** Live working tree; the dialog works on the snapshot taken when it opened. */
   tree: GitWorkingTree;
   preferences: StoredGitPreferences | null;
+  /** Message of a commit that failed, to edit and try again. */
+  initialMessage?: string;
+  /**
+   * The Engine started the commit: the dialog hands it over and closes, so its steps run
+   * in the background. Refusals before it started stay in the dialog.
+   */
+  onStarted: (request: Promise<GitCommitResult>, message: string) => void;
   onClose: () => void;
+  /** The commit finished before the dialog saw it start. */
   onDone: (result: GitCommitResult) => void;
 }
 
@@ -98,7 +106,14 @@ function initialChoices(files: GitFileChange[]): Map<string, FileChoice> {
 }
 
 /** Commit dialog: staged content by default, unstaged changes only when explicitly chosen. */
-export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialogProps) {
+export function CommitDialog({
+  tree,
+  preferences,
+  initialMessage,
+  onStarted,
+  onClose,
+  onDone,
+}: CommitDialogProps) {
   const id = useId();
   const [snapshot, setSnapshot] = useState(tree);
   const [choices, setChoices] = useState(() => initialChoices(tree.files));
@@ -106,8 +121,8 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
     () => !tree.files.some((file) => file.staged !== null),
   );
   // Concluding a merge starts from Git's prepared merge message, as `git commit` does.
-  const [message, setMessage] = useState(() =>
-    tree.inProgress === 'merge' ? (tree.mergeMessage ?? '') : '',
+  const [message, setMessage] = useState(
+    () => initialMessage ?? (tree.inProgress === 'merge' ? (tree.mergeMessage ?? '') : ''),
   );
   const [suggestion, setSuggestion] = useState<GitCommitSuggestion | null>(null);
   const [busy, setBusy] = useState(false);
@@ -171,6 +186,12 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
   // The running commit, to show its steps live and offer cancelling while they run.
   const operations = useGitOperations(tree.repositoryRoot);
   const live = submittedCommit(operations, submission);
+  // Resolves the pending submission once its operation appears.
+  const startedRef = useRef<(() => void) | null>(null);
+  const liveId = live?.id;
+  useEffect(() => {
+    if (liveId !== undefined) startedRef.current?.();
+  }, [liveId]);
 
   const needsDestination = snapshot.upstream === null || snapshot.upstreamGone;
   useEffect(() => {
@@ -267,8 +288,11 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
     setError(null);
     setFailure(null);
     setSubmission(commitSubmission(operations));
+    const started = new Promise<'started'>((resolve) => {
+      startedRef.current = () => resolve('started');
+    });
     try {
-      const outcome = await unwrap(
+      const request = unwrap(
         api().git.commit({
           repositoryRoot: snapshot.repositoryRoot,
           message,
@@ -282,6 +306,12 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
             : {}),
         }),
       );
+      const first = await Promise.race([request, started]);
+      if (first === 'started') {
+        onStarted(request, message);
+        return;
+      }
+      const outcome = first;
       if (outcome.commit.status !== 'succeeded') {
         setFailure(outcome.commit);
         return;
@@ -297,6 +327,7 @@ export function CommitDialog({ tree, preferences, onClose, onDone }: CommitDialo
           : errorMessage(caught);
       setError({ message: detail, indexChanged });
     } finally {
+      startedRef.current = null;
       setBusy(false);
     }
   }
