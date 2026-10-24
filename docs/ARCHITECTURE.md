@@ -431,6 +431,28 @@ profile or the project has one, or when the user turned it off (the
 `CLAUDE_CONFIG_DIR`/`CODEX_HOME`, because Claude Code keeps `.claude.json` in HOME only
 then.
 
+### Preflight (SDD-007 Milestone A)
+
+Full description: `docs/sdd/SDD-007-preflight-and-quality-gates.md`.
+
+```text
+ Preflight view ─► preflight.* (Engine host only) ─► PreflightService (packages/preflight)
+                     ├─ discovery: package.json, Makefile, Gradle, Maven, .github/workflows (read only)
+                     ├─ workflows: YAML → jobs, compatibility, side effects (no evaluation)
+                     ├─ plan → digests + authorization reasons; start refuses unauthorized digests
+                     ├─ runSchedule: order, dependencies, concurrency, exclusive checks, cancel
+                     ├─ ShellPreflightExecutor ─► process-tree (shared with pre-commit steps)
+                     │    ├─ shell: user's shell, terminal environment, CI=1 (not sandboxed)
+                     │    └─ act: no shell, minimal env, empty secret/var/env files, no Docker socket
+                     ├─ ActDockerTools: act --version, docker version (30 s cache)
+                     ├─ GitSourceStateReader: HEAD + staged + unstaged + untracked fingerprint
+                     ├─ LogBuffer (redacted lines) ─► FilePreflightLogStore <data>/preflight/logs
+                     └─ SqlitePreflightRepository (migration v10)
+```
+
+Workspaces are registered projects or folders picked in the native dialog; requests use
+ids. Results are local and say where they ran; they never claim a GitHub-hosted CI result.
+
 ### Project context of a terminal
 
 `Engine.terminalProjectContext` reports the associated project and the deepest registered
@@ -563,7 +585,8 @@ terminals running as standalone terminals (SDD-003 §2).
   Schema v6: context retrieval — required entries, task branch and budget,
   reconciliation runs (additive). Schema v7: Git operation and command log (additive).
   Schema v8: Skills Hub (additive). Schema v9: usage profiles, limit window snapshots,
-  daily usage, session progress (additive).
+  daily usage, session progress (additive). Schema v10: Preflight workspaces,
+  authorizations and runs (additive).
 - Data dir: macOS `~/Library/Application Support/ATLAS`, Windows `%APPDATA%\ATLAS`, Linux
   `$XDG_DATA_HOME/atlas`; `ATLAS_DATA_DIR` overrides.
 

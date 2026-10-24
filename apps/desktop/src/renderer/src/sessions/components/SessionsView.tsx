@@ -37,6 +37,8 @@ interface SessionsViewProps {
   createRequest: { projectId: string | null; nonce: number } | null;
   /** Called once the request was taken, so it is not replayed when the view mounts again. */
   onCreateRequestHandled: () => void;
+  /** Opens Preflight for a session's project. */
+  onOpenPreflight?: (projectId: string) => void;
 }
 
 /** ATLAS Sessions: persistent orchestration records. Nothing here executes AI work. */
@@ -44,6 +46,7 @@ export function SessionsView({
   projects,
   createRequest,
   onCreateRequestHandled,
+  onOpenPreflight,
 }: SessionsViewProps) {
   const [includeArchived, setIncludeArchived] = useState(false);
   const { items, error: listError, reload } = useSessions(includeArchived);
@@ -207,6 +210,9 @@ export function SessionsView({
                   details={details}
                   events={events}
                   onEdit={() => setDialog({ kind: 'edit', session: details.session })}
+                  {...(onOpenPreflight && details.session.projectId !== null
+                    ? { onOpenPreflight: () => onOpenPreflight(details.session.projectId!) }
+                    : {})}
                   onRequestAction={requestAction}
                   onChanged={() => void Promise.all([reload(), reloadDetails()])}
                 />

@@ -52,6 +52,7 @@ interface TerminalWorkspaceProps {
   onRequestClose: (sessionId: string) => void;
   onProjectInfo: (sessionId: string) => void;
   onOpenGit: (sessionId: string) => void;
+  onOpenPreflight: (sessionId: string) => void;
   onContextAction: (sessionId: string, action: TerminalContextAction) => void;
   onFontSize: (delta: number | 'reset') => void;
   onPreferences: (changes: UpdateTerminalPreferencesInput) => void;
@@ -74,6 +75,7 @@ export function TerminalWorkspace({
   onRequestClose,
   onProjectInfo,
   onOpenGit,
+  onOpenPreflight,
   onContextAction,
   onFontSize,
   onPreferences,
@@ -319,6 +321,7 @@ export function TerminalWorkspace({
             onCloseTab={onRequestClose}
             onProjectInfo={onProjectInfo}
             onOpenGit={onOpenGit}
+            onOpenPreflight={onOpenPreflight}
             onContextAction={onContextAction}
             onRatio={(splitId, ratio) => update((value) => setSplitRatio(value, splitId, ratio))}
             registerHandle={registerHandle}

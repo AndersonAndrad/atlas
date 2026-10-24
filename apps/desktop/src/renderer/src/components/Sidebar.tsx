@@ -7,6 +7,7 @@ import {
   KeyRound,
   ListChecks,
   Settings,
+  ShieldCheck,
   Sparkles,
   SquareTerminal,
   Zap,
@@ -20,6 +21,7 @@ export type AppView =
   | 'projects'
   | 'terminals'
   | 'git'
+  | 'preflight'
   | 'context'
   | 'sessions'
   | 'skills'
@@ -38,6 +40,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'projects', label: 'Projects', icon: FolderGit2, view: 'projects' },
   { id: 'terminals', label: 'Terminals', icon: SquareTerminal, view: 'terminals' },
   { id: 'git', label: 'Git', icon: GitBranch, view: 'git' },
+  { id: 'preflight', label: 'Preflight', icon: ShieldCheck, view: 'preflight' },
   { id: 'context', label: 'Context', icon: Database, view: 'context' },
   { id: 'sessions', label: 'Sessions', icon: ListChecks, view: 'sessions' },
   { id: 'agents', label: 'Agents', icon: Bot },

@@ -23,6 +23,7 @@ interface ProjectsViewProps {
   onNewSession: (projectId: string) => void;
   onOpenGit: (projectId: string) => void;
   onOpenContext: (projectId: string) => void;
+  onOpenPreflight: (projectId: string) => void;
   /** Called after a project was removed (its terminals are gone too). */
   onProjectRemoved: () => void;
 }
@@ -34,6 +35,7 @@ export function ProjectsView({
   onNewSession,
   onOpenGit,
   onOpenContext,
+  onOpenPreflight,
   onProjectRemoved,
 }: ProjectsViewProps) {
   const { items, selected, selectedId, setSelectedId, loadError, reload, select } = projects;
@@ -121,6 +123,7 @@ export function ProjectsView({
                   onNewSession={() => onNewSession(selected.project.id)}
                   onOpenGit={() => onOpenGit(selected.project.id)}
                   onOpenContext={() => onOpenContext(selected.project.id)}
+                  onOpenPreflight={() => onOpenPreflight(selected.project.id)}
                 />
               ) : (
                 <p className="text-muted-foreground py-8 text-center">

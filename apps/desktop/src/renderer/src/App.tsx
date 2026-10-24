@@ -8,6 +8,7 @@ import { GitView, type GitOpenRequest } from './git/components/GitView';
 import { ContextView, type ContextOpenRequest } from './context/components/ContextView';
 import { SkillsView } from './skills/components/SkillsView';
 import { UsageView } from './usage/components/UsageView';
+import { PreflightView, type PreflightOpenRequest } from './preflight/components/PreflightView';
 import { QuickCommandsView } from './quick-commands/components/QuickCommandsView';
 import { Sidebar, type AppView } from './components/Sidebar';
 import { TooltipProvider } from './components/ui/tooltip';
@@ -31,6 +32,7 @@ export function App() {
   } | null>(null);
   const [gitRequest, setGitRequest] = useState<GitOpenRequest | null>(null);
   const [contextRequest, setContextRequest] = useState<ContextOpenRequest | null>(null);
+  const [preflightRequest, setPreflightRequest] = useState<PreflightOpenRequest | null>(null);
   const projects = useProjects();
   const terminals = useTerminalSessions();
   const groups = useTerminalGroups();
@@ -111,6 +113,11 @@ export function App() {
     setView('git');
   };
   const clearSessionRequest = useCallback(() => setSessionRequest(null), []);
+  const clearPreflightRequest = useCallback(() => setPreflightRequest(null), []);
+  const openPreflight = (target: Omit<PreflightOpenRequest, 'nonce'>) => {
+    setPreflightRequest({ ...target, nonce: Date.now() });
+    setView('preflight');
+  };
 
   const newSession = (projectId: string) => {
     setSessionRequest({ projectId, nonce: Date.now() });
@@ -134,6 +141,7 @@ export function App() {
             onNewSession={newSession}
             onOpenGit={(projectId) => openGit({ projectId })}
             onOpenContext={(projectId) => openContext({ projectId, action: 'view' })}
+            onOpenPreflight={(projectId) => openPreflight({ projectId })}
             onProjectRemoved={() => void terminals.reload()}
           />
         )}
@@ -147,12 +155,26 @@ export function App() {
             onOpenRequestHandled={clearOpenRequest}
             subscribeCommands={subscribeCommands}
             onOpenGit={(terminalId) => openGit({ terminalId })}
+            onOpenPreflight={(terminalId) => openPreflight({ terminalId })}
             onContextAction={(terminalId, { action, provider }) =>
               openContext({ terminalId, action, ...(provider ? { provider } : {}) })
             }
           />
         )}
-        {view === 'git' && <GitView request={gitRequest} onRequestHandled={clearGitRequest} />}
+        {view === 'git' && (
+          <GitView
+            request={gitRequest}
+            onRequestHandled={clearGitRequest}
+            onOpenPreflight={(projectId) => openPreflight({ projectId })}
+          />
+        )}
+        {view === 'preflight' && (
+          <PreflightView
+            projects={projects.items ?? []}
+            request={preflightRequest}
+            onRequestHandled={clearPreflightRequest}
+          />
+        )}
         {view === 'context' && (
           <ContextView
             projects={projects.items ?? []}
@@ -169,6 +191,7 @@ export function App() {
             projects={projects}
             createRequest={sessionRequest}
             onCreateRequestHandled={clearSessionRequest}
+            onOpenPreflight={(projectId) => openPreflight({ projectId })}
           />
         )}
         {view === 'skills' && <SkillsView projects={projects.items ?? []} />}

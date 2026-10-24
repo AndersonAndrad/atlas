@@ -20,6 +20,7 @@ export default defineConfig({
       { find: /^@atlas\/context$/, replacement: src('./packages/context/src/index.ts') },
       { find: /^@atlas\/skills$/, replacement: src('./packages/skills/src/index.ts') },
       { find: /^@atlas\/usage$/, replacement: src('./packages/usage/src/index.ts') },
+      { find: /^@atlas\/preflight$/, replacement: src('./packages/preflight/src/index.ts') },
       { find: /^@atlas\/persistence$/, replacement: src('./packages/persistence/src/index.ts') },
       { find: /^@atlas\/engine$/, replacement: src('./apps/engine/src/index.ts') },
     ],

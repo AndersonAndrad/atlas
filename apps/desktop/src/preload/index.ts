@@ -236,6 +236,23 @@ const api: AtlasApi = {
     removeProfile: (id) => ipcRenderer.invoke(IPC_CHANNELS.usageRemoveProfile, id),
     setSettings: (changes) => ipcRenderer.invoke(IPC_CHANNELS.usageSetSettings, changes),
   },
+  preflight: {
+    workspaces: () => ipcRenderer.invoke(IPC_CHANNELS.preflightWorkspaces),
+    openProject: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.preflightOpenProject, projectId),
+    addFolder: (folder) => ipcRenderer.invoke(IPC_CHANNELS.preflightAddFolder, folder),
+    removeWorkspace: (id) => ipcRenderer.invoke(IPC_CHANNELS.preflightRemoveWorkspace, id),
+    workspace: (id) => ipcRenderer.invoke(IPC_CHANNELS.preflightWorkspace, id),
+    saveConfig: (id, config) => ipcRenderer.invoke(IPC_CHANNELS.preflightSaveConfig, id, config),
+    discover: (id) => ipcRenderer.invoke(IPC_CHANNELS.preflightDiscover, id),
+    environment: (refresh) => ipcRenderer.invoke(IPC_CHANNELS.preflightEnvironment, refresh),
+    plan: (selection) => ipcRenderer.invoke(IPC_CHANNELS.preflightPlan, selection),
+    start: (input) => ipcRenderer.invoke(IPC_CHANNELS.preflightStart, input),
+    cancel: (runId) => ipcRenderer.invoke(IPC_CHANNELS.preflightCancel, runId),
+    runs: (query) => ipcRenderer.invoke(IPC_CHANNELS.preflightRuns, query),
+    run: (runId) => ipcRenderer.invoke(IPC_CHANNELS.preflightRun, runId),
+    output: (query) => ipcRenderer.invoke(IPC_CHANNELS.preflightOutput, query),
+    report: (runId) => ipcRenderer.invoke(IPC_CHANNELS.preflightReport, runId),
+  },
   ai: {
     start: (input) => ipcRenderer.invoke(IPC_CHANNELS.aiStart, input),
     attach: (input) => ipcRenderer.invoke(IPC_CHANNELS.aiAttach, input),
@@ -243,6 +260,8 @@ const api: AtlasApi = {
   app: {
     info: () => ipcRenderer.invoke(IPC_CHANNELS.appInfo),
     copyText: (text, target) => ipcRenderer.invoke(IPC_CHANNELS.copyText, text, target),
+    saveText: (suggestedName, text) =>
+      ipcRenderer.invoke(IPC_CHANNELS.saveText, suggestedName, text),
     readText: (target) => ipcRenderer.invoke(IPC_CHANNELS.readText, target),
     onCommand: (listener) => subscribe<AppCommand>(IPC_EVENT_CHANNELS.appCommand, listener),
     onEngineRestarted: (listener) =>

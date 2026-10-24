@@ -8,3 +8,4 @@ export * from './sqlite-context-repository.js';
 export * from './sqlite-git-operation-log-repository.js';
 export * from './sqlite-skill-repository.js';
 export * from './sqlite-usage-repository.js';
+export * from './sqlite-preflight-repository.js';

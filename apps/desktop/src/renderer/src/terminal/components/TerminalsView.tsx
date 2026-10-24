@@ -42,6 +42,8 @@ interface TerminalsViewProps {
   subscribeCommands: (handler: (command: AppCommand) => void) => () => void;
   /** Opens the Git view on a terminal's repository. */
   onOpenGit: (terminalId: string) => void;
+  /** Opens Preflight for a terminal's project. */
+  onOpenPreflight: (terminalId: string) => void;
   /** Shared context actions requested from a terminal. */
   onContextAction: (terminalId: string, action: TerminalContextAction) => void;
 }
@@ -69,6 +71,7 @@ export function TerminalsView({
   onOpenRequestHandled,
   subscribeCommands,
   onOpenGit,
+  onOpenPreflight,
   onContextAction,
 }: TerminalsViewProps) {
   const [workspace, setWorkspace] = useState<string>(UNGROUPED_WORKSPACE);
@@ -289,6 +292,7 @@ export function TerminalsView({
               onRequestClose={(sessionId) => void requestClose(sessionId)}
               onProjectInfo={(sessionId) => setSheet({ kind: 'terminal', sessionId })}
               onOpenGit={onOpenGit}
+              onOpenPreflight={onOpenPreflight}
               onContextAction={onContextAction}
               onFontSize={preferences.changeFontSize}
               onPreferences={(changes) => void preferences.update(changes)}

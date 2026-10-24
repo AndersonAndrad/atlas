@@ -34,6 +34,7 @@ import {
   SqliteSettingsRepository,
   SqliteSkillRepository,
   SqliteUsageRepository,
+  SqlitePreflightRepository,
   SqliteTerminalGroupRepository,
   SqliteTerminalSessionRepository,
   getSchemaVersion,
@@ -91,11 +92,16 @@ import {
 } from '@atlas/git';
 import { NodeSkillFileSystem, SkillsHub } from '@atlas/skills';
 import { UsageService } from '@atlas/usage';
+import { PreflightService } from '@atlas/preflight';
 import { createGitExecutor, createGitRunner } from './git/git-runner.js';
 import { captureLoginShellEnvironment } from './adapters/login-shell-environment.js';
 import { LlmSessionTracker } from './llm-session-tracker.js';
 import { ClaudeAuthStatusReader, CodexAppServerReader } from './adapters/usage-cli.js';
 import { ClaudeStatusInbox } from './usage-inbox.js';
+import { ShellPreflightExecutor } from './adapters/preflight-executor.js';
+import { GitSourceStateReader } from './adapters/preflight-source.js';
+import { FilePreflightLogStore, NodeWorkspaceFileAccess } from './adapters/preflight-storage.js';
+import { ActDockerTools } from './adapters/preflight-tools.js';
 import { QuickCommandStore } from './quick-commands.js';
 import { RepositoryWatcher } from './git/repository-watcher.js';
 import { GIT_SHUTDOWN_TIMEOUT_MS } from './shutdown-timing.js';
@@ -154,6 +160,8 @@ export interface Engine {
   readonly skills: SkillsHub;
   /** Account profiles, provider limits and daily usage (SDD-008 Milestone B). */
   readonly usage: UsageService;
+  /** Local validation of projects and folders (SDD-007 Milestone A). */
+  readonly preflight: PreflightService;
   /** Automatic recording of LLM sessions in ATLAS terminals (PLAN-021). */
   readonly llmSessions: LlmSessionTracker;
   /** The user's quick commands and each project's choice of them (PLAN-023). */
@@ -598,6 +606,43 @@ export function createEngine(options: EngineOptions = {}): Engine {
       .catch((error: unknown) =>
         logger.warn('Usage collection failed', { error: describeError(error) }),
       );
+  const preflightSearch = {
+    platform,
+    searchPath: cliSearchPath,
+    excludeDirectory: projectConfig.binDir,
+  };
+  const preflight = new PreflightService({
+    repository: new SqlitePreflightRepository(db),
+    files: new NodeWorkspaceFileAccess(),
+    // Checks are processes: only the Engine host, which owns processes, runs them.
+    ...(ownsExecution && terminalEnvironment !== undefined
+      ? {
+          executor: new ShellPreflightExecutor({
+            ...preflightSearch,
+            shell: userShell,
+            env: terminalEnvironment.shellEnvironment(),
+            dataDir,
+          }),
+        }
+      : {}),
+    tools: new ActDockerTools({ ...preflightSearch, env, home: homeDirectory }),
+    source: new GitSourceStateReader(env),
+    logs: new FilePreflightLogStore(path.join(dataDir, 'preflight', 'logs')),
+    projects: {
+      find: async (projectId) => {
+        try {
+          return (await projects.getDetails(projectId)).project;
+        } catch (error) {
+          if (error instanceof AtlasError && error.code === 'PROJECT_NOT_FOUND') return null;
+          throw error;
+        }
+      },
+    },
+    redact: redactCredentials,
+    clock,
+    generateId: randomUUID,
+    logger,
+  });
   const projectGitSettings = new ProjectGitSettingsStore(settings, logger);
   const quickCommands = new QuickCommandStore({ store: settings, generateId: randomUUID, logger });
 
@@ -886,6 +931,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
     gitOperationLog,
     skills,
     usage,
+    preflight,
     llmSessions,
     quickCommands,
     gitPreferences,
@@ -1051,6 +1097,13 @@ export function createEngine(options: EngineOptions = {}): Engine {
         await sessions.reconcile('engine-restart');
         await gitOperationLog.start();
         try {
+          await preflight.recover();
+        } catch (error) {
+          logger.warn('Interrupted Preflight runs could not be closed', {
+            error: describeError(error),
+          });
+        }
+        try {
           await projectConfig.installWrappers();
         } catch (error) {
           logger.warn('Failed to install the LLM wrappers', { error: describeError(error) });
@@ -1109,6 +1162,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
       await projectGitSettings.remove(project.id);
       await quickCommands.removeProject(project.id);
       await skills.projectRemoved(project.id);
+      await preflight.projectRemoved(project.id);
       // A refresh that started before the removal finishes first, then the files go.
       await projectRefreshes.get(project.id)?.running;
       await projectConfig.remove(project.id);
@@ -1161,6 +1215,8 @@ export function createEngine(options: EngineOptions = {}): Engine {
         if (usageTimer !== undefined) clearInterval(usageTimer);
         await usageInbox.close();
         await llmSessions.close();
+        // Running checks are cancelled and their process trees stopped.
+        await preflight.close();
       }
       // New Git operations are refused (a push that would follow a finishing commit
       // settles as cancelled), queued ones and running pre-commit steps are cancelled;

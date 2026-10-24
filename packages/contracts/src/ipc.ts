@@ -53,6 +53,21 @@ import type {
   UsageProfile,
   UsageSettings,
 } from './usage.js';
+import type {
+  PreflightConfig,
+  PreflightDiscovery,
+  PreflightEnvironmentStatus,
+  PreflightOutputPage,
+  PreflightOutputQuery,
+  PreflightPlan,
+  PreflightRun,
+  PreflightRunSummary,
+  PreflightRunsQuery,
+  PreflightSelection,
+  PreflightStartInput,
+  PreflightWorkspace,
+  PreflightWorkspaceDetails,
+} from './preflight.js';
 
 import type {
   AiProvider,
@@ -235,6 +250,7 @@ export const IPC_CHANNELS = {
   gitSetProjectSettings: 'atlas:git:set-project-settings',
   appInfo: 'atlas:app:info',
   copyText: 'atlas:app:copy-text',
+  saveText: 'atlas:app:save-text',
   readText: 'atlas:app:read-text',
   contextOverview: 'atlas:context:overview',
   contextList: 'atlas:context:list',
@@ -301,6 +317,21 @@ export const IPC_CHANNELS = {
   usageUpdateProfile: 'atlas:usage:update-profile',
   usageRemoveProfile: 'atlas:usage:remove-profile',
   usageSetSettings: 'atlas:usage:set-settings',
+  preflightWorkspaces: 'atlas:preflight:workspaces',
+  preflightOpenProject: 'atlas:preflight:open-project',
+  preflightAddFolder: 'atlas:preflight:add-folder',
+  preflightRemoveWorkspace: 'atlas:preflight:remove-workspace',
+  preflightWorkspace: 'atlas:preflight:workspace',
+  preflightSaveConfig: 'atlas:preflight:save-config',
+  preflightDiscover: 'atlas:preflight:discover',
+  preflightEnvironment: 'atlas:preflight:environment',
+  preflightPlan: 'atlas:preflight:plan',
+  preflightStart: 'atlas:preflight:start',
+  preflightCancel: 'atlas:preflight:cancel',
+  preflightRuns: 'atlas:preflight:runs',
+  preflightRun: 'atlas:preflight:run',
+  preflightOutput: 'atlas:preflight:output',
+  preflightReport: 'atlas:preflight:report',
   aiStart: 'atlas:ai:start',
   quickCommandsList: 'atlas:quick-commands:list',
   quickCommandsCreate: 'atlas:quick-commands:create',
@@ -419,7 +450,13 @@ export interface AtlasApi {
     /** `purpose` only changes the dialog title. */
     chooseDirectory(
       purpose?:
-        'project' | 'terminal' | 'default-directory' | 'session' | 'skill' | 'usage-profile',
+        | 'project'
+        | 'terminal'
+        | 'default-directory'
+        | 'session'
+        | 'skill'
+        | 'usage-profile'
+        | 'preflight-workspace',
     ): Promise<IpcResult<DirectoryChoice>>;
   };
   terminals: {
@@ -660,6 +697,31 @@ export interface AtlasApi {
     removeProfile(id: string): Promise<IpcResult<null>>;
     setSettings(changes: UpdateUsageSettingsInput): Promise<IpcResult<UsageSettings>>;
   };
+  /** Local validation of a project or folder (SDD-007 Milestone A). */
+  preflight: {
+    workspaces(): Promise<IpcResult<PreflightWorkspace[]>>;
+    /** The workspace of a registered project, created on first use. */
+    openProject(projectId: string): Promise<IpcResult<PreflightWorkspace>>;
+    /** `path` must come from the folder picker (`dialog.chooseDirectory('preflight-workspace')`). */
+    addFolder(path: string): Promise<IpcResult<PreflightWorkspace>>;
+    /** Removes the workspace, its configuration, history and logs. */
+    removeWorkspace(id: string): Promise<IpcResult<null>>;
+    workspace(id: string): Promise<IpcResult<PreflightWorkspaceDetails>>;
+    saveConfig(id: string, config: PreflightConfig): Promise<IpcResult<PreflightWorkspaceDetails>>;
+    /** Reads package scripts, build files and workflows; executes nothing. */
+    discover(id: string): Promise<IpcResult<PreflightDiscovery>>;
+    /** `act` and Docker availability; `refresh` ignores the cached answer. */
+    environment(refresh: boolean): Promise<IpcResult<PreflightEnvironmentStatus>>;
+    /** What a run would execute and which checks need authorization. */
+    plan(selection: PreflightSelection): Promise<IpcResult<PreflightPlan>>;
+    start(input: PreflightStartInput): Promise<IpcResult<PreflightRun>>;
+    cancel(runId: string): Promise<IpcResult<null>>;
+    runs(query: PreflightRunsQuery): Promise<IpcResult<PreflightRunSummary[]>>;
+    run(runId: string): Promise<IpcResult<PreflightRun>>;
+    output(query: PreflightOutputQuery): Promise<IpcResult<PreflightOutputPage>>;
+    /** A Markdown report of the run. */
+    report(runId: string): Promise<IpcResult<string>>;
+  };
   /** Individual AI CLI sessions started or tracked by ATLAS. */
   /** Named shell commands run in a new project terminal (PLAN-023). */
   quickCommands: {
@@ -689,6 +751,11 @@ export interface AtlasApi {
     copyText(text: string, target?: ClipboardTarget): Promise<IpcResult<null>>;
     /** Reads plain text from the system clipboard; non-text content reads as ''. */
     readText(target?: ClipboardTarget): Promise<IpcResult<string>>;
+    /**
+     * Asks where to save `text` (native save dialog, `suggestedName` as the default file
+     * name) and writes it there. `saved` is false when the user cancels.
+     */
+    saveText(suggestedName: string, text: string): Promise<IpcResult<{ saved: boolean }>>;
     onCommand(listener: (command: AppCommand) => void): Unsubscribe;
     /** The Engine process restarted; terminal state must be reloaded. */
     onEngineRestarted(listener: () => void): Unsubscribe;

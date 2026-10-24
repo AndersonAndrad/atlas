@@ -563,4 +563,54 @@ export const MIGRATIONS: readonly Migration[] = [
       ) STRICT;
     `,
   },
+  {
+    version: 10,
+    name: 'preflight',
+    // Preflight workspaces, authorizations and run history (SDD-007 Milestone A).
+    // Additive. Output logs live in files; no secret is stored here.
+    sql: `
+      CREATE TABLE preflight_workspaces (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        path TEXT NOT NULL UNIQUE CHECK (length(path) > 0),
+        project_id TEXT,
+        name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 120),
+        config TEXT NOT NULL CHECK (json_valid(config)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) STRICT;
+
+      -- Check definitions the user authorized to run (digest of what runs).
+      CREATE TABLE preflight_authorizations (
+        workspace_id TEXT NOT NULL REFERENCES preflight_workspaces (id) ON DELETE CASCADE,
+        check_id TEXT NOT NULL,
+        digest TEXT NOT NULL CHECK (length(digest) = 64),
+        authorized_at TEXT NOT NULL,
+        PRIMARY KEY (workspace_id, check_id, digest)
+      ) STRICT;
+
+      CREATE TABLE preflight_runs (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        workspace_id TEXT NOT NULL REFERENCES preflight_workspaces (id) ON DELETE CASCADE,
+        project_id TEXT,
+        workspace_path TEXT NOT NULL,
+        profile_id TEXT,
+        profile_name TEXT NOT NULL,
+        trigger TEXT NOT NULL,
+        status TEXT NOT NULL
+          CHECK (status IN ('RUNNING', 'PASSED', 'FAILED', 'INCOMPLETE', 'CANCELLED')),
+        required_outcome TEXT NOT NULL
+          CHECK (required_outcome IN ('PASSED', 'FAILED', 'INCOMPLETE', 'NONE')),
+        source_revision TEXT,
+        branch TEXT,
+        source_fingerprint TEXT,
+        source_changed INTEGER NOT NULL DEFAULT 0 CHECK (source_changed IN (0, 1)),
+        retry_of TEXT,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        -- Check results in run order (a JSON array of PreflightCheckResult).
+        results TEXT NOT NULL CHECK (json_valid(results))
+      ) STRICT;
+      CREATE INDEX preflight_runs_workspace ON preflight_runs (workspace_id, started_at);
+    `,
+  },
 ];

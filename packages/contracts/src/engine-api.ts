@@ -150,6 +150,23 @@ import {
   type UsageSettings,
 } from './usage.js';
 import {
+  PreflightConfigSchema,
+  PreflightOutputQuerySchema,
+  PreflightRunIdSchema,
+  PreflightRunsQuerySchema,
+  PreflightSelectionSchema,
+  PreflightStartSchema,
+  PreflightWorkspaceIdSchema,
+  type PreflightDiscovery,
+  type PreflightEnvironmentStatus,
+  type PreflightOutputPage,
+  type PreflightPlan,
+  type PreflightRun,
+  type PreflightRunSummary,
+  type PreflightWorkspace,
+  type PreflightWorkspaceDetails,
+} from './preflight.js';
+import {
   AtlasSessionIdSchema,
   ListSessionsInputSchema,
   SessionActionSchema,
@@ -367,6 +384,21 @@ export const ENGINE_METHOD_PARAMS = {
   'usage.updateProfile': z.tuple([UsageProfileIdSchema, UpdateUsageProfileSchema]),
   'usage.removeProfile': z.tuple([UsageProfileIdSchema]),
   'usage.setSettings': z.tuple([UpdateUsageSettingsSchema]),
+  'preflight.workspaces': z.tuple([]),
+  'preflight.openProject': z.tuple([Id]),
+  'preflight.addFolder': z.tuple([z.string().min(1).max(4096), z.boolean()]),
+  'preflight.removeWorkspace': z.tuple([PreflightWorkspaceIdSchema]),
+  'preflight.workspace': z.tuple([PreflightWorkspaceIdSchema]),
+  'preflight.saveConfig': z.tuple([PreflightWorkspaceIdSchema, PreflightConfigSchema]),
+  'preflight.discover': z.tuple([PreflightWorkspaceIdSchema]),
+  'preflight.environment': z.tuple([z.boolean()]),
+  'preflight.plan': z.tuple([PreflightSelectionSchema]),
+  'preflight.start': z.tuple([PreflightStartSchema]),
+  'preflight.cancel': z.tuple([PreflightRunIdSchema]),
+  'preflight.runs': z.tuple([PreflightRunsQuerySchema]),
+  'preflight.run': z.tuple([PreflightRunIdSchema]),
+  'preflight.output': z.tuple([PreflightOutputQuerySchema]),
+  'preflight.report': z.tuple([PreflightRunIdSchema]),
 } as const;
 
 export type EngineMethod = keyof typeof ENGINE_METHOD_PARAMS;
@@ -551,6 +583,21 @@ export interface EngineMethodResults {
   'usage.updateProfile': UsageProfile;
   'usage.removeProfile': null;
   'usage.setSettings': UsageSettings;
+  'preflight.workspaces': PreflightWorkspace[];
+  'preflight.openProject': PreflightWorkspace;
+  'preflight.addFolder': PreflightWorkspace;
+  'preflight.removeWorkspace': null;
+  'preflight.workspace': PreflightWorkspaceDetails;
+  'preflight.saveConfig': PreflightWorkspaceDetails;
+  'preflight.discover': PreflightDiscovery;
+  'preflight.environment': PreflightEnvironmentStatus;
+  'preflight.plan': PreflightPlan;
+  'preflight.start': PreflightRun;
+  'preflight.cancel': null;
+  'preflight.runs': PreflightRunSummary[];
+  'preflight.run': PreflightRun;
+  'preflight.output': PreflightOutputPage;
+  'preflight.report': string;
 }
 
 export type EngineMethodParams<M extends EngineMethod> = z.input<(typeof ENGINE_METHOD_PARAMS)[M]>;

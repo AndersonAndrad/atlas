@@ -17,6 +17,8 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       aiKeys: Object.keys((w.atlas as { ai: object }).ai).sort(),
       fileKeys: Object.keys((w.atlas as { files: object }).files).sort(),
       quickCommandKeys: Object.keys((w.atlas as { quickCommands: object }).quickCommands).sort(),
+      preflightKeys: Object.keys((w.atlas as { preflight: object }).preflight).sort(),
+      appKeys: Object.keys((w.atlas as { app: object }).app).sort(),
     };
   });
   expect(exposure).toEqual({
@@ -32,6 +34,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'files',
       'git',
       'groups',
+      'preflight',
       'projects',
       'quickCommands',
       'sessions',
@@ -39,6 +42,27 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'terminals',
       'usage',
     ],
+    // Preflight names workspaces and runs by id; a folder outside projects must come from
+    // the picker, and a run starts only with the digests the user authorized.
+    preflightKeys: [
+      'addFolder',
+      'cancel',
+      'discover',
+      'environment',
+      'openProject',
+      'output',
+      'plan',
+      'removeWorkspace',
+      'report',
+      'run',
+      'runs',
+      'saveConfig',
+      'start',
+      'workspace',
+      'workspaces',
+    ],
+    // Files are written only where the user chose in the native save dialog.
+    appKeys: ['copyText', 'info', 'onCommand', 'onEngineRestarted', 'readText', 'saveText'],
     // AI CLIs are only started or tracked; no command text crosses the bridge.
     aiKeys: ['attach', 'start'],
     // Only the path of a file the user dropped; no filesystem access.

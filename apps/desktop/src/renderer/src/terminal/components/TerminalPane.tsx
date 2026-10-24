@@ -19,6 +19,7 @@ import {
   Info,
   RotateCcw,
   Search,
+  ShieldCheck,
   TextSelect,
   X,
 } from 'lucide-react';
@@ -81,6 +82,8 @@ interface TerminalPaneProps {
   onProjectInfo: () => void;
   /** Opens the Git view on the repository of this terminal's directory. */
   onOpenGit: () => void;
+  /** Opens Preflight (local checks) for this terminal's project. */
+  onOpenPreflight: () => void;
   /** Shared context actions for this terminal (SDD-005). */
   onContextAction: (action: TerminalContextAction) => void;
   registerHandle: (paneId: string, handle: TerminalPaneHandle | null) => void;
@@ -99,6 +102,7 @@ export function TerminalPane({
   onCloseTab,
   onProjectInfo,
   onOpenGit,
+  onOpenPreflight,
   onContextAction,
   registerHandle,
 }: TerminalPaneProps) {
@@ -380,6 +384,10 @@ export function TerminalPane({
           >
             <Activity />
             Git operations
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={onOpenPreflight}>
+            <ShieldCheck />
+            Run Preflight
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem

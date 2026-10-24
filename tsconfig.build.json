@@ -11,6 +11,7 @@
     { "path": "packages/context" },
     { "path": "packages/skills" },
     { "path": "packages/usage" },
+    { "path": "packages/preflight" },
     { "path": "packages/persistence" },
     { "path": "apps/engine" },
     { "path": "apps/cli" }

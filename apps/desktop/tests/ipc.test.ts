@@ -48,6 +48,7 @@ describe('desktop IPC handlers', () => {
   let pickedPath: string | undefined;
   let workspace: string;
   let copied: string[] = [];
+  let saved: { suggestedName: string; text: string }[] = [];
 
   const trustedEvent = {} as IpcMainInvokeEvent;
   const invoke = <T>(channel: string, ...args: unknown[]) =>
@@ -78,6 +79,7 @@ describe('desktop IPC handlers', () => {
     });
     await engine.initialize();
     events = [];
+    saved = [];
     engine.terminals!.onEvent((event, subscriberId) => events.push({ event, subscriberId }));
     const dispatcher = createEngineDispatcher(engine);
     const caller: EngineCaller = {
@@ -103,6 +105,10 @@ describe('desktop IPC handlers', () => {
       },
       readClipboard: async (target: string) =>
         target === 'selection' ? 'primary text' : 'clipboard text',
+      saveTextFile: async (suggestedName: string, text: string) => {
+        saved.push({ suggestedName, text });
+        return true;
+      },
       isTrustedSender: () => trusted,
       showOpenDialog: async () =>
         pickedPath === undefined
@@ -147,6 +153,68 @@ describe('desktop IPC handlers', () => {
     });
     expect(result).toMatchObject({ ok: false, error: { code: 'PROJECT_PATH_INVALID' } });
     expect(await engine.projects.findAll()).toEqual([]);
+  });
+
+  it('adds a Preflight folder only when it was chosen in the picker', async () => {
+    const other = path.join(temp.dir, 'other');
+    mkdirSync(other);
+    expect(await invoke(IPC_CHANNELS.preflightAddFolder, other)).toMatchObject({
+      ok: false,
+      error: { code: 'PREFLIGHT_UNAUTHORIZED' },
+    });
+    await invoke(IPC_CHANNELS.chooseDirectory, 'preflight-workspace');
+    const added = await invoke<{ id: string; path: string }>(
+      IPC_CHANNELS.preflightAddFolder,
+      workspace,
+    );
+    expect(added).toMatchObject({ ok: true, data: { path: workspace, projectId: null } });
+    expect(await invoke(IPC_CHANNELS.preflightWorkspaces)).toMatchObject({
+      ok: true,
+      data: [{ path: workspace }],
+    });
+    // Configurations are validated in the Engine: a check cannot leave the workspace.
+    const id = (added as { data: { id: string } }).data.id;
+    const saved = await invoke(IPC_CHANNELS.preflightSaveConfig, id, {
+      checks: [
+        {
+          id: 'x',
+          name: 'x',
+          type: 'COMMAND',
+          category: 'CUSTOM',
+          workingDirectory: '../..',
+          command: 'true',
+          packageManager: null,
+          script: null,
+          workflowPath: null,
+          workflowJob: null,
+          act: null,
+          required: true,
+          enabled: true,
+          timeoutSeconds: 60,
+          executionTriggers: ['MANUAL'],
+          dependsOn: [],
+          exclusive: false,
+          requiredTools: [],
+          env: {},
+        },
+      ],
+      profiles: [],
+    });
+    expect(saved).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+  });
+
+  it('saves text only through the save dialog, with a plain suggested name', async () => {
+    expect(await invoke(IPC_CHANNELS.saveText, 'report.md', '# Report')).toEqual({
+      ok: true,
+      data: { saved: true },
+    });
+    expect(saved).toEqual([{ suggestedName: 'report.md', text: '# Report' }]);
+    for (const name of ['../report.md', '/tmp/report.md', '.hidden', 'a/b.md']) {
+      expect(await invoke(IPC_CHANNELS.saveText, name, 'x'), name).toMatchObject({
+        ok: false,
+        error: { code: 'VALIDATION_FAILED' },
+      });
+    }
   });
 
   it('rejects untrusted senders', async () => {

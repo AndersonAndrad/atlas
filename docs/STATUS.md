@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-23 — PLAN-027 (SDD-008 Milestone B: usage and limits).
+Last updated: 2026-10-23 — PLAN-028 (SDD-007 Milestone A: Preflight local validation).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -28,7 +28,25 @@ icon) is implemented and awaits approval. PLAN-026 (terminal copy/paste on Linux
 menu Copy/Paste/Select all, file drops, Linux primary selection, forced selection while a
 program captures the mouse) is implemented and awaits approval. PLAN-027 (SDD-008 Milestone
 B: account profiles, provider limit windows, daily and weekly usage) is implemented and
-awaits approval; SDD-008 Milestones A and C are not started. Version 0.20.0 (schema v9).
+awaits approval; SDD-008 Milestones A and C are not started. PLAN-028 (SDD-007 Milestone A:
+Preflight local validation) is implemented and awaits approval; SDD-007 Milestones B and C
+are not started. Version 0.21.0 (schema v10).
+
+## PLAN-028 — SDD-007 Milestone A: Preflight
+
+- Preflight view (and entries from project details, the Git view, the terminal context menu
+  and session details): checks per project or picked folder — commands, package scripts,
+  GitHub Actions jobs through act — with profiles, dependencies, concurrency, timeouts,
+  required/advisory, live redacted logs, cancellation, history and Markdown reports.
+- Discovery reads package.json, Make, Gradle, Maven and workflows without running anything;
+  workflow jobs are classified (compatible, partial, unsupported, unknown) with reasons and
+  side effects found in what steps do.
+- A check runs only after the developer authorized its exact definition; side-effecting
+  checks ask every time; changed files block a check. Jobs that need secrets are blocked.
+- Each run records HEAD, branch and a code-state fingerprint (informative until quality gates).
+- act and Docker are detected, never installed. Real act runs are not validated yet (act is
+  not installed on the development machine; a fake act verified the arguments).
+- Details and limitations: `docs/sdd/SDD-007-preflight-and-quality-gates.md`, ADR-059.
 
 ## PLAN-027 — SDD-008 Milestone B: usage and limits
 

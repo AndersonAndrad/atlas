@@ -9,6 +9,7 @@ export interface LayoutCallbacks {
   onCloseTab: (sessionId: string) => void;
   onProjectInfo: (sessionId: string) => void;
   onOpenGit: (sessionId: string) => void;
+  onOpenPreflight: (sessionId: string) => void;
   onContextAction: (sessionId: string, action: TerminalContextAction) => void;
   onRatio: (splitId: string, ratio: number) => void;
   registerHandle: (paneId: string, handle: TerminalPaneHandle | null) => void;
@@ -43,6 +44,7 @@ export function TerminalLayoutView(props: TerminalLayoutViewProps) {
         onCloseTab={() => props.onCloseTab(session.id)}
         onProjectInfo={() => props.onProjectInfo(session.id)}
         onOpenGit={() => props.onOpenGit(session.id)}
+        onOpenPreflight={() => props.onOpenPreflight(session.id)}
         onContextAction={(action) => props.onContextAction(session.id, action)}
         registerHandle={props.registerHandle}
       />

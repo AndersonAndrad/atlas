@@ -89,6 +89,11 @@ export interface IpcDependencies {
   writeClipboard: (text: string, target: ClipboardTarget) => Promise<void>;
   /** Reads plain text from the system clipboard. */
   readClipboard: (target: ClipboardTarget) => Promise<string>;
+  /**
+   * Shows the native save dialog and writes `text` to the chosen file; false when
+   * cancelled. Only the user's choice in the dialog decides where the file goes.
+   */
+  saveTextFile: (suggestedName: string, text: string) => Promise<boolean>;
 }
 
 const NoArgs = z.tuple([]);
@@ -101,6 +106,7 @@ const DIRECTORY_PURPOSES = [
   'session',
   'skill',
   'usage-profile',
+  'preflight-workspace',
 ] as const;
 type DirectoryPurpose = (typeof DIRECTORY_PURPOSES)[number];
 const ChoosePurposeArgs = z.union([z.tuple([]), z.tuple([z.enum(DIRECTORY_PURPOSES)])]);
@@ -111,6 +117,7 @@ const DIALOG_TITLES: Record<DirectoryPurpose, string> = {
   session: 'Select session workspace',
   skill: 'Select a skill folder or a folder of skills',
   'usage-profile': 'Select a Claude Code or Codex configuration folder',
+  'preflight-workspace': 'Select a folder to validate with Preflight',
 };
 const TerminalArgs = z.tuple([TerminalIdSchema]);
 const SessionArgs = z.tuple([AtlasSessionIdSchema]);
@@ -454,7 +461,27 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     [IPC_CHANNELS.usageRemoveProfile, 'usage.removeProfile'],
     [IPC_CHANNELS.usageSetSettings, 'usage.setSettings'],
   ];
-  for (const [channel, method] of usageChannels) {
+  // Preflight (SDD-007 Milestone A): a folder outside projects must come from the picker.
+  handle(IPC_CHANNELS.preflightAddFolder, z.tuple([z.string().min(1).max(4096)]), ([folder]) =>
+    engine.call('preflight.addFolder', folder as string, picked(folder as string)),
+  );
+  const preflightChannels: [string, EngineMethod][] = [
+    [IPC_CHANNELS.preflightWorkspaces, 'preflight.workspaces'],
+    [IPC_CHANNELS.preflightOpenProject, 'preflight.openProject'],
+    [IPC_CHANNELS.preflightRemoveWorkspace, 'preflight.removeWorkspace'],
+    [IPC_CHANNELS.preflightWorkspace, 'preflight.workspace'],
+    [IPC_CHANNELS.preflightSaveConfig, 'preflight.saveConfig'],
+    [IPC_CHANNELS.preflightDiscover, 'preflight.discover'],
+    [IPC_CHANNELS.preflightEnvironment, 'preflight.environment'],
+    [IPC_CHANNELS.preflightPlan, 'preflight.plan'],
+    [IPC_CHANNELS.preflightStart, 'preflight.start'],
+    [IPC_CHANNELS.preflightCancel, 'preflight.cancel'],
+    [IPC_CHANNELS.preflightRuns, 'preflight.runs'],
+    [IPC_CHANNELS.preflightRun, 'preflight.run'],
+    [IPC_CHANNELS.preflightOutput, 'preflight.output'],
+    [IPC_CHANNELS.preflightReport, 'preflight.report'],
+  ];
+  for (const [channel, method] of [...usageChannels, ...preflightChannels]) {
     handle(channel, ENGINE_METHOD_PARAMS[method] as unknown as z.ZodType<unknown[]>, (args) =>
       (engine.call as (name: string, ...params: unknown[]) => Promise<unknown>)(method, ...args),
     );
@@ -504,6 +531,17 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
   );
   handle(IPC_CHANNELS.readText, z.tuple([ClipboardTargetSchema]), async ([target]) =>
     deps.readClipboard((target as ClipboardTarget | undefined) ?? 'clipboard'),
+  );
+  // A plain file name only: the folder always comes from the save dialog.
+  const SuggestedNameSchema = z
+    .string()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,119}$/, 'Invalid file name.');
+  handle(
+    IPC_CHANNELS.saveText,
+    z.tuple([SuggestedNameSchema, z.string().max(COPY_TEXT_MAX_LENGTH)]),
+    async ([suggestedName, text]) => ({
+      saved: await deps.saveTextFile(suggestedName as string, text as string),
+    }),
   );
 
   // Git workflow (SDD-004). The Engine only accepts repository roots it resolved

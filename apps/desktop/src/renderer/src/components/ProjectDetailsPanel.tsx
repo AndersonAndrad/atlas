@@ -1,4 +1,11 @@
-import { Database, GitBranch, ListChecks, SquareTerminal, TriangleAlert } from 'lucide-react';
+import {
+  Database,
+  GitBranch,
+  ListChecks,
+  ShieldCheck,
+  SquareTerminal,
+  TriangleAlert,
+} from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,6 +32,8 @@ interface ProjectDetailsPanelProps {
   onOpenGit?: () => void;
   /** Opens the project's shared context. */
   onOpenContext?: () => void;
+  /** Opens Preflight (local checks) for the project. */
+  onOpenPreflight?: () => void;
 }
 
 export function ProjectDetailsPanel({
@@ -35,6 +44,7 @@ export function ProjectDetailsPanel({
   onNewSession,
   onOpenGit,
   onOpenContext,
+  onOpenPreflight,
 }: ProjectDetailsPanelProps) {
   const { project, availability, git } = details;
   const unavailable = availability.status !== 'available';
@@ -135,6 +145,12 @@ export function ProjectDetailsPanel({
               <GitBranch />
               Git
               <ActionDot reasons={pendingActions} />
+            </Button>
+          )}
+          {onOpenPreflight && (
+            <Button variant="secondary" onClick={onOpenPreflight} disabled={unavailable}>
+              <ShieldCheck />
+              Preflight
             </Button>
           )}
           {onOpenContext && (

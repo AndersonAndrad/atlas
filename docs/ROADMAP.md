@@ -13,6 +13,9 @@
 | M6a       | SDD-006 A     | Context retrieval: ranking, budgets, freshness, deduplication, cache, health, preview          | Implemented — awaiting approval       |
 | M6b       | SDD-006 B     | Skills Hub: registry, discovery, compatibility, activation, versioning, UI                     | Implemented — awaiting approval       |
 | M6c       | SDD-006 C     | Execution packages, role-specific preparation, provider switching (after SDD-004 B, SDD-005 B) | Not started (blocked)                 |
+| M7a       | SDD-007 A     | Preflight: local checks, package scripts, GitHub Actions through act, history, authorization   | Implemented — awaiting approval       |
+| M7b       | SDD-007 B     | Quality gates: commit/push/merge policies, fingerprints, stale results, overrides, hooks       | Not started (after A is validated)    |
+| M7c       | SDD-007 C     | AI-assisted correction loop, budgets, isolated worktrees, delivery reports                     | Not started (after B)                 |
 | M8a       | SDD-008 A     | Multi-account management: authentication, permissions, selection per session and agent         | Not started (minimal profiles in B)   |
 | M8b       | SDD-008 B     | Usage and limits: provider limit windows, daily and weekly history, account profiles           | Implemented — awaiting approval       |
 | M8c       | SDD-008 C     | Intelligence Router: policies, limit-aware routing, authorized fallback                        | Not started (after A and B)           |

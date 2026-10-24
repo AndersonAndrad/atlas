@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -220,6 +221,15 @@ async function bootstrap(): Promise<void> {
     readClipboard: async (target) => {
       const board = target === 'selection' ? clipboard.selection : clipboard;
       return board === undefined ? '' : board.readText();
+    },
+    saveTextFile: async (suggestedName, text) => {
+      const options = { defaultPath: path.join(app.getPath('documents'), suggestedName) };
+      const result = mainWindow
+        ? await dialog.showSaveDialog(mainWindow, options)
+        : await dialog.showSaveDialog(options);
+      if (result.canceled || result.filePath === undefined) return false;
+      await writeFile(result.filePath, text, 'utf8');
+      return true;
     },
   });
 

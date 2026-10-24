@@ -11,6 +11,7 @@ import {
   GitCommitHorizontal,
   GitMerge,
   RefreshCw,
+  ShieldCheck,
   TriangleAlert,
   UserRound,
 } from 'lucide-react';
@@ -114,6 +115,8 @@ function SyncCount({
 interface GitViewProps {
   request: GitOpenRequest | null;
   onRequestHandled: () => void;
+  /** Opens Preflight for a project of the shown repository. */
+  onOpenPreflight?: (projectId: string) => void;
 }
 
 const IN_PROGRESS_TEXT = {
@@ -124,7 +127,7 @@ const IN_PROGRESS_TEXT = {
 } as const;
 
 /** Git workspace: works without AI and without a registered project. */
-export function GitView({ request, onRequestHandled }: GitViewProps) {
+export function GitView({ request, onRequestHandled, onOpenPreflight }: GitViewProps) {
   const { repositories, error: listError, reload: reloadRepositories } = useGitRepositories();
   const { preferences, update: updatePreferences } = useGitPreferences();
   const [chosenRoot, setChosenRoot] = useState<string | null>(null);
@@ -170,6 +173,8 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
     : known(preferences?.lastRepositoryRoot)
       ? preferences!.lastRepositoryRoot
       : (repositories?.[0]?.repositoryRoot ?? null);
+  const preflightProjectId = repositories?.find((entry) => entry.repositoryRoot === repositoryRoot)
+    ?.projectIds[0];
 
   const { tree, error: treeError, loading, refresh } = useGitWorkingTree(repositoryRoot);
   const operations = useGitOperations(repositoryRoot);
@@ -296,6 +301,17 @@ export function GitView({ request, onRequestHandled }: GitViewProps) {
                 ))}
               </SelectContent>
             </Select>
+          )}
+          {onOpenPreflight && preflightProjectId !== undefined && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onOpenPreflight(preflightProjectId)}
+              title="Run this project's local checks"
+            >
+              <ShieldCheck />
+              Preflight
+            </Button>
           )}
           {repositoryRoot !== null && (
             <OperationsButton

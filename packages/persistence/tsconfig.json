@@ -32,6 +32,9 @@
     },
     {
       "path": "../usage"
+    },
+    {
+      "path": "../preflight"
     }
   ]
 }

@@ -26,6 +26,8 @@ interface SessionDetailsPanelProps {
   details: AtlasSessionDetails;
   events: SessionEvent[];
   onEdit: () => void;
+  /** Opens Preflight for the session's project; absent without a project. */
+  onOpenPreflight?: () => void;
   /** Asks for confirmation before destructive actions (cancel). */
   onRequestAction: (action: SessionAction) => void;
   onChanged: () => void;
@@ -37,6 +39,7 @@ export function SessionDetailsPanel({
   details,
   events,
   onEdit,
+  onOpenPreflight,
   onRequestAction,
   onChanged,
 }: SessionDetailsPanelProps) {
@@ -75,6 +78,12 @@ export function SessionDetailsPanel({
           </p>
         </div>
         <div className="flex flex-wrap gap-2" data-testid="session-actions">
+          {onOpenPreflight && (
+            <Button variant="outline" onClick={onOpenPreflight}>
+              <ShieldCheck />
+              Preflight
+            </Button>
+          )}
           {session.status === 'DRAFT' && session.archivedAt === null && (
             <Button variant="outline" onClick={onEdit}>
               Edit

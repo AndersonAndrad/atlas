@@ -483,6 +483,30 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
       return null;
     },
     'usage.setSettings': ([changes]: [unknown]) => engine.usage.updateSettings(changes),
+    // Preflight (SDD-007 Milestone A). `explicit`: the folder was chosen in the native picker.
+    'preflight.workspaces': () => engine.preflight.listWorkspaces(),
+    'preflight.openProject': ([projectId]: [string]) => engine.preflight.openProject(projectId),
+    'preflight.addFolder': ([folder, explicit]: [string, boolean]) =>
+      engine.preflight.addFolder(folder, explicit),
+    'preflight.removeWorkspace': async ([id]: [string]) => {
+      await engine.preflight.removeWorkspace(id);
+      return null;
+    },
+    'preflight.workspace': ([id]: [string]) => engine.preflight.workspace(id),
+    'preflight.saveConfig': ([id, config]: [string, unknown]) =>
+      engine.preflight.saveConfig(id, config),
+    'preflight.discover': ([id]: [string]) => engine.preflight.discover(id),
+    'preflight.environment': ([refresh]: [boolean]) => engine.preflight.environment(refresh),
+    'preflight.plan': ([selection]: [unknown]) => engine.preflight.plan(selection),
+    'preflight.start': ([input]: [unknown]) => engine.preflight.start(input),
+    'preflight.cancel': async ([runId]: [string]) => {
+      await engine.preflight.cancel(runId);
+      return null;
+    },
+    'preflight.runs': ([query]: [unknown]) => engine.preflight.runs(query),
+    'preflight.run': ([runId]: [string]) => engine.preflight.run(runId),
+    'preflight.output': ([query]: [unknown]) => engine.preflight.output(query),
+    'preflight.report': ([runId]: [string]) => engine.preflight.report(runId),
     'sessions.getSettings': () => engine.sessionSettings.get(),
     'sessions.setSettings': ([input]: [unknown]) => engine.sessionSettings.update(input),
   };

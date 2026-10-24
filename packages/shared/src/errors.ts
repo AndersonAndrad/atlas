@@ -26,6 +26,10 @@ export const ERROR_CODES = [
   'QUICK_COMMAND_NOT_FOUND',
   'USAGE_PROFILE_NOT_FOUND',
   'USAGE_PROFILE_UNAUTHORIZED',
+  'PREFLIGHT_NOT_FOUND',
+  'PREFLIGHT_UNAUTHORIZED',
+  'PREFLIGHT_AUTHORIZATION_REQUIRED',
+  'PREFLIGHT_BUSY',
   'ENGINE_UNAVAILABLE',
   'VALIDATION_FAILED',
   'INTERNAL_ERROR',
@@ -70,6 +74,13 @@ export const USER_MESSAGES: Record<ErrorCode, string> = {
   USAGE_PROFILE_NOT_FOUND: 'The account profile could not be found. It may have been removed.',
   USAGE_PROFILE_UNAUTHORIZED:
     'This folder cannot be used as an account profile. Choose it in the folder picker.',
+  PREFLIGHT_NOT_FOUND:
+    'The Preflight workspace or run could not be found. It may have been removed.',
+  PREFLIGHT_UNAUTHORIZED:
+    'This folder cannot be validated. Choose it in the folder picker or register it as a project.',
+  PREFLIGHT_AUTHORIZATION_REQUIRED:
+    'Some checks need your authorization before they run. Review them and try again.',
+  PREFLIGHT_BUSY: 'A Preflight run is already in progress for this workspace.',
   ENGINE_UNAVAILABLE:
     'The ATLAS Engine is not running. Start (or restart) A.T.L.A.S and try again.',
   VALIDATION_FAILED: 'Some fields are invalid. Review them and try again.',

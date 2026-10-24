@@ -580,3 +580,28 @@ superseded decisions are marked, not deleted.
   app-server protocol is experimental: unexpected answers show "unavailable" with a reason,
   never numbers. Claude daily activity covers ATLAS sessions only (API time, list-price cost
   as an estimate); the status line's token fields are the context window, not usage.
+
+## ADR-059 — Preflight runs authorized definitions locally and says where (PLAN-028)
+
+- **Decision**: Preflight (SDD-007 Milestone A) is an Engine service with no AI dependency.
+  Checks are commands, package scripts or GitHub Actions jobs run through `act`. A check runs
+  only after the developer authorized the SHA-256 digest of what it runs (command, script
+  body, workflow file, settings); checks whose commands or steps look like they change
+  something outside the computer are authorized on every run, and a check whose files changed
+  after authorization is blocked. A check passes only on exit code 0; blocked, unsupported,
+  skipped and cancelled checks make a run incomplete, never passed. Results record where they
+  ran (local shell or local act runner) and the code state (HEAD plus a fingerprint of staged,
+  unstaged and untracked changes). Jobs that need secrets are blocked; act gets a minimal
+  environment, empty secret/variable/input/`.env` files and no Docker socket. Process trees
+  are managed by code shared with the pre-commit steps. Workflows are parsed with `yaml`
+  2.9.1 (exact).
+- **Alternatives**: Milestones A and B together (rejected: larger unreviewed change, against
+  the specification's order); reusing the pre-commit step model (too narrow: five steps, no
+  profiles or workflows); listing jobs with `act -l` (needs act installed and does not show
+  steps, actions or secrets); storing logs in SQLite (unbounded database growth); secret
+  mapping now (deferred by the developer: Q1).
+- **Consequences**: Local commands are not sandboxed and see the terminal environment, like
+  a terminal; Docker is not full isolation (risks R1 and R2 acknowledged by the developer).
+  Side-effect detection is a pattern list and the digest does not cover files a command
+  calls. act runs were validated only with a fake binary until act is installed. Milestone B
+  must design its own stale-result rules on top of the fingerprint.
