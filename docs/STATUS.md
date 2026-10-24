@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-23 — PLAN-031 (session usage of the open LLM in the terminal header).
+Last updated: 2026-10-24 — PLAN-032 (SDD-010 Milestone A: Project Hub notes).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -33,8 +33,26 @@ Preflight local validation) is implemented and awaits approval; SDD-007 Mileston
 are not started. PLAN-030 (SDD-009 Milestone A: notification center with Git and Preflight
 events; commits run in the background) is implemented and awaits approval; SDD-009
 Milestones B and C are not started. PLAN-031 (the terminal header shows the Claude Code
-account open in it with its session usage) is implemented and awaits approval. Version
-0.23.0 (schema v11).
+account open in it with its session usage) is implemented and awaits approval. PLAN-032
+(SDD-010 Milestone A: Project Hub with Markdown notes) is implemented and awaits approval;
+SDD-010 Milestones B (tasks) and C (Jira) are not started. Version 0.24.0 (schema v12).
+
+## PLAN-032 — SDD-010 Milestone A: Project Hub notes
+
+- New Project Hub view (below Projects): project selector (projects, Global notes, All
+  notes) and sections Overview · Notes · Tasks · Jira; Tasks and Jira are marked "soon" and
+  hold no data.
+- Markdown notes per project, per folder (kept when a project is removed from the registry)
+  or global: create, edit with a formatting toolbar, Edit / Split / Preview, categories with
+  autocomplete, pin, archive, delete, search (SQLite FTS5) and filters. Notes survive
+  restarts (schema v12).
+- Links `atlas:note/…`, `atlas:session/…`, `atlas:branch/…`, `atlas:file/…` are checked
+  (broken ones are struck through); files are only revealed in Finder, never opened.
+- Saving a note changed elsewhere asks what to keep; nothing is overwritten silently.
+- Preview never runs scripts or loads images; only web and e-mail links open outside ATLAS.
+- New exact dependencies: react-markdown 10.1.0, remark-gfm 4.0.1 (renderer bundle).
+- Not yet: notes as AI context (Milestone B), revision history, tasks, Jira.
+- Details: `docs/sdd/SDD-010-project-hub.md`, ADR-062.
 
 ## PLAN-031 — Session usage of the open LLM in the terminal header
 

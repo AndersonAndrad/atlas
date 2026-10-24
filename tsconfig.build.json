@@ -13,6 +13,7 @@
     { "path": "packages/usage" },
     { "path": "packages/preflight" },
     { "path": "packages/notifications" },
+    { "path": "packages/notes" },
     { "path": "packages/persistence" },
     { "path": "apps/engine" },
     { "path": "apps/cli" }

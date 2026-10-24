@@ -639,4 +639,35 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX notifications_unread ON notifications (read_at, created_at);
     `,
   },
+  {
+    version: 12,
+    name: 'project_notes',
+    // Project Hub notes (SDD-010 Milestone A). Additive. A note of a project removed from
+    // the registry keeps its folder and becomes a workspace note (PLAN-032 Q2).
+    sql: `
+      CREATE TABLE notes (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        project_id TEXT REFERENCES projects (id) ON DELETE SET NULL,
+        workspace_path TEXT CHECK (workspace_path IS NULL OR length(workspace_path) > 0),
+        title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
+        content TEXT NOT NULL CHECK (length(content) <= 200000),
+        category TEXT CHECK (category IS NULL OR length(category) BETWEEN 1 AND 60),
+        pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)),
+        archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)),
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        -- A project note always knows its folder; a global note has neither.
+        CHECK (project_id IS NULL OR workspace_path IS NOT NULL)
+      ) STRICT;
+      CREATE INDEX notes_project ON notes (project_id, archived, pinned, updated_at);
+      CREATE INDEX notes_workspace ON notes (workspace_path, archived, pinned, updated_at);
+      CREATE VIRTUAL TABLE notes_search USING fts5 (note_id UNINDEXED, title, content);
+      -- Project notes follow the project when its folder changes.
+      CREATE TRIGGER notes_follow_project_folder AFTER UPDATE OF workspace_path ON projects
+      BEGIN
+        UPDATE notes SET workspace_path = NEW.workspace_path WHERE project_id = NEW.id;
+      END;
+    `,
+  },
 ];

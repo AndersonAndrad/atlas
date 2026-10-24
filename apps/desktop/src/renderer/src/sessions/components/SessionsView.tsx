@@ -39,6 +39,8 @@ interface SessionsViewProps {
   onCreateRequestHandled: () => void;
   /** Opens Preflight for a session's project. */
   onOpenPreflight?: (projectId: string) => void;
+  /** Shows a session (e.g. from a note link), once per nonce. */
+  showRequest?: { sessionId: string; nonce: number } | null;
 }
 
 /** ATLAS Sessions: persistent orchestration records. Nothing here executes AI work. */
@@ -47,6 +49,7 @@ export function SessionsView({
   createRequest,
   onCreateRequestHandled,
   onOpenPreflight,
+  showRequest = null,
 }: SessionsViewProps) {
   const [includeArchived, setIncludeArchived] = useState(false);
   const { items, error: listError, reload } = useSessions(includeArchived);
@@ -75,6 +78,13 @@ export function SessionsView({
   useEffect(() => {
     if (createRequest !== null) onCreateRequestHandled();
   }, [createRequest, onCreateRequestHandled]);
+  const [shownRequest, setShownRequest] = useState<number | null>(null);
+  if (showRequest !== null && showRequest.nonce !== shownRequest) {
+    setShownRequest(showRequest.nonce);
+    setSelectedId(showRequest.sessionId);
+    // The session may be archived; listing archived sessions keeps it selectable.
+    setIncludeArchived(true);
+  }
 
   async function perform(sessionId: string, action: SessionAction) {
     setActionError(null);

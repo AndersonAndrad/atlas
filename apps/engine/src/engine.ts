@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access, chmod, mkdir, readdir, stat, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, readdir, realpath, stat, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -39,6 +39,7 @@ import {
   SqliteUsageRepository,
   SqlitePreflightRepository,
   SqliteNotificationRepository,
+  SqliteNoteRepository,
   SqliteTerminalGroupRepository,
   SqliteTerminalSessionRepository,
   getSchemaVersion,
@@ -102,6 +103,7 @@ import {
   gitOperationNotification,
   preflightRunNotification,
 } from '@atlas/notifications';
+import { NotesService } from '@atlas/notes';
 import { createGitExecutor, createGitRunner } from './git/git-runner.js';
 import { captureLoginShellEnvironment } from './adapters/login-shell-environment.js';
 import { LlmSessionTracker } from './llm-session-tracker.js';
@@ -173,6 +175,8 @@ export interface Engine {
   readonly preflight: PreflightService;
   /** Notification center (SDD-009 Milestone A). */
   readonly notifications: NotificationService;
+  /** Project Hub notes (SDD-010 Milestone A). */
+  readonly notes: NotesService;
   /** Work that stops when the Engine stops; the desktop asks before quitting. */
   backgroundWork(): BackgroundWork;
   /** Automatic recording of LLM sessions in ATLAS terminals (PLAN-021). */
@@ -589,6 +593,49 @@ export function createEngine(options: EngineOptions = {}): Engine {
         })),
     logger,
   });
+  /** Folder of a registered project, without checking it is reachable. */
+  const projectWorkspace = async (projectId: string): Promise<string> => {
+    const project = await projects.findById(projectId);
+    if (project === null) {
+      throw new AtlasError('PROJECT_NOT_FOUND', undefined, { details: { projectId } });
+    }
+    return project.workspacePath;
+  };
+  const notes = new NotesService({
+    repository: new SqliteNoteRepository(db),
+    clock,
+    generateId: randomUUID,
+    logger,
+    onChange: (noteId) => terminals?.publish({ type: 'notes', noteId }),
+    links: {
+      projectWorkspace,
+      sessionTitle: async (id) => {
+        try {
+          return (await sessions.get(id)).name;
+        } catch (error) {
+          if (error instanceof AtlasError && error.code === 'SESSION_NOT_FOUND') return null;
+          throw error;
+        }
+      },
+      branchNames: async (projectId) => {
+        const status = await git.inspect(await projectWorkspace(projectId));
+        if (status.state !== 'repository') return new Set();
+        const branches = await gitWorkspace.branches(status.snapshot.repositoryRoot);
+        return new Set(branches.local.map((branch) => branch.name));
+      },
+      // Symbolic links are resolved first, so a link cannot point outside the folder.
+      resolveFile: async (projectId, relativePath) => {
+        try {
+          const root = await realpath(await projectWorkspace(projectId));
+          const target = await realpath(path.join(root, ...relativePath.split('/')));
+          return target === root || target.startsWith(root + path.sep) ? target : null;
+        } catch (error) {
+          if (error instanceof AtlasError) throw error;
+          return null;
+        }
+      },
+    },
+  });
   // Provider CLIs are found on the Engine's PATH, then on the user's login shell PATH
   // (a desktop app started from the Dock or a launcher has a minimal PATH).
   let loginShellPath: Promise<string> | null = null;
@@ -994,6 +1041,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
     usage,
     preflight,
     notifications,
+    notes,
     backgroundWork: () => ({
       gitOperations: gitOperations
         .list()

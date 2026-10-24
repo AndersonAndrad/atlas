@@ -4,6 +4,8 @@ import { defineConfig } from 'vitest/config';
 const src = (relative: string) => fileURLToPath(new URL(relative, import.meta.url));
 
 export default defineConfig({
+  // Renderer components (.tsx) use the automatic JSX runtime, as in the desktop build.
+  esbuild: { jsx: 'automatic' },
   resolve: {
     alias: [
       { find: /^@atlas\/shared$/, replacement: src('./packages/shared/src/index.ts') },
@@ -25,6 +27,7 @@ export default defineConfig({
         find: /^@atlas\/notifications$/,
         replacement: src('./packages/notifications/src/index.ts'),
       },
+      { find: /^@atlas\/notes$/, replacement: src('./packages/notes/src/index.ts') },
       { find: /^@atlas\/persistence$/, replacement: src('./packages/persistence/src/index.ts') },
       { find: /^@atlas\/engine$/, replacement: src('./apps/engine/src/index.ts') },
     ],

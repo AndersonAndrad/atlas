@@ -6,6 +6,7 @@ import {
   GitBranch,
   KeyRound,
   ListChecks,
+  NotebookTabs,
   Settings,
   ShieldCheck,
   Sparkles,
@@ -19,6 +20,7 @@ import { cn } from '@/lib/utils';
 
 export type AppView =
   | 'projects'
+  | 'hub'
   | 'terminals'
   | 'git'
   | 'preflight'
@@ -38,6 +40,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: 'projects', label: 'Projects', icon: FolderGit2, view: 'projects' },
+  { id: 'hub', label: 'Project Hub', icon: NotebookTabs, view: 'hub' },
   { id: 'terminals', label: 'Terminals', icon: SquareTerminal, view: 'terminals' },
   { id: 'git', label: 'Git', icon: GitBranch, view: 'git' },
   { id: 'preflight', label: 'Preflight', icon: ShieldCheck, view: 'preflight' },

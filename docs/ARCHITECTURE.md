@@ -475,6 +475,26 @@ a Preflight run), never commands or URLs. Commits run in the background: the com
 hands the running commit to the Git operations panel. Quitting asks first while Git
 operations or Preflight runs are in progress (`engine.backgroundWork`).
 
+### Project Hub notes (SDD-010 Milestone A)
+
+Full description: `docs/sdd/SDD-010-project-hub.md`.
+
+```text
+ Project Hub view ─► atlas.notes (preload) ─► main IPC ─► Engine `notes.*`
+                                                            │
+        NotesService (packages/notes) ─► SqliteNoteRepository (migration v12, FTS5)
+                │  link targets: projects, sessions, Git branches, files inside the project
+                └─► lifecycle event { type: 'notes', noteId } ─► renderer lists reload
+```
+
+Notes belong to a project (and its folder), to a folder whose project was removed, or to no
+project (global). Updates name the revision they edited and fail with `NOTE_CONFLICT`
+otherwise. The preview renders untrusted Markdown with `react-markdown` without raw HTML;
+URLs are limited to http(s), mailto and `atlas:` links, images are not loaded, and the main
+process opens only http(s) and mailto links. `atlas:file/...` links are resolved by the
+Engine inside the project's folder (after symbolic links) and only revealed in the file
+manager. Notes are not exposed to the CLI.
+
 ### Project context of a terminal
 
 `Engine.terminalProjectContext` reports the associated project and the deepest registered
@@ -608,7 +628,9 @@ terminals running as standalone terminals (SDD-003 §2).
   reconciliation runs (additive). Schema v7: Git operation and command log (additive).
   Schema v8: Skills Hub (additive). Schema v9: usage profiles, limit window snapshots,
   daily usage, session progress (additive). Schema v10: Preflight workspaces,
-  authorizations and runs (additive). Schema v11: notifications (additive).
+  authorizations and runs (additive). Schema v11: notifications (additive). Schema v12:
+  Project Hub notes with FTS5 search (additive; project removal keeps notes as workspace
+  notes).
 - Data dir: macOS `~/Library/Application Support/ATLAS`, Windows `%APPDATA%\ATLAS`, Linux
   `$XDG_DATA_HOME/atlas`; `ATLAS_DATA_DIR` overrides.
 

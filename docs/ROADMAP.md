@@ -22,6 +22,9 @@
 | M9a       | SDD-009 A     | Notification center: bell, history, toasts, Git and Preflight events, background commits       | Implemented — awaiting approval       |
 | M9b       | SDD-009 B     | Native notifications, background task events, agent events, deduplication, priorities          | Not started (after A is validated)    |
 | M9c       | SDD-009 C     | Notification preferences, per-project overrides, Quiet Mode, configurable retention            | Not started (after B)                 |
+| M10a      | SDD-010 A     | Project Hub: Markdown notes per project, folder or global; search, pin, archive, links         | Implemented — awaiting approval       |
+| M10b      | SDD-010 B     | Local task manager: TODO lists, board, checklists, sessions, Git links, AI delegation          | Not started (after A is validated)    |
+| M10c      | SDD-010 C     | Multiple Jira Cloud connections, mappings, read-only sync, issues as session objectives        | Not started (after B)                 |
 | M4        | TBD           | Agents and multi-agent orchestration                                                           | Not started                           |
 | M5        | TBD           | Skills Hub and Context Engine                                                                  | Not started                           |
 | M6        | PLAN-024      | Packaging and CI release pipeline (done); signing, notarization, auto-update (not started)     | Partially implemented                 |

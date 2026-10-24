@@ -640,3 +640,21 @@ superseded decisions are marked, not deleted.
   needed: process liveness also covers killed terminals, and the wrapper keeps `exec`).
 - **Consequences**: No schema change. Values change only when Claude Code refreshes its
   status line. Codex needs its own run tracking and is left to a later plan.
+
+## ADR-062 — Project Hub notes live in SQLite with revision checks and sanitized Markdown (PLAN-032)
+
+- **Decision**: Notes are a new Engine service (`packages/notes`) stored in the existing
+  database (migration v12) with an FTS5 index maintained by the repository. Every update
+  names the revision it edited and the write is conditional on it (`NOTE_CONFLICT`
+  otherwise). Removing a project keeps its notes as workspace notes (`ON DELETE SET NULL`,
+  folder kept). The preview uses `react-markdown` + `remark-gfm` without raw HTML, a URL
+  allowlist and no image loading; internal `atlas:` links are validated by the Engine, and
+  file links are only revealed after a realpath check inside the project.
+- **Alternatives**: `marked` + DOMPurify (rejected: HTML strings and `innerHTML` widen the
+  XSS surface); CodeMirror (rejected for now: several new dependencies, the specification
+  asks for a lightweight editor); deleting notes with their project (rejected by the
+  developer, Q2); notes as Shared Context entries (rejected: different lifecycle and
+  ownership; attaching selected notes to AI context comes with Milestone B); last write wins
+  (rejected: FR-1008 requires conflict detection).
+- **Consequences**: Two exact-pinned renderer dependencies (bundled, not shipped as
+  runtime packages). No revision history or merge. Tasks and Jira remain to be planned.

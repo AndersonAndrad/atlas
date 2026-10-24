@@ -225,7 +225,9 @@ export type TerminalEvent =
   /** Notifications changed; `created` is set when one was just published (for a toast). */
   | { type: 'notifications'; created: AtlasNotification | null }
   /** The LLM open in a terminal, or its account's usage, may have changed (PLAN-031). */
-  | { type: 'llm-usage' };
+  | { type: 'llm-usage' }
+  /** Project Hub notes changed in any client (SDD-010). */
+  | { type: 'notes'; noteId: string };
 
 export const TERMINAL_FONT_FAMILIES = ['system', 'menlo', 'sf-mono', 'monaco', 'courier'] as const;
 export type TerminalFontFamily = (typeof TERMINAL_FONT_FAMILIES)[number];

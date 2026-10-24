@@ -98,3 +98,57 @@
 .terminal-host .xterm-viewport {
   background-color: var(--terminal-background) !important;
 }
+
+/* Rendered Markdown of Project Hub notes (SDD-010). */
+.note-markdown {
+  @apply text-sm leading-6 break-words;
+}
+.note-markdown > * + * {
+  @apply mt-3;
+}
+.note-markdown h1 {
+  @apply text-xl font-semibold;
+}
+.note-markdown h2 {
+  @apply text-lg font-semibold;
+}
+.note-markdown h3,
+.note-markdown h4,
+.note-markdown h5,
+.note-markdown h6 {
+  @apply text-base font-semibold;
+}
+.note-markdown ul {
+  @apply list-disc pl-6;
+}
+.note-markdown ol {
+  @apply list-decimal pl-6;
+}
+.note-markdown li.task-list-item {
+  @apply list-none -ml-5;
+}
+.note-markdown li.task-list-item input {
+  @apply mr-2 align-middle;
+}
+.note-markdown blockquote {
+  @apply text-muted-foreground border-l-2 pl-3;
+}
+.note-markdown code {
+  @apply bg-muted rounded px-1 py-0.5 font-mono text-[0.85em];
+}
+.note-markdown pre {
+  @apply bg-muted overflow-x-auto rounded-md p-3;
+}
+.note-markdown pre code {
+  @apply bg-transparent p-0;
+}
+.note-markdown table {
+  @apply block w-max max-w-full overflow-x-auto border-collapse;
+}
+.note-markdown th,
+.note-markdown td {
+  @apply border px-2 py-1 text-left;
+}
+.note-markdown hr {
+  @apply border-border;
+}

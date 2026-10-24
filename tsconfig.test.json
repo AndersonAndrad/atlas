@@ -8,6 +8,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "lib": ["ES2023", "DOM"],
+    "jsx": "react-jsx",
     "types": ["node"],
     "paths": {
       "@atlas/shared": ["./packages/shared/src/index.ts"],
@@ -22,6 +23,7 @@
       "@atlas/skills": ["./packages/skills/src/index.ts"],
       "@atlas/usage": ["./packages/usage/src/index.ts"],
       "@atlas/notifications": ["./packages/notifications/src/index.ts"],
+      "@atlas/notes": ["./packages/notes/src/index.ts"],
       "@atlas/persistence": ["./packages/persistence/src/index.ts"],
       "@atlas/engine": ["./apps/engine/src/index.ts"]
     }

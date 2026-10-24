@@ -261,6 +261,16 @@ const api: AtlasApi = {
     remove: (id) => ipcRenderer.invoke(IPC_CHANNELS.notificationsRemove, id),
     clear: () => ipcRenderer.invoke(IPC_CHANNELS.notificationsClear),
   },
+  notes: {
+    list: (query) => ipcRenderer.invoke(IPC_CHANNELS.notesList, query),
+    get: (id) => ipcRenderer.invoke(IPC_CHANNELS.notesGet, id),
+    create: (input) => ipcRenderer.invoke(IPC_CHANNELS.notesCreate, input),
+    update: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.notesUpdate, id, input),
+    remove: (id) => ipcRenderer.invoke(IPC_CHANNELS.notesRemove, id),
+    checkLinks: (input) => ipcRenderer.invoke(IPC_CHANNELS.notesCheckLinks, input),
+    revealFile: (input) => ipcRenderer.invoke(IPC_CHANNELS.notesRevealFile, input),
+    openExternal: (url) => ipcRenderer.invoke(IPC_CHANNELS.notesOpenExternal, url),
+  },
   ai: {
     start: (input) => ipcRenderer.invoke(IPC_CHANNELS.aiStart, input),
     attach: (input) => ipcRenderer.invoke(IPC_CHANNELS.aiAttach, input),

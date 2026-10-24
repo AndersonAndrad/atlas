@@ -58,6 +58,7 @@ import {
   type ClipboardTarget,
   type DirectoryChoice,
   type IpcResult,
+  type RevealNoteFileInput,
 } from '@atlas/contracts';
 import { AtlasError, describeError, toSerializedError, type Logger } from '@atlas/shared';
 import type {
@@ -94,9 +95,24 @@ export interface IpcDependencies {
    * cancelled. Only the user's choice in the dialog decides where the file goes.
    */
   saveTextFile: (suggestedName: string, text: string) => Promise<boolean>;
+  /** Shows a file in the system file manager without opening it (SDD-010 FR-1006). */
+  revealPath: (absolutePath: string) => void;
+  /** Opens an http(s) or mailto URL with the system handler. */
+  openExternal: (url: string) => Promise<void>;
 }
 
 const NoArgs = z.tuple([]);
+/** Links of notes that may leave the app: web pages and e-mail only (SDD-010 §9). */
+export const ExternalUrlSchema = z
+  .string()
+  .max(2048)
+  .refine((value) => {
+    try {
+      return ['http:', 'https:', 'mailto:'].includes(new URL(value).protocol);
+    } catch {
+      return false;
+    }
+  }, 'Only web and e-mail links can be opened.');
 const IdArgs = z.tuple([ProjectIdSchema]);
 const PositionSchema = z.number().int().min(0).max(10_000);
 const DIRECTORY_PURPOSES = [
@@ -484,6 +500,28 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     [IPC_CHANNELS.preflightOutput, 'preflight.output'],
     [IPC_CHANNELS.preflightReport, 'preflight.report'],
   ];
+  // Project Hub notes (SDD-010 Milestone A).
+  const noteChannels: [string, EngineMethod][] = [
+    [IPC_CHANNELS.notesList, 'notes.list'],
+    [IPC_CHANNELS.notesGet, 'notes.get'],
+    [IPC_CHANNELS.notesCreate, 'notes.create'],
+    [IPC_CHANNELS.notesUpdate, 'notes.update'],
+    [IPC_CHANNELS.notesRemove, 'notes.remove'],
+    [IPC_CHANNELS.notesCheckLinks, 'notes.checkLinks'],
+  ];
+  // The Engine resolves the link inside the project's folder; the renderer never sends a path.
+  handle(
+    IPC_CHANNELS.notesRevealFile,
+    ENGINE_METHOD_PARAMS['notes.filePath'] as unknown as z.ZodType<unknown[]>,
+    async ([input]) => {
+      deps.revealPath(await engine.call('notes.filePath', input as RevealNoteFileInput));
+      return null;
+    },
+  );
+  handle(IPC_CHANNELS.notesOpenExternal, z.tuple([ExternalUrlSchema]), async ([url]) => {
+    await deps.openExternal(url as string);
+    return null;
+  });
   const notificationChannels: [string, EngineMethod][] = [
     [IPC_CHANNELS.notificationsList, 'notifications.list'],
     [IPC_CHANNELS.notificationsMarkRead, 'notifications.markRead'],
@@ -495,6 +533,7 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     ...usageChannels,
     ...preflightChannels,
     ...notificationChannels,
+    ...noteChannels,
   ]) {
     handle(channel, ENGINE_METHOD_PARAMS[method] as unknown as z.ZodType<unknown[]>, (args) =>
       (engine.call as (name: string, ...params: unknown[]) => Promise<unknown>)(method, ...args),

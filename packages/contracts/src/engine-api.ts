@@ -174,6 +174,17 @@ import {
   type NotificationList,
 } from './notification.js';
 import {
+  CheckNoteLinksSchema,
+  CreateNoteSchema,
+  NoteIdSchema,
+  NoteListQuerySchema,
+  RevealNoteFileSchema,
+  UpdateNoteSchema,
+  type NoteLinkStatus,
+  type NoteList,
+  type ProjectNote,
+} from './notes.js';
+import {
   AtlasSessionIdSchema,
   ListSessionsInputSchema,
   SessionActionSchema,
@@ -413,6 +424,15 @@ export const ENGINE_METHOD_PARAMS = {
   'notifications.remove': z.tuple([NotificationIdSchema]),
   'notifications.clear': z.tuple([]),
   'engine.backgroundWork': z.tuple([]),
+  // Project Hub notes (SDD-010 Milestone A).
+  'notes.list': z.tuple([NoteListQuerySchema]),
+  'notes.get': z.tuple([NoteIdSchema]),
+  'notes.create': z.tuple([CreateNoteSchema]),
+  'notes.update': z.tuple([NoteIdSchema, UpdateNoteSchema]),
+  'notes.remove': z.tuple([NoteIdSchema]),
+  'notes.checkLinks': z.tuple([CheckNoteLinksSchema]),
+  /** Absolute path of an `atlas:file/...` link inside the project; for revealing it. */
+  'notes.filePath': z.tuple([RevealNoteFileSchema]),
 } as const;
 
 export type EngineMethod = keyof typeof ENGINE_METHOD_PARAMS;
@@ -619,6 +639,13 @@ export interface EngineMethodResults {
   'notifications.remove': null;
   'notifications.clear': null;
   'engine.backgroundWork': BackgroundWork;
+  'notes.list': NoteList;
+  'notes.get': ProjectNote;
+  'notes.create': ProjectNote;
+  'notes.update': ProjectNote;
+  'notes.remove': null;
+  'notes.checkLinks': NoteLinkStatus[];
+  'notes.filePath': string;
 }
 
 export type EngineMethodParams<M extends EngineMethod> = z.input<(typeof ENGINE_METHOD_PARAMS)[M]>;

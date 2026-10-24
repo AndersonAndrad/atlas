@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron';
@@ -49,6 +49,8 @@ describe('desktop IPC handlers', () => {
   let workspace: string;
   let copied: string[] = [];
   let saved: { suggestedName: string; text: string }[] = [];
+  let revealed: string[] = [];
+  let opened: string[] = [];
 
   const trustedEvent = {} as IpcMainInvokeEvent;
   const invoke = <T>(channel: string, ...args: unknown[]) =>
@@ -80,6 +82,8 @@ describe('desktop IPC handlers', () => {
     await engine.initialize();
     events = [];
     saved = [];
+    revealed = [];
+    opened = [];
     engine.terminals!.onEvent((event, subscriberId) => events.push({ event, subscriberId }));
     const dispatcher = createEngineDispatcher(engine);
     const caller: EngineCaller = {
@@ -109,6 +113,10 @@ describe('desktop IPC handlers', () => {
         saved.push({ suggestedName, text });
         return true;
       },
+      revealPath: (absolutePath: string) => revealed.push(absolutePath),
+      openExternal: async (url: string) => {
+        opened.push(url);
+      },
       isTrustedSender: () => trusted,
       showOpenDialog: async () =>
         pickedPath === undefined
@@ -136,6 +144,47 @@ describe('desktop IPC handlers', () => {
       workspacePath: inspection.inputPath,
     });
     expect(created).toMatchObject({ ok: true, data: { workspacePath: workspace } });
+  });
+
+  it('stores notes and reveals only files inside the project of the link', async () => {
+    const project = await registerProject();
+    writeFileSync(path.join(workspace, 'README.md'), '# W');
+    const created = await invoke<{ id: string; revision: number }>(IPC_CHANNELS.notesCreate, {
+      projectId: project.id,
+      title: 'Decisions',
+      content: 'See [readme](atlas:file/README.md)',
+    });
+    expect(created).toMatchObject({ ok: true, data: { revision: 1 } });
+    expect(
+      await invoke(IPC_CHANNELS.notesList, { scope: { kind: 'project', projectId: project.id } }),
+    ).toMatchObject({ ok: true, data: { counts: { active: 1 }, notes: [{ title: 'Decisions' }] } });
+
+    expect(
+      await invoke(IPC_CHANNELS.notesRevealFile, {
+        projectId: project.id,
+        href: 'atlas:file/README.md',
+      }),
+    ).toEqual({ ok: true, data: null });
+    expect(revealed).toEqual([path.join(realpathSync(workspace), 'README.md')]);
+    for (const href of ['atlas:file/../data', 'atlas:file/missing.md', 'atlas:note/x']) {
+      expect(
+        await invoke(IPC_CHANNELS.notesRevealFile, { projectId: project.id, href }),
+      ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+    }
+    expect(revealed).toHaveLength(1);
+  });
+
+  it('opens only web and e-mail links of notes outside the app', async () => {
+    for (const url of ['https://example.com/a', 'mailto:dev@example.com']) {
+      expect(await invoke(IPC_CHANNELS.notesOpenExternal, url)).toEqual({ ok: true, data: null });
+    }
+    for (const url of ['javascript:alert(1)', 'file:///etc/passwd', 'data:text/html,x', 'x']) {
+      expect(await invoke(IPC_CHANNELS.notesOpenExternal, url)).toMatchObject({
+        ok: false,
+        error: { code: 'VALIDATION_FAILED' },
+      });
+    }
+    expect(opened).toEqual(['https://example.com/a', 'mailto:dev@example.com']);
   });
 
   it('reports a cancelled picker', async () => {

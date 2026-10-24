@@ -14,6 +14,7 @@ import {
   dialog,
   ipcMain,
   session,
+  shell,
   utilityProcess,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
@@ -232,6 +233,8 @@ async function bootstrap(): Promise<void> {
       await writeFile(result.filePath, text, 'utf8');
       return true;
     },
+    revealPath: (absolutePath) => shell.showItemInFolder(absolutePath),
+    openExternal: (url) => shell.openExternal(url),
   });
 
   Menu.setApplicationMenu(

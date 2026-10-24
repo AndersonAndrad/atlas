@@ -20,6 +20,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       preflightKeys: Object.keys((w.atlas as { preflight: object }).preflight).sort(),
       appKeys: Object.keys((w.atlas as { app: object }).app).sort(),
       notificationKeys: Object.keys((w.atlas as { notifications: object }).notifications).sort(),
+      noteKeys: Object.keys((w.atlas as { notes: object }).notes).sort(),
     };
   });
   expect(exposure).toEqual({
@@ -35,6 +36,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'files',
       'git',
       'groups',
+      'notes',
       'notifications',
       'preflight',
       'projects',
@@ -67,6 +69,18 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
     appKeys: ['copyText', 'info', 'onCommand', 'onEngineRestarted', 'readText', 'saveText'],
     // Notifications are read, marked read or deleted by id; nothing else crosses the bridge.
     notificationKeys: ['clear', 'list', 'markAllRead', 'markRead', 'remove'],
+    // Notes never carry a filesystem path: files are revealed from a link the Engine resolves
+    // inside the project, and only web or e-mail links open outside the app.
+    noteKeys: [
+      'checkLinks',
+      'create',
+      'get',
+      'list',
+      'openExternal',
+      'remove',
+      'revealFile',
+      'update',
+    ],
     // AI CLIs are only started or tracked; no command text crosses the bridge.
     aiKeys: ['attach', 'start'],
     // Only the path of a file the user dropped; no filesystem access.

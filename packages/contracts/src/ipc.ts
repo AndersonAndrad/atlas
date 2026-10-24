@@ -70,6 +70,16 @@ import type {
   PreflightWorkspaceDetails,
 } from './preflight.js';
 import type { NotificationList, NotificationListQuery } from './notification.js';
+import type {
+  CheckNoteLinksInput,
+  CreateNoteInput,
+  NoteLinkStatus,
+  NoteList,
+  NoteListQuery,
+  ProjectNote,
+  RevealNoteFileInput,
+  UpdateNoteInput,
+} from './notes.js';
 
 import type {
   AiProvider,
@@ -340,6 +350,14 @@ export const IPC_CHANNELS = {
   notificationsMarkAllRead: 'atlas:notifications:mark-all-read',
   notificationsRemove: 'atlas:notifications:remove',
   notificationsClear: 'atlas:notifications:clear',
+  notesList: 'atlas:notes:list',
+  notesGet: 'atlas:notes:get',
+  notesCreate: 'atlas:notes:create',
+  notesUpdate: 'atlas:notes:update',
+  notesRemove: 'atlas:notes:remove',
+  notesCheckLinks: 'atlas:notes:check-links',
+  notesRevealFile: 'atlas:notes:reveal-file',
+  notesOpenExternal: 'atlas:notes:open-external',
   aiStart: 'atlas:ai:start',
   quickCommandsList: 'atlas:quick-commands:list',
   quickCommandsCreate: 'atlas:quick-commands:create',
@@ -741,6 +759,21 @@ export interface AtlasApi {
     remove(id: string): Promise<IpcResult<null>>;
     /** Deletes every notification. */
     clear(): Promise<IpcResult<null>>;
+  };
+  /** Project Hub notes (SDD-010 Milestone A); changes arrive as `notes` events. */
+  notes: {
+    list(query: NoteListQuery): Promise<IpcResult<NoteList>>;
+    get(id: string): Promise<IpcResult<ProjectNote>>;
+    create(input: CreateNoteInput): Promise<IpcResult<ProjectNote>>;
+    /** Fails with NOTE_CONFLICT when the note changed since `expectedRevision`. */
+    update(id: string, input: UpdateNoteInput): Promise<IpcResult<ProjectNote>>;
+    remove(id: string): Promise<IpcResult<null>>;
+    /** Whether `atlas:` links resolve, for marking broken ones (FR-1006). */
+    checkLinks(input: CheckNoteLinksInput): Promise<IpcResult<NoteLinkStatus[]>>;
+    /** Shows an `atlas:file/...` link of the project in the file manager; opens nothing. */
+    revealFile(input: RevealNoteFileInput): Promise<IpcResult<null>>;
+    /** Opens an http(s) or mailto link of a note in the system browser or mail client. */
+    openExternal(url: string): Promise<IpcResult<null>>;
   };
   /** Individual AI CLI sessions started or tracked by ATLAS. */
   /** Named shell commands run in a new project terminal (PLAN-023). */

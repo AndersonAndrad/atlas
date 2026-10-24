@@ -32,6 +32,11 @@ import {
   type EngineMethodResults,
   type GitCommitInput,
   type NotificationListQuery,
+  type CheckNoteLinksInput,
+  type CreateNoteInput,
+  type NoteListQuery,
+  type RevealNoteFileInput,
+  type UpdateNoteInput,
   type GitCreateBranchInput,
   type GitDiffInput,
   type GitFetchInput,
@@ -527,6 +532,17 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
       return null;
     },
     'engine.backgroundWork': () => engine.backgroundWork(),
+    // Project Hub notes (SDD-010 Milestone A); the service validates every input again.
+    'notes.list': ([query]: [NoteListQuery]) => engine.notes.list(query),
+    'notes.get': ([id]: [string]) => engine.notes.get(id),
+    'notes.create': ([input]: [CreateNoteInput]) => engine.notes.create(input),
+    'notes.update': ([id, input]: [string, UpdateNoteInput]) => engine.notes.update(id, input),
+    'notes.remove': async ([id]: [string]) => {
+      await engine.notes.remove(id);
+      return null;
+    },
+    'notes.checkLinks': ([input]: [CheckNoteLinksInput]) => engine.notes.checkLinks(input),
+    'notes.filePath': ([input]: [RevealNoteFileInput]) => engine.notes.filePath(input),
     'sessions.getSettings': () => engine.sessionSettings.get(),
     'sessions.setSettings': ([input]: [unknown]) => engine.sessionSettings.update(input),
   };

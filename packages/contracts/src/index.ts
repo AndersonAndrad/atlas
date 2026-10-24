@@ -13,3 +13,4 @@ export * from './quick-commands.js';
 export * from './usage.js';
 export * from './preflight.js';
 export * from './notification.js';
+export * from './notes.js';

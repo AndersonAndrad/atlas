@@ -38,6 +38,9 @@
     },
     {
       "path": "../notifications"
+    },
+    {
+      "path": "../notes"
     }
   ]
 }

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, unwrap } from './api';
 import { AboutDialog } from './components/AboutDialog';
 import { ProjectsView } from './components/ProjectsView';
+import { ProjectHubView } from './hub/components/ProjectHubView';
 import { SettingsView } from './components/SettingsView';
 import { GitView, type GitOpenRequest } from './git/components/GitView';
 import { ContextView, type ContextOpenRequest } from './context/components/ContextView';
@@ -36,6 +37,7 @@ export function App() {
     projectId: string | null;
     nonce: number;
   } | null>(null);
+  const [showSession, setShowSession] = useState<{ sessionId: string; nonce: number } | null>(null);
   const [gitRequest, setGitRequest] = useState<GitOpenRequest | null>(null);
   const [contextRequest, setContextRequest] = useState<ContextOpenRequest | null>(null);
   const [preflightRequest, setPreflightRequest] = useState<PreflightOpenRequest | null>(null);
@@ -202,6 +204,16 @@ export function App() {
                 onProjectRemoved={() => void terminals.reload()}
               />
             )}
+            {view === 'hub' && (
+              <ProjectHubView
+                projects={projects}
+                onOpenSession={(sessionId) => {
+                  setShowSession({ sessionId, nonce: Date.now() });
+                  setView('sessions');
+                }}
+                onOpenGit={(projectId) => openGit({ projectId })}
+              />
+            )}
             {view === 'terminals' && (
               <TerminalsView
                 projects={projects}
@@ -249,6 +261,7 @@ export function App() {
                 createRequest={sessionRequest}
                 onCreateRequestHandled={clearSessionRequest}
                 onOpenPreflight={(projectId) => openPreflight({ projectId })}
+                showRequest={showSession}
               />
             )}
             {view === 'skills' && <SkillsView projects={projects.items ?? []} />}
