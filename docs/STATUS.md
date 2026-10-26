@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-25 — PLAN-035 (zod 4.6.7: security update).
+Last updated: 2026-10-25 — PLAN-036 (macOS CI: watched-folder test race).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -40,7 +40,21 @@ code editor with Monaco, explorer and terminal panel) is implemented and awaits 
 SDD-011 Milestones B and C are not started. PLAN-034 (GitHub Actions also builds a Windows
 x64 NSIS installer; the checks still run only on Linux and macOS) is implemented and awaits
 approval. PLAN-035 (zod 4.6.5 → 4.6.7 for GHSA-mrhx-c7xc-m3w5) is implemented and awaits
-approval. Version 0.26.1 (schema v12).
+approval. PLAN-036 (the watched-folder Engine test no longer races macOS FSEvents) is
+implemented and awaits approval. Version 0.26.2 (schema v12).
+
+## PLAN-036 — Watched-folder test race on macOS CI
+
+- The first CI run after PLAN-035 failed on macOS in "reports changes in watched folders":
+  the test wrote the file right after starting the watch, and FSEvents starts
+  asynchronously and drops earlier changes. Ubuntu was canceled by `fail-fast`, and the
+  build job (Windows included) was skipped because it needs the tests.
+- The test now writes the file on every poll attempt (200 ms, 5 s limit) until a change is
+  reported. Test-only change; the editor still rechecks versions on focus and before saving.
+- Validation (2026-10-25, macOS arm64): the test passed 10/10 alone; full `pnpm test` 4 runs,
+  3 at 842/842 and 1 with an unrelated timeout in the CLI standalone-process test (two Node
+  processes under load, default 5 s limit; not changed here). Format, lint, typecheck and
+  production audit clean.
 
 ## PLAN-035 — zod security update
 

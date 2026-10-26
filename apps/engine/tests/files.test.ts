@@ -121,17 +121,21 @@ describe.skipIf(!posix)('Engine project files (SDD-011 Milestone A)', { timeout:
   it('reports changes in watched folders', async () => {
     const project = await engine.projects.create({ name: 'App', workspacePath: dir });
     await engine.files.watch('window', { projectId: project.id, directories: ['src'] });
-    writeFileSync(path.join(dir, 'src', 'app.ts'), 'changed by Claude\n');
+    // macOS FSEvents starts asynchronously and drops changes made before it is live, so the
+    // file is written again on every attempt until one change is reported.
+    let attempt = 0;
     await expect
       .poll(
-        () =>
-          events.some(
+        () => {
+          writeFileSync(path.join(dir, 'src', 'app.ts'), `changed by Claude ${++attempt}\n`);
+          return events.some(
             (event) =>
               event.type === 'files' &&
               event.projectId === project.id &&
               event.paths.includes('src/app.ts'),
-          ),
-        { timeout: 5000 },
+          );
+        },
+        { timeout: 5000, interval: 200 },
       )
       .toBe(true);
   });
