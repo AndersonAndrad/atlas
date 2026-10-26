@@ -17,6 +17,7 @@ import { GitLogSettingsSection } from '@/git/components/GitLogSettingsSection';
 import { GitSettingsSection } from '@/git/components/GitSettingsSection';
 import { SessionSettingsSection } from '@/sessions/components/SessionSettingsSection';
 import { ContextBudgetSection } from '@/context/components/ContextBudgetSection';
+import { EditorSettingsSection } from '@/editor/components/EditorSettingsSection';
 import { AppInfoList } from './AppInfoList';
 
 const SYSTEM_SHELL = '__system__';
@@ -120,6 +121,8 @@ export function SettingsView({ preferences }: SettingsViewProps) {
               </Select>
             </div>
           </section>
+
+          <EditorSettingsSection />
 
           <GitSettingsSection />
 

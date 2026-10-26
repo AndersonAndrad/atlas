@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-24 — PLAN-032 (SDD-010 Milestone A: Project Hub notes).
+Last updated: 2026-10-25 — PLAN-033 (SDD-011 Milestone A: code editor).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -35,7 +35,30 @@ events; commits run in the background) is implemented and awaits approval; SDD-0
 Milestones B and C are not started. PLAN-031 (the terminal header shows the Claude Code
 account open in it with its session usage) is implemented and awaits approval. PLAN-032
 (SDD-010 Milestone A: Project Hub with Markdown notes) is implemented and awaits approval;
-SDD-010 Milestones B (tasks) and C (Jira) are not started. Version 0.24.0 (schema v12).
+SDD-010 Milestones B (tasks) and C (Jira) are not started. PLAN-033 (SDD-011 Milestone A:
+code editor with Monaco, explorer and terminal panel) is implemented and awaits approval;
+SDD-011 Milestones B and C are not started. Version 0.25.0 (schema v12).
+
+## PLAN-033 — SDD-011 Milestone A: code editor
+
+- New Editor view (below Terminals): project selector, explorer, Monaco tabs, optional
+  terminal panel of the project, resizable panes; narrow windows show the explorer over the
+  editor. Monaco loads only when the view is first opened; terminal-only use is unchanged.
+- Explorer: lazy, virtualized tree; filter by name; quick open (Cmd/Ctrl+P); create, rename,
+  move (drag and drop), move to Trash (with confirmation), reveal, copy path; ignored files
+  hidden by the project's Git rules (or a default list) and shown on request.
+- Editing: syntax highlighting, folding, find/replace, multiple cursors, minimap, word wrap,
+  bracket matching, basic completion; Save, Save As, Save All, auto save (optional).
+- Safety: paths stay inside the project after resolving symbolic links; saves never replace
+  a file changed or deleted on disk without asking; unmodified tabs reload automatically;
+  closing, switching project or quitting with unsaved changes asks first.
+- Encoding (UTF-8, UTF-8 BOM, UTF-16 BOM) and line endings are kept; binary files and files
+  over 5 MB are not opened.
+- Preferences in Settings → Editor; open files, positions and panel sizes restored per
+  project (references only, never contents).
+- New exact dependency: monaco-editor 0.57.0 (renderer bundle, loaded on demand).
+- Not yet: diff, Git decorations, search, command palette, language servers, AI (B and C).
+- Details: `docs/sdd/SDD-011-code-editor.md`, ADR-063.
 
 ## PLAN-032 — SDD-010 Milestone A: Project Hub notes
 

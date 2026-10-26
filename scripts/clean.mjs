@@ -11,6 +11,7 @@ const projects = [
   'packages/preflight',
   'packages/notifications',
   'packages/notes',
+  'packages/editor',
   'apps/engine',
   'apps/cli',
 ];

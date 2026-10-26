@@ -1,6 +1,6 @@
 {
   "name": "@atlas/desktop",
-  "version": "0.24.0",
+  "version": "0.25.0",
   "private": true,
   "type": "module",
   "description": "A.T.L.A.S desktop application",
@@ -40,6 +40,7 @@
     "electron-builder": "26.17.0",
     "electron-vite": "5.0.0",
     "lucide-react": "1.50.0",
+    "monaco-editor": "0.57.0",
     "radix-ui": "1.6.7",
     "react": "19.3.0",
     "react-dom": "19.3.0",

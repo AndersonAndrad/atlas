@@ -28,6 +28,7 @@ export default defineConfig({
         replacement: src('./packages/notifications/src/index.ts'),
       },
       { find: /^@atlas\/notes$/, replacement: src('./packages/notes/src/index.ts') },
+      { find: /^@atlas\/editor$/, replacement: src('./packages/editor/src/index.ts') },
       { find: /^@atlas\/persistence$/, replacement: src('./packages/persistence/src/index.ts') },
       { find: /^@atlas\/engine$/, replacement: src('./apps/engine/src/index.ts') },
     ],

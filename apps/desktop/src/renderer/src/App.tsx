@@ -6,6 +6,7 @@ import { api, unwrap } from './api';
 import { AboutDialog } from './components/AboutDialog';
 import { ProjectsView } from './components/ProjectsView';
 import { ProjectHubView } from './hub/components/ProjectHubView';
+import { EditorView } from './editor/components/EditorView';
 import { SettingsView } from './components/SettingsView';
 import { GitView, type GitOpenRequest } from './git/components/GitView';
 import { ContextView, type ContextOpenRequest } from './context/components/ContextView';
@@ -41,6 +42,9 @@ export function App() {
   const [gitRequest, setGitRequest] = useState<GitOpenRequest | null>(null);
   const [contextRequest, setContextRequest] = useState<ContextOpenRequest | null>(null);
   const [preflightRequest, setPreflightRequest] = useState<PreflightOpenRequest | null>(null);
+  // Mounted on first use and then kept, so unsaved editor buffers survive switching views.
+  const [editorMounted, setEditorMounted] = useState(false);
+  if (view === 'editor' && !editorMounted) setEditorMounted(true);
   const projects = useProjects();
   const terminals = useTerminalSessions();
   const groups = useTerminalGroups();
@@ -228,6 +232,20 @@ export function App() {
                 onContextAction={(terminalId, { action, provider }) =>
                   openContext({ terminalId, action, ...(provider ? { provider } : {}) })
                 }
+              />
+            )}
+            {editorMounted && (
+              <EditorView
+                visible={view === 'editor'}
+                projects={projects}
+                terminals={terminals}
+                terminalPreferences={preferences.preferences}
+                onOpenGit={(terminalId) => openGit({ terminalId })}
+                onOpenPreflight={(terminalId) => openPreflight({ terminalId })}
+                onContextAction={(terminalId, { action, provider }) =>
+                  openContext({ terminalId, action, ...(provider ? { provider } : {}) })
+                }
+                onOpenProjects={() => setView('projects')}
               />
             )}
             {view === 'git' && (

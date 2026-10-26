@@ -59,6 +59,22 @@ export interface MenuOptions {
   sendCommand: (command: AppCommand) => void;
 }
 
+/**
+ * Turns the terminal shortcuts on or off. Disabled items do not take their keys, so
+ * Cmd+W, Cmd+F, Cmd+D… reach the code editor while it is shown (PLAN-033 R1).
+ * New Terminal keeps working everywhere.
+ */
+export function setTerminalShortcutsEnabled(
+  menu: { getMenuItemById(id: string): { enabled: boolean } | null },
+  enabled: boolean,
+): void {
+  for (const shortcut of TERMINAL_SHORTCUTS) {
+    if (!shortcut.command.startsWith('terminal.') || shortcut.command === 'terminal.new') continue;
+    const item = menu.getMenuItemById(shortcut.command);
+    if (item !== null) item.enabled = enabled;
+  }
+}
+
 /** Builds the application menu, which also carries every keyboard shortcut. */
 export function buildMenuTemplate(options: MenuOptions): MenuItemConstructorOptions[] {
   const isMac = options.platform === 'darwin';

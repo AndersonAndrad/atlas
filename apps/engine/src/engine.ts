@@ -104,6 +104,7 @@ import {
   preflightRunNotification,
 } from '@atlas/notifications';
 import { NotesService } from '@atlas/notes';
+import { EditorSettings, FileWatchHub, ProjectFiles } from '@atlas/editor';
 import { createGitExecutor, createGitRunner } from './git/git-runner.js';
 import { captureLoginShellEnvironment } from './adapters/login-shell-environment.js';
 import { LlmSessionTracker } from './llm-session-tracker.js';
@@ -177,6 +178,9 @@ export interface Engine {
   readonly notifications: NotificationService;
   /** Project Hub notes (SDD-010 Milestone A). */
   readonly notes: NotesService;
+  /** Files of registered projects for the code editor (SDD-011 Milestone A). */
+  readonly files: ProjectFiles;
+  readonly editorSettings: EditorSettings;
   /** Work that stops when the Engine stops; the desktop asks before quitting. */
   backgroundWork(): BackgroundWork;
   /** Automatic recording of LLM sessions in ATLAS terminals (PLAN-021). */
@@ -537,14 +541,10 @@ export function createEngine(options: EngineOptions = {}): Engine {
             };
           }
         };
+  const gitExecutor = options.gitExecutor ?? createGitExecutor({ env });
   const gitWorkspace = new GitWorkspaceService({
     // Commands run inside an operation are recorded in the operation log.
-    exec: recordingExecutor(
-      options.gitExecutor ?? createGitExecutor({ env }),
-      gitOperations,
-      gitOperationLog,
-      () => clock.now(),
-    ),
+    exec: recordingExecutor(gitExecutor, gitOperations, gitOperationLog, () => clock.now()),
     ...(preCommitRunner ? { stepRunner: preCommitRunner } : {}),
     ...(commitEnvironment ? { commitEnvironment } : {}),
     coordinator: gitOperations,
@@ -636,6 +636,53 @@ export function createEngine(options: EngineOptions = {}): Engine {
       },
     },
   });
+  const fileWatcher = new FileWatchHub({
+    logger,
+    onChange: (projectId, paths) => terminals?.publish({ type: 'files', projectId, paths }),
+  });
+  const files = new ProjectFiles({
+    workspaces: { projectRoot: projectWorkspace },
+    watcher: fileWatcher,
+    logger,
+    ignore: {
+      // Names go through standard input (any character is safe); exit code 1: none ignored.
+      ignored: async (directory, names) => {
+        const result = await gitExecutor(['check-ignore', '-z', '--stdin'], {
+          cwd: directory,
+          timeoutMs: 10_000,
+          input: `${names.join('\0')}\0`,
+          okExitCodes: [0, 1, 128],
+        });
+        if (result.exitCode === 128) return null;
+        return new Set(result.stdout.split('\0').filter((name) => name !== ''));
+      },
+      files: async (root) => {
+        const result = await gitExecutor(
+          ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+          { cwd: root, timeoutMs: 15_000, okExitCodes: [0, 128], maxOutputBytes: 8 * 1024 * 1024 },
+        );
+        if (result.exitCode === 128) return null;
+        const paths = [...new Set(result.stdout.split('\0').filter((entry) => entry !== ''))];
+        // A cut output ends with a partial path.
+        if (result.truncated) paths.pop();
+        return { paths, truncated: result.truncated };
+      },
+    },
+    // Saving, creating and moving change the Git status the other views show (Scenario A).
+    onChanged: (projectRoot) => {
+      void git
+        .inspect(projectRoot)
+        .then((status) => {
+          if (status.state !== 'repository') return;
+          git.invalidate(status.snapshot.repositoryRoot);
+          terminals?.publish({ type: 'git', repositoryRoot: status.snapshot.repositoryRoot });
+        })
+        .catch((error: unknown) =>
+          logger.debug('Git refresh after a file change failed', { error: describeError(error) }),
+        );
+    },
+  });
+  const editorSettings = new EditorSettings(settings, logger);
   // Provider CLIs are found on the Engine's PATH, then on the user's login shell PATH
   // (a desktop app started from the Dock or a launcher has a minimal PATH).
   let loginShellPath: Promise<string> | null = null;
@@ -1023,6 +1070,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
     if (closed) return;
     closed = true;
     watcher?.close();
+    fileWatcher.close();
     db.close();
   };
 
@@ -1042,6 +1090,8 @@ export function createEngine(options: EngineOptions = {}): Engine {
     preflight,
     notifications,
     notes,
+    files,
+    editorSettings,
     backgroundWork: () => ({
       gitOperations: gitOperations
         .list()

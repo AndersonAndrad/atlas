@@ -1,5 +1,15 @@
 import {
   CLI_ENGINE_METHODS,
+  type CreateEntryInput,
+  type EditorLayout,
+  type FileRef,
+  type FileVersionsInput,
+  type FindFilesInput,
+  type ListDirectoryInput,
+  type MoveEntryInput,
+  type UpdateEditorPreferencesInput,
+  type WatchFilesInput,
+  type WriteFileInput,
   type AddSkillSourceInput,
   type AiProvider,
   type CreateSkillFromTemplateInput,
@@ -543,6 +553,38 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     },
     'notes.checkLinks': ([input]: [CheckNoteLinksInput]) => engine.notes.checkLinks(input),
     'notes.filePath': ([input]: [RevealNoteFileInput]) => engine.notes.filePath(input),
+    // Project files and the code editor (SDD-011 Milestone A); validated again by the service.
+    'files.list': ([input]: [ListDirectoryInput]) => engine.files.list(input),
+    'files.read': ([ref]: [FileRef]) => engine.files.read(ref),
+    'files.write': ([input]: [WriteFileInput]) => engine.files.write(input),
+    'files.create': async ([input]: [CreateEntryInput]) => {
+      await engine.files.create(input);
+      return null;
+    },
+    'files.move': async ([input]: [MoveEntryInput]) => {
+      await engine.files.move(input);
+      return null;
+    },
+    'files.versions': ([input]: [FileVersionsInput]) => engine.files.versions(input),
+    'files.find': ([input]: [FindFilesInput]) => engine.files.find(input),
+    'files.watch': async ([subscriber, input]: [string, WatchFilesInput]) => {
+      await engine.files.watch(subscriber, input);
+      return null;
+    },
+    'files.absolutePath': ([ref]: [FileRef]) => engine.files.absolutePath(ref),
+    'editor.getPreferences': () => engine.editorSettings.getPreferences(),
+    'editor.setPreferences': ([changes]: [UpdateEditorPreferencesInput]) =>
+      engine.editorSettings.updatePreferences(changes),
+    'editor.getLayout': ([projectId]: [string]) => engine.editorSettings.getLayout(projectId),
+    'editor.setLayout': async ([projectId, layout]: [string, EditorLayout]) => {
+      await engine.editorSettings.setLayout(projectId, layout);
+      return null;
+    },
+    'editor.getLastProject': () => engine.editorSettings.getLastProject(),
+    'editor.setLastProject': async ([projectId]: [string | null]) => {
+      await engine.editorSettings.setLastProject(projectId);
+      return null;
+    },
     'sessions.getSettings': () => engine.sessionSettings.get(),
     'sessions.setSettings': ([input]: [unknown]) => engine.sessionSettings.update(input),
   };

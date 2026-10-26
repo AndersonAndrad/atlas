@@ -1,6 +1,6 @@
 {
   "name": "@atlas/engine",
-  "version": "0.24.0",
+  "version": "0.25.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -29,6 +29,7 @@
     "@atlas/usage": "workspace:*",
     "@atlas/preflight": "workspace:*",
     "@atlas/notifications": "workspace:*",
+    "@atlas/editor": "workspace:*",
     "@atlas/notes": "workspace:*",
     "@xterm/addon-serialize": "0.14.0",
     "@xterm/headless": "6.0.0",

@@ -14,6 +14,7 @@
     { "path": "packages/preflight" },
     { "path": "packages/notifications" },
     { "path": "packages/notes" },
+    { "path": "packages/editor" },
     { "path": "packages/persistence" },
     { "path": "apps/engine" },
     { "path": "apps/cli" }

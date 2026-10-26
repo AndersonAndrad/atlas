@@ -25,6 +25,9 @@
 | M10a      | SDD-010 A     | Project Hub: Markdown notes per project, folder or global; search, pin, archive, links         | Implemented — awaiting approval       |
 | M10b      | SDD-010 B     | Local task manager: TODO lists, board, checklists, sessions, Git links, AI delegation          | Not started (after A is validated)    |
 | M10c      | SDD-010 C     | Multiple Jira Cloud connections, mappings, read-only sync, issues as session objectives        | Not started (after B)                 |
+| M11a      | SDD-011 A     | Code editor: Monaco, explorer, tabs, safe saves, external changes, layout, terminal            | Implemented — awaiting approval       |
+| M11b      | SDD-011 B     | Git decorations, diff, conflicts, search, command palette, language servers                    | Not started (after A is validated)    |
+| M11c      | SDD-011 C     | Editor context for AI, AI change preview, Preflight from the editor, handoff                   | Not started (after B)                 |
 | M4        | TBD           | Agents and multi-agent orchestration                                                           | Not started                           |
 | M5        | TBD           | Skills Hub and Context Engine                                                                  | Not started                           |
 | M6        | PLAN-024      | Packaging and CI release pipeline (done); signing, notarization, auto-update (not started)     | Partially implemented                 |

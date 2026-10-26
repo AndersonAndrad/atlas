@@ -21,6 +21,8 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       appKeys: Object.keys((w.atlas as { app: object }).app).sort(),
       notificationKeys: Object.keys((w.atlas as { notifications: object }).notifications).sort(),
       noteKeys: Object.keys((w.atlas as { notes: object }).notes).sort(),
+      projectFileKeys: Object.keys((w.atlas as { projectFiles: object }).projectFiles).sort(),
+      editorKeys: Object.keys((w.atlas as { editor: object }).editor).sort(),
     };
   });
   expect(exposure).toEqual({
@@ -33,12 +35,14 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'app',
       'context',
       'dialog',
+      'editor',
       'files',
       'git',
       'groups',
       'notes',
       'notifications',
       'preflight',
+      'projectFiles',
       'projects',
       'quickCommands',
       'sessions',
@@ -66,7 +70,16 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'workspaces',
     ],
     // Files are written only where the user chose in the native save dialog.
-    appKeys: ['copyText', 'info', 'onCommand', 'onEngineRestarted', 'readText', 'saveText'],
+    appKeys: [
+      'copyText',
+      'info',
+      'onCommand',
+      'onEngineRestarted',
+      'readText',
+      'saveText',
+      'setTerminalShortcuts',
+      'setUnsavedFiles',
+    ],
     // Notifications are read, marked read or deleted by id; nothing else crosses the bridge.
     notificationKeys: ['clear', 'list', 'markAllRead', 'markRead', 'remove'],
     // Notes never carry a filesystem path: files are revealed from a link the Engine resolves
@@ -80,6 +93,29 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'remove',
       'revealFile',
       'update',
+    ],
+    // Project files are named by project and relative path; the Engine resolves them inside
+    // the project folder. The Trash and the file manager get paths from the Engine only.
+    projectFileKeys: [
+      'create',
+      'find',
+      'list',
+      'move',
+      'read',
+      'reveal',
+      'trash',
+      'versions',
+      'watch',
+      'write',
+    ],
+    // Preferences and layouts hold file references only, never contents.
+    editorKeys: [
+      'getLastProject',
+      'getLayout',
+      'getPreferences',
+      'setLastProject',
+      'setLayout',
+      'setPreferences',
     ],
     // AI CLIs are only started or tracked; no command text crosses the bridge.
     aiKeys: ['attach', 'start'],

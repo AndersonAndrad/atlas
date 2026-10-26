@@ -658,3 +658,26 @@ superseded decisions are marked, not deleted.
   (rejected: FR-1008 requires conflict detection).
 - **Consequences**: Two exact-pinned renderer dependencies (bundled, not shipped as
   runtime packages). No revision history or merge. Tasks and Jira remain to be planned.
+
+## ADR-063 — The code editor is Monaco over Engine-checked project files (PLAN-033)
+
+- **Decision**: The editor is `monaco-editor` (exact 0.57.0) imported directly and loaded
+  on first use, with its workers bundled. Files are a new Engine service
+  (`packages/editor`) addressed by project and relative path; every access resolves
+  symbolic links inside the project folder. Reads return a sha256 version; saves name it and
+  fail with `FILE_CONFLICT` otherwise; writes use a temporary file renamed over the target.
+  Folders shown by the editor are watched without recursion and changes are published as a
+  `files` event. Preferences and layouts are application settings holding references only.
+  Deleting uses the system Trash through the main process. The terminal menu shortcuts are
+  disabled while the editor is shown.
+- **Alternatives**: embedding VS Code or a VS Code workbench (rejected by the specification,
+  heavy and branded); `@monaco-editor/react` (rejected: CDN loader blocked by the CSP);
+  CodeMirror (rejected: the specification names Monaco); a recursive watcher of the whole
+  project (rejected: scans large repositories on Linux); writing in place like VS Code's
+  default (rejected: an interrupted save can truncate the file); permanent deletion
+  (rejected by the developer, Q2); the editor as a pane type of the terminal layout
+  (rejected: rewrites the terminal layout engine).
+- **Consequences**: About 14 MB of on-demand renderer assets. Atomic saves replace hard
+  links and drop extended attributes/ACLs. TypeScript semantic diagnostics are off until
+  language servers exist. No schema change. Monaco's bundled DOMPurify 3.4.15 has
+  advisories in modes Monaco does not use; it is updated with a future Monaco release.

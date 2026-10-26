@@ -495,6 +495,29 @@ process opens only http(s) and mailto links. `atlas:file/...` links are resolved
 Engine inside the project's folder (after symbolic links) and only revealed in the file
 manager. Notes are not exposed to the CLI.
 
+### Code editor (SDD-011 Milestone A)
+
+Full description: `docs/sdd/SDD-011-code-editor.md`.
+
+```text
+ Editor view (Monaco, loaded on first use) ─► atlas.projectFiles / atlas.editor (preload)
+        ─► main IPC (Trash and reveal take Engine-resolved paths; watch gets the window id)
+        ─► Engine `files.*` / `editor.*` (not offered to the CLI)
+             ProjectFiles (packages/editor): realpath boundary, versions (sha256), safe
+               writes (temp file + rename), ignore rules (`git check-ignore`), quick open
+               (`git ls-files`)
+             FileWatchHub: non-recursive fs.watch of shown folders ─► event { type: 'files' }
+             EditorSettings: `editor.preferences`, `editor.layout.<projectId>` (no contents)
+```
+
+Files are addressed by registered project and relative path. Every access resolves symbolic
+links and stays inside the project folder (`FILE_OUTSIDE_WORKSPACE`). Saves name the
+version the user edited and fail with `FILE_CONFLICT` when the file changed or disappeared;
+replacing it needs an explicit choice. Saving, creating or moving publishes the `git`
+event. Unsaved buffers stay in the renderer (the view stays mounted); the main process
+knows their count so quitting or closing the window asks first. While the Editor is shown,
+the terminal menu shortcuts are disabled so Cmd+W/F/D… reach Monaco.
+
 ### Project context of a terminal
 
 `Engine.terminalProjectContext` reports the associated project and the deepest registered
@@ -630,7 +653,8 @@ terminals running as standalone terminals (SDD-003 §2).
   daily usage, session progress (additive). Schema v10: Preflight workspaces,
   authorizations and runs (additive). Schema v11: notifications (additive). Schema v12:
   Project Hub notes with FTS5 search (additive; project removal keeps notes as workspace
-  notes).
+  notes). SDD-011 Milestone A adds no schema: editor preferences and layouts are
+  `application_settings` keys.
 - Data dir: macOS `~/Library/Application Support/ATLAS`, Windows `%APPDATA%\ATLAS`, Linux
   `$XDG_DATA_HOME/atlas`; `ATLAS_DATA_DIR` overrides.
 

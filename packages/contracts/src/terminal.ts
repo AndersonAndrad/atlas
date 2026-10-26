@@ -227,7 +227,12 @@ export type TerminalEvent =
   /** The LLM open in a terminal, or its account's usage, may have changed (PLAN-031). */
   | { type: 'llm-usage' }
   /** Project Hub notes changed in any client (SDD-010). */
-  | { type: 'notes'; noteId: string };
+  | { type: 'notes'; noteId: string }
+  /**
+   * Entries of watched folders changed on disk (SDD-011 FR-1107); `paths` are relative to
+   * the project folder. Clients compare versions: the event alone does not mean new content.
+   */
+  | { type: 'files'; projectId: string; paths: string[] };
 
 export const TERMINAL_FONT_FAMILIES = ['system', 'menlo', 'sf-mono', 'monaco', 'courier'] as const;
 export type TerminalFontFamily = (typeof TERMINAL_FONT_FAMILIES)[number];

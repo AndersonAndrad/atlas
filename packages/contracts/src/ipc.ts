@@ -80,6 +80,24 @@ import type {
   RevealNoteFileInput,
   UpdateNoteInput,
 } from './notes.js';
+import type {
+  CreateEntryInput,
+  DirectoryListing,
+  EditorLayout,
+  EditorPreferences,
+  FileContent,
+  FileRef,
+  FileVersionInfo,
+  FileVersionsInput,
+  FindFilesInput,
+  FoundFiles,
+  ListDirectoryInput,
+  MoveEntryInput,
+  UpdateEditorPreferencesInput,
+  WatchFilesInput,
+  WriteFileInput,
+  WrittenFile,
+} from './files.js';
 
 import type {
   AiProvider,
@@ -358,6 +376,24 @@ export const IPC_CHANNELS = {
   notesCheckLinks: 'atlas:notes:check-links',
   notesRevealFile: 'atlas:notes:reveal-file',
   notesOpenExternal: 'atlas:notes:open-external',
+  filesList: 'atlas:files:list',
+  filesRead: 'atlas:files:read',
+  filesWrite: 'atlas:files:write',
+  filesCreate: 'atlas:files:create',
+  filesMove: 'atlas:files:move',
+  filesTrash: 'atlas:files:trash',
+  filesReveal: 'atlas:files:reveal',
+  filesVersions: 'atlas:files:versions',
+  filesFind: 'atlas:files:find',
+  filesWatch: 'atlas:files:watch',
+  editorGetPreferences: 'atlas:editor:get-preferences',
+  editorSetPreferences: 'atlas:editor:set-preferences',
+  editorGetLayout: 'atlas:editor:get-layout',
+  editorSetLayout: 'atlas:editor:set-layout',
+  editorGetLastProject: 'atlas:editor:get-last-project',
+  editorSetLastProject: 'atlas:editor:set-last-project',
+  appSetTerminalShortcuts: 'atlas:app:set-terminal-shortcuts',
+  appSetUnsavedFiles: 'atlas:app:set-unsaved-files',
   aiStart: 'atlas:ai:start',
   quickCommandsList: 'atlas:quick-commands:list',
   quickCommandsCreate: 'atlas:quick-commands:create',
@@ -775,6 +811,35 @@ export interface AtlasApi {
     /** Opens an http(s) or mailto link of a note in the system browser or mail client. */
     openExternal(url: string): Promise<IpcResult<null>>;
   };
+  /**
+   * Files of registered projects (SDD-011 Milestone A). Paths are relative to the project
+   * folder; the Engine rejects anything outside it. Changes arrive as `files` events.
+   */
+  projectFiles: {
+    list(input: ListDirectoryInput): Promise<IpcResult<DirectoryListing>>;
+    read(ref: FileRef): Promise<IpcResult<FileContent>>;
+    /** Fails with FILE_CONFLICT when the file changed since `expectedVersion`. */
+    write(input: WriteFileInput): Promise<IpcResult<WrittenFile>>;
+    create(input: CreateEntryInput): Promise<IpcResult<null>>;
+    move(input: MoveEntryInput): Promise<IpcResult<null>>;
+    /** Moves a file or folder to the system Trash (PLAN-033 Q2). */
+    trash(ref: FileRef): Promise<IpcResult<null>>;
+    /** Shows a file or folder in the system file manager without opening it. */
+    reveal(ref: FileRef): Promise<IpcResult<null>>;
+    versions(input: FileVersionsInput): Promise<IpcResult<FileVersionInfo[]>>;
+    find(input: FindFilesInput): Promise<IpcResult<FoundFiles>>;
+    /** Replaces the folders this window watches; an empty list stops watching. */
+    watch(input: WatchFilesInput): Promise<IpcResult<null>>;
+  };
+  /** Code editor preferences and per-project layout (file references only). */
+  editor: {
+    getPreferences(): Promise<IpcResult<EditorPreferences>>;
+    setPreferences(changes: UpdateEditorPreferencesInput): Promise<IpcResult<EditorPreferences>>;
+    getLayout(projectId: string): Promise<IpcResult<EditorLayout | null>>;
+    setLayout(projectId: string, layout: EditorLayout): Promise<IpcResult<null>>;
+    getLastProject(): Promise<IpcResult<string | null>>;
+    setLastProject(projectId: string | null): Promise<IpcResult<null>>;
+  };
   /** Individual AI CLI sessions started or tracked by ATLAS. */
   /** Named shell commands run in a new project terminal (PLAN-023). */
   quickCommands: {
@@ -809,6 +874,13 @@ export interface AtlasApi {
      * name) and writes it there. `saved` is false when the user cancels.
      */
     saveText(suggestedName: string, text: string): Promise<IpcResult<{ saved: boolean }>>;
+    /**
+     * Turns the terminal menu shortcuts (Cmd+W, Cmd+F, Cmd+D…) on or off, so they reach
+     * the code editor while it is shown (PLAN-033 R1).
+     */
+    setTerminalShortcuts(enabled: boolean): Promise<IpcResult<null>>;
+    /** How many editor tabs have unsaved changes; quitting or closing the window asks first. */
+    setUnsavedFiles(count: number): Promise<IpcResult<null>>;
     onCommand(listener: (command: AppCommand) => void): Unsubscribe;
     /** The Engine process restarted; terminal state must be reloaded. */
     onEngineRestarted(listener: () => void): Unsubscribe;

@@ -33,6 +33,13 @@ export const ERROR_CODES = [
   'NOTIFICATION_NOT_FOUND',
   'NOTE_NOT_FOUND',
   'NOTE_CONFLICT',
+  'FILE_NOT_FOUND',
+  'FILE_ALREADY_EXISTS',
+  'FILE_CONFLICT',
+  'FILE_TOO_LARGE',
+  'FILE_UNSUPPORTED',
+  'FILE_OUTSIDE_WORKSPACE',
+  'FILE_PERMISSION_DENIED',
   'ENGINE_UNAVAILABLE',
   'VALIDATION_FAILED',
   'INTERNAL_ERROR',
@@ -88,6 +95,14 @@ export const USER_MESSAGES: Record<ErrorCode, string> = {
   NOTE_NOT_FOUND: 'The note could not be found. It may have been deleted.',
   NOTE_CONFLICT:
     'The note was changed elsewhere since you opened it. Reload it or save your version again.',
+  FILE_NOT_FOUND: 'The file or folder could not be found. It may have been moved or deleted.',
+  FILE_ALREADY_EXISTS: 'A file or folder with this name already exists. Nothing was overwritten.',
+  FILE_CONFLICT:
+    'The file was changed on disk since you opened it. Reload it or save your version again.',
+  FILE_TOO_LARGE: 'This file is too large to open in the editor.',
+  FILE_UNSUPPORTED: 'This file is binary or uses an encoding the editor does not support.',
+  FILE_OUTSIDE_WORKSPACE: 'This path is outside the project folder.',
+  FILE_PERMISSION_DENIED: 'ATLAS does not have permission to change this file or folder.',
   ENGINE_UNAVAILABLE:
     'The ATLAS Engine is not running. Start (or restart) A.T.L.A.S and try again.',
   VALIDATION_FAILED: 'Some fields are invalid. Review them and try again.',

@@ -59,6 +59,10 @@ import {
   type DirectoryChoice,
   type IpcResult,
   type RevealNoteFileInput,
+  FileRefSchema,
+  WatchFilesSchema,
+  type FileRef,
+  type WatchFilesInput,
 } from '@atlas/contracts';
 import { AtlasError, describeError, toSerializedError, type Logger } from '@atlas/shared';
 import type {
@@ -99,6 +103,12 @@ export interface IpcDependencies {
   revealPath: (absolutePath: string) => void;
   /** Opens an http(s) or mailto URL with the system handler. */
   openExternal: (url: string) => Promise<void>;
+  /** Moves a file or folder to the system Trash (SDD-011, PLAN-033 Q2). */
+  trashPath: (absolutePath: string) => Promise<void>;
+  /** Enables or disables the terminal menu shortcuts (PLAN-033 R1). */
+  setTerminalShortcuts: (enabled: boolean) => void;
+  /** Editor tabs with unsaved changes, so quitting or closing the window asks first. */
+  setUnsavedFiles: (count: number) => void;
 }
 
 const NoArgs = z.tuple([]);
@@ -522,6 +532,48 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     await deps.openExternal(url as string);
     return null;
   });
+  // Project files (SDD-011 Milestone A): the Engine checks every path against the project.
+  const fileChannels: [string, EngineMethod][] = [
+    [IPC_CHANNELS.filesList, 'files.list'],
+    [IPC_CHANNELS.filesRead, 'files.read'],
+    [IPC_CHANNELS.filesWrite, 'files.write'],
+    [IPC_CHANNELS.filesCreate, 'files.create'],
+    [IPC_CHANNELS.filesMove, 'files.move'],
+    [IPC_CHANNELS.filesVersions, 'files.versions'],
+    [IPC_CHANNELS.filesFind, 'files.find'],
+    [IPC_CHANNELS.editorGetPreferences, 'editor.getPreferences'],
+    [IPC_CHANNELS.editorSetPreferences, 'editor.setPreferences'],
+    [IPC_CHANNELS.editorGetLayout, 'editor.getLayout'],
+    [IPC_CHANNELS.editorSetLayout, 'editor.setLayout'],
+    [IPC_CHANNELS.editorGetLastProject, 'editor.getLastProject'],
+    [IPC_CHANNELS.editorSetLastProject, 'editor.setLastProject'],
+  ];
+  // The window's subscriber id comes from the main process, never from the renderer.
+  handle(IPC_CHANNELS.filesWatch, z.tuple([WatchFilesSchema]), async ([input]) => {
+    await engine.call('files.watch', deps.subscriberId(), input as WatchFilesInput);
+    return null;
+  });
+  // The renderer names a project file; only the Engine turns it into an absolute path.
+  handle(IPC_CHANNELS.filesTrash, z.tuple([FileRefSchema]), async ([ref]) => {
+    await deps.trashPath(await engine.call('files.absolutePath', ref as FileRef));
+    return null;
+  });
+  handle(IPC_CHANNELS.filesReveal, z.tuple([FileRefSchema]), async ([ref]) => {
+    deps.revealPath(await engine.call('files.absolutePath', ref as FileRef));
+    return null;
+  });
+  handle(IPC_CHANNELS.appSetTerminalShortcuts, z.tuple([z.boolean()]), async ([enabled]) => {
+    deps.setTerminalShortcuts(enabled as boolean);
+    return null;
+  });
+  handle(
+    IPC_CHANNELS.appSetUnsavedFiles,
+    z.tuple([z.number().int().min(0).max(10_000)]),
+    async ([count]) => {
+      deps.setUnsavedFiles(count as number);
+      return null;
+    },
+  );
   const notificationChannels: [string, EngineMethod][] = [
     [IPC_CHANNELS.notificationsList, 'notifications.list'],
     [IPC_CHANNELS.notificationsMarkRead, 'notifications.markRead'],
@@ -534,6 +586,7 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     ...preflightChannels,
     ...notificationChannels,
     ...noteChannels,
+    ...fileChannels,
   ]) {
     handle(channel, ENGINE_METHOD_PARAMS[method] as unknown as z.ZodType<unknown[]>, (args) =>
       (engine.call as (name: string, ...params: unknown[]) => Promise<unknown>)(method, ...args),

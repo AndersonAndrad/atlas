@@ -261,6 +261,27 @@ const api: AtlasApi = {
     remove: (id) => ipcRenderer.invoke(IPC_CHANNELS.notificationsRemove, id),
     clear: () => ipcRenderer.invoke(IPC_CHANNELS.notificationsClear),
   },
+  projectFiles: {
+    list: (input) => ipcRenderer.invoke(IPC_CHANNELS.filesList, input),
+    read: (ref) => ipcRenderer.invoke(IPC_CHANNELS.filesRead, ref),
+    write: (input) => ipcRenderer.invoke(IPC_CHANNELS.filesWrite, input),
+    create: (input) => ipcRenderer.invoke(IPC_CHANNELS.filesCreate, input),
+    move: (input) => ipcRenderer.invoke(IPC_CHANNELS.filesMove, input),
+    trash: (ref) => ipcRenderer.invoke(IPC_CHANNELS.filesTrash, ref),
+    reveal: (ref) => ipcRenderer.invoke(IPC_CHANNELS.filesReveal, ref),
+    versions: (input) => ipcRenderer.invoke(IPC_CHANNELS.filesVersions, input),
+    find: (input) => ipcRenderer.invoke(IPC_CHANNELS.filesFind, input),
+    watch: (input) => ipcRenderer.invoke(IPC_CHANNELS.filesWatch, input),
+  },
+  editor: {
+    getPreferences: () => ipcRenderer.invoke(IPC_CHANNELS.editorGetPreferences),
+    setPreferences: (changes) => ipcRenderer.invoke(IPC_CHANNELS.editorSetPreferences, changes),
+    getLayout: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.editorGetLayout, projectId),
+    setLayout: (projectId, layout) =>
+      ipcRenderer.invoke(IPC_CHANNELS.editorSetLayout, projectId, layout),
+    getLastProject: () => ipcRenderer.invoke(IPC_CHANNELS.editorGetLastProject),
+    setLastProject: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.editorSetLastProject, projectId),
+  },
   notes: {
     list: (query) => ipcRenderer.invoke(IPC_CHANNELS.notesList, query),
     get: (id) => ipcRenderer.invoke(IPC_CHANNELS.notesGet, id),
@@ -281,6 +302,9 @@ const api: AtlasApi = {
     saveText: (suggestedName, text) =>
       ipcRenderer.invoke(IPC_CHANNELS.saveText, suggestedName, text),
     readText: (target) => ipcRenderer.invoke(IPC_CHANNELS.readText, target),
+    setTerminalShortcuts: (enabled) =>
+      ipcRenderer.invoke(IPC_CHANNELS.appSetTerminalShortcuts, enabled),
+    setUnsavedFiles: (count) => ipcRenderer.invoke(IPC_CHANNELS.appSetUnsavedFiles, count),
     onCommand: (listener) => subscribe<AppCommand>(IPC_EVENT_CHANNELS.appCommand, listener),
     onEngineRestarted: (listener) =>
       subscribe<undefined>(IPC_EVENT_CHANNELS.engineRestarted, () => listener()),

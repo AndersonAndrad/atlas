@@ -51,6 +51,9 @@ describe('desktop IPC handlers', () => {
   let saved: { suggestedName: string; text: string }[] = [];
   let revealed: string[] = [];
   let opened: string[] = [];
+  let trashed: string[] = [];
+  let shortcuts: boolean[] = [];
+  let unsaved: number[] = [];
 
   const trustedEvent = {} as IpcMainInvokeEvent;
   const invoke = <T>(channel: string, ...args: unknown[]) =>
@@ -84,6 +87,9 @@ describe('desktop IPC handlers', () => {
     saved = [];
     revealed = [];
     opened = [];
+    trashed = [];
+    shortcuts = [];
+    unsaved = [];
     engine.terminals!.onEvent((event, subscriberId) => events.push({ event, subscriberId }));
     const dispatcher = createEngineDispatcher(engine);
     const caller: EngineCaller = {
@@ -117,6 +123,11 @@ describe('desktop IPC handlers', () => {
       openExternal: async (url: string) => {
         opened.push(url);
       },
+      trashPath: async (absolutePath: string) => {
+        trashed.push(absolutePath);
+      },
+      setTerminalShortcuts: (enabled: boolean) => shortcuts.push(enabled),
+      setUnsavedFiles: (count: number) => unsaved.push(count),
       isTrustedSender: () => trusted,
       showOpenDialog: async () =>
         pickedPath === undefined
@@ -185,6 +196,74 @@ describe('desktop IPC handlers', () => {
       });
     }
     expect(opened).toEqual(['https://example.com/a', 'mailto:dev@example.com']);
+  });
+
+  it('edits project files only inside the project (SDD-011)', async () => {
+    const project = await registerProject();
+    writeFileSync(path.join(workspace, 'a.ts'), 'export {};\n');
+    const read = await invoke<{ version: string }>(IPC_CHANNELS.filesRead, {
+      projectId: project.id,
+      path: 'a.ts',
+    });
+    expect(read).toMatchObject({ ok: true, data: { content: 'export {};\n', encoding: 'utf8' } });
+    const version = (read as { ok: true; data: { version: string } }).data.version;
+    expect(
+      await invoke(IPC_CHANNELS.filesWrite, {
+        projectId: project.id,
+        path: 'a.ts',
+        content: 'export const b = 1;\n',
+        encoding: 'utf8',
+        expectedVersion: version,
+      }),
+    ).toMatchObject({ ok: true });
+    // A stale version never overwrites.
+    expect(
+      await invoke(IPC_CHANNELS.filesWrite, {
+        projectId: project.id,
+        path: 'a.ts',
+        content: 'stale',
+        encoding: 'utf8',
+        expectedVersion: version,
+      }),
+    ).toMatchObject({ ok: false, error: { code: 'FILE_CONFLICT' } });
+    for (const bad of ['../data/atlas.db', '/etc/passwd']) {
+      expect(
+        await invoke(IPC_CHANNELS.filesRead, { projectId: project.id, path: bad }),
+      ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+    }
+    // The Trash and the file manager get an absolute path only from the Engine.
+    expect(await invoke(IPC_CHANNELS.filesTrash, { projectId: project.id, path: 'a.ts' })).toEqual({
+      ok: true,
+      data: null,
+    });
+    expect(trashed).toEqual([path.join(realpathSync(workspace), 'a.ts')]);
+    expect(
+      await invoke(IPC_CHANNELS.filesTrash, { projectId: project.id, path: '../outside' }),
+    ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+    expect(
+      await invoke(IPC_CHANNELS.filesReveal, { projectId: project.id, path: 'nope' }),
+    ).toMatchObject({ ok: false, error: { code: 'FILE_NOT_FOUND' } });
+    expect(trashed).toHaveLength(1);
+    expect(revealed).toEqual([]);
+  });
+
+  it('passes editor state to the main process', async () => {
+    expect(await invoke(IPC_CHANNELS.appSetTerminalShortcuts, false)).toEqual({
+      ok: true,
+      data: null,
+    });
+    expect(await invoke(IPC_CHANNELS.appSetUnsavedFiles, 2)).toEqual({ ok: true, data: null });
+    expect(await invoke(IPC_CHANNELS.appSetUnsavedFiles, -1)).toMatchObject({ ok: false });
+    expect(shortcuts).toEqual([false]);
+    expect(unsaved).toEqual([2]);
+    const project = await registerProject();
+    // The window's subscriber id is added by the main process.
+    expect(
+      await invoke(IPC_CHANNELS.filesWatch, { projectId: project.id, directories: [''] }),
+    ).toEqual({ ok: true, data: null });
+    expect(
+      await invoke(IPC_CHANNELS.filesWatch, 'other-window', { projectId: null, directories: [] }),
+    ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
   });
 
   it('reports a cancelled picker', async () => {

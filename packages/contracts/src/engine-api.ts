@@ -185,6 +185,25 @@ import {
   type ProjectNote,
 } from './notes.js';
 import {
+  CreateEntrySchema,
+  EditorLayoutSchema,
+  FileRefSchema,
+  FileVersionsSchema,
+  FindFilesSchema,
+  ListDirectorySchema,
+  MoveEntrySchema,
+  UpdateEditorPreferencesSchema,
+  WatchFilesSchema,
+  WriteFileSchema,
+  type DirectoryListing,
+  type EditorLayout,
+  type EditorPreferences,
+  type FileContent,
+  type FileVersionInfo,
+  type FoundFiles,
+  type WrittenFile,
+} from './files.js';
+import {
   AtlasSessionIdSchema,
   ListSessionsInputSchema,
   SessionActionSchema,
@@ -433,6 +452,24 @@ export const ENGINE_METHOD_PARAMS = {
   'notes.checkLinks': z.tuple([CheckNoteLinksSchema]),
   /** Absolute path of an `atlas:file/...` link inside the project; for revealing it. */
   'notes.filePath': z.tuple([RevealNoteFileSchema]),
+  // Project files and the code editor (SDD-011 Milestone A); not offered to the CLI.
+  'files.list': z.tuple([ListDirectorySchema]),
+  'files.read': z.tuple([FileRefSchema]),
+  'files.write': z.tuple([WriteFileSchema]),
+  'files.create': z.tuple([CreateEntrySchema]),
+  'files.move': z.tuple([MoveEntrySchema]),
+  'files.versions': z.tuple([FileVersionsSchema]),
+  'files.find': z.tuple([FindFilesSchema]),
+  /** Replaces the folders `subscriber` watches; changes arrive as `files` events. */
+  'files.watch': z.tuple([SubscriberIdSchema, WatchFilesSchema]),
+  /** Absolute path of an existing entry, for the main process (Trash, reveal). */
+  'files.absolutePath': z.tuple([FileRefSchema]),
+  'editor.getPreferences': z.tuple([]),
+  'editor.setPreferences': z.tuple([UpdateEditorPreferencesSchema]),
+  'editor.getLayout': z.tuple([Id]),
+  'editor.setLayout': z.tuple([Id, EditorLayoutSchema]),
+  'editor.getLastProject': z.tuple([]),
+  'editor.setLastProject': z.tuple([Id.nullable()]),
 } as const;
 
 export type EngineMethod = keyof typeof ENGINE_METHOD_PARAMS;
@@ -646,6 +683,21 @@ export interface EngineMethodResults {
   'notes.remove': null;
   'notes.checkLinks': NoteLinkStatus[];
   'notes.filePath': string;
+  'files.list': DirectoryListing;
+  'files.read': FileContent;
+  'files.write': WrittenFile;
+  'files.create': null;
+  'files.move': null;
+  'files.versions': FileVersionInfo[];
+  'files.find': FoundFiles;
+  'files.watch': null;
+  'files.absolutePath': string;
+  'editor.getPreferences': EditorPreferences;
+  'editor.setPreferences': EditorPreferences;
+  'editor.getLayout': EditorLayout | null;
+  'editor.setLayout': null;
+  'editor.getLastProject': string | null;
+  'editor.setLastProject': null;
 }
 
 export type EngineMethodParams<M extends EngineMethod> = z.input<(typeof ENGINE_METHOD_PARAMS)[M]>;

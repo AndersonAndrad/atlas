@@ -10,6 +10,7 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  SquareCode,
   SquareTerminal,
   Zap,
   type LucideIcon,
@@ -22,6 +23,7 @@ export type AppView =
   | 'projects'
   | 'hub'
   | 'terminals'
+  | 'editor'
   | 'git'
   | 'preflight'
   | 'context'
@@ -42,6 +44,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'projects', label: 'Projects', icon: FolderGit2, view: 'projects' },
   { id: 'hub', label: 'Project Hub', icon: NotebookTabs, view: 'hub' },
   { id: 'terminals', label: 'Terminals', icon: SquareTerminal, view: 'terminals' },
+  { id: 'editor', label: 'Editor', icon: SquareCode, view: 'editor' },
   { id: 'git', label: 'Git', icon: GitBranch, view: 'git' },
   { id: 'preflight', label: 'Preflight', icon: ShieldCheck, view: 'preflight' },
   { id: 'context', label: 'Context', icon: Database, view: 'context' },

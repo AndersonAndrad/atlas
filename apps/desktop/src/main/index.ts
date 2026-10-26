@@ -21,7 +21,7 @@ import {
 } from 'electron';
 import { EngineHostClient } from './engine-client';
 import { registerIpcHandlers } from './ipc';
-import { buildMenuTemplate } from './menu';
+import { buildMenuTemplate, setTerminalShortcutsEnabled } from './menu';
 import { quitWarning } from './quit-warning';
 // Copied next to the bundle by electron-vite; the window and the Dock show it (PLAN-025).
 import appIcon from '../../build/icon.png?asset';
@@ -54,6 +54,8 @@ let engine: EngineHostClient | undefined;
 let mainWindow: BrowserWindow | undefined;
 /** Incremented on every renderer navigation; see `subscriberId`. */
 let rendererGeneration = 0;
+/** Editor tabs with unsaved changes in the current renderer (SDD-011 FR-1105). */
+let unsavedEditorFiles = 0;
 /**
  * Id of the main window's webContents, captured at creation: once the window
  * closes, its webContents is destroyed and can no longer be read.
@@ -82,6 +84,16 @@ function subscriberId(): string {
 function detachCurrentRenderer(): void {
   const previous = subscriberId();
   void engine?.call('terminals.detachSubscriber', previous).catch(() => undefined);
+  void engine
+    ?.call('files.watch', previous, { projectId: null, directories: [] })
+    .catch(() => undefined);
+}
+
+/** A new renderer starts without editor state: no unsaved buffers, terminal shortcuts on. */
+function resetEditorState(): void {
+  unsavedEditorFiles = 0;
+  const menu = Menu.getApplicationMenu();
+  if (menu !== null) setTerminalShortcutsEnabled(menu, true);
 }
 
 function sendToRenderer(channel: string, payload?: unknown): void {
@@ -123,10 +135,12 @@ function createMainWindow(): BrowserWindow {
     if (!details.isMainFrame || details.isSameDocument) return;
     detachCurrentRenderer();
     rendererGeneration += 1;
+    resetEditorState();
   });
   window.webContents.on('render-process-gone', () => {
     detachCurrentRenderer();
     rendererGeneration += 1;
+    resetEditorState();
   });
 
   // On Windows and Linux closing the window quits ATLAS, which needs confirmation.
@@ -134,6 +148,16 @@ function createMainWindow(): BrowserWindow {
     if (process.platform !== 'darwin' && !readyToQuit) {
       event.preventDefault();
       app.quit();
+      return;
+    }
+    // On macOS the window closes without quitting, which discards the editor's buffers.
+    if (!readyToQuit && unsavedEditorFiles > 0) {
+      event.preventDefault();
+      void confirmDiscardUnsaved(window).then((discard) => {
+        if (!discard) return;
+        unsavedEditorFiles = 0;
+        window.close();
+      });
     }
   });
   window.on('closed', () => {
@@ -235,6 +259,14 @@ async function bootstrap(): Promise<void> {
     },
     revealPath: (absolutePath) => shell.showItemInFolder(absolutePath),
     openExternal: (url) => shell.openExternal(url),
+    trashPath: (absolutePath) => shell.trashItem(absolutePath),
+    setUnsavedFiles: (count) => {
+      unsavedEditorFiles = count;
+    },
+    setTerminalShortcuts: (enabled) => {
+      const menu = Menu.getApplicationMenu();
+      if (menu !== null) setTerminalShortcutsEnabled(menu, enabled);
+    },
   });
 
   Menu.setApplicationMenu(
@@ -281,7 +313,7 @@ async function confirmQuit(): Promise<boolean> {
     engine.call('terminals.closeAllInfo').catch(() => ({ runningSessions: 0, busySessions: 0 })),
     engine.call('engine.backgroundWork').catch(() => ({ gitOperations: 0, preflightRuns: 0 })),
   ]);
-  const warning = quitWarning(info.runningSessions, work, APP_DISPLAY_NAME);
+  const warning = quitWarning(info.runningSessions, work, APP_DISPLAY_NAME, unsavedEditorFiles);
   if (warning === null) return true;
   const options = {
     type: 'warning' as const,
@@ -293,6 +325,19 @@ async function confirmQuit(): Promise<boolean> {
   const { response } = mainWindow
     ? await dialog.showMessageBox(mainWindow, options)
     : await dialog.showMessageBox(options);
+  return response === 0;
+}
+
+async function confirmDiscardUnsaved(window: BrowserWindow): Promise<boolean> {
+  const files = unsavedEditorFiles === 1 ? '1 file has' : `${unsavedEditorFiles} files have`;
+  const { response } = await dialog.showMessageBox(window, {
+    type: 'warning',
+    buttons: ['Discard changes', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    message: `${files} unsaved changes.`,
+    detail: 'Closing the window discards the changes not saved in the editor.',
+  });
   return response === 0;
 }
 
