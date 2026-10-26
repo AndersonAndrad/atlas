@@ -21,6 +21,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       appKeys: Object.keys((w.atlas as { app: object }).app).sort(),
       notificationKeys: Object.keys((w.atlas as { notifications: object }).notifications).sort(),
       noteKeys: Object.keys((w.atlas as { notes: object }).notes).sort(),
+      jobKeys: Object.keys((w.atlas as { jobs: object }).jobs).sort(),
       projectFileKeys: Object.keys((w.atlas as { projectFiles: object }).projectFiles).sort(),
       editorKeys: Object.keys((w.atlas as { editor: object }).editor).sort(),
     };
@@ -39,6 +40,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'files',
       'git',
       'groups',
+      'jobs',
       'notes',
       'notifications',
       'preflight',
@@ -82,6 +84,19 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
     ],
     // Notifications are read, marked read or deleted by id; nothing else crosses the bridge.
     notificationKeys: ['clear', 'list', 'markAllRead', 'markRead', 'remove'],
+    // Background jobs run only in registered projects (or Preflight workspaces) the Engine
+    // resolves; commands that look destructive need an explicit confirmation.
+    jobKeys: [
+      'cancel',
+      'create',
+      'get',
+      'getSettings',
+      'list',
+      'output',
+      'retry',
+      'setSettings',
+      'summary',
+    ],
     // Notes never carry a filesystem path: files are revealed from a link the Engine resolves
     // inside the project, and only web or e-mail links open outside the app.
     noteKeys: [

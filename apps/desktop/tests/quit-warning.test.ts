@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { quitWarning } from '../src/main/quit-warning';
 
-const none = { gitOperations: 0, preflightRuns: 0 };
+const none = { gitOperations: 0, preflightRuns: 0, backgroundJobs: 0 };
 
 describe('quitWarning', () => {
   it('asks nothing when nothing runs', () => {
@@ -14,14 +14,22 @@ describe('quitWarning', () => {
       detail:
         'Quitting A.T.L.A.S stops them. Every terminal process stops, including development servers.',
     });
-    expect(quitWarning(0, { gitOperations: 1, preflightRuns: 0 }, 'A.T.L.A.S')).toEqual({
+    expect(quitWarning(0, { ...none, gitOperations: 1 }, 'A.T.L.A.S')).toEqual({
       message: '1 Git operation is still running.',
       detail:
         'Quitting A.T.L.A.S stops them. Running Git operations stop; a commit whose checks are still running is not created.',
     });
-    expect(quitWarning(1, { gitOperations: 2, preflightRuns: 1 }, 'A.T.L.A.S')?.message).toBe(
-      '1 terminal, 2 Git operations and 1 Preflight run are still running.',
-    );
+    expect(
+      quitWarning(1, { ...none, gitOperations: 2, preflightRuns: 1 }, 'A.T.L.A.S')?.message,
+    ).toBe('1 terminal, 2 Git operations and 1 Preflight run are still running.');
+  });
+
+  it('names background jobs (SDD-012)', () => {
+    expect(quitWarning(0, { ...none, backgroundJobs: 2 }, 'A.T.L.A.S')).toEqual({
+      message: '2 background jobs are still running.',
+      detail:
+        'Quitting A.T.L.A.S stops them. Background jobs stop and are reported as interrupted; queued ones do not start.',
+    });
   });
 
   it('warns about unsaved editor changes (SDD-011)', () => {

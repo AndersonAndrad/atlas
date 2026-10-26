@@ -81,6 +81,18 @@ import type {
   UpdateNoteInput,
 } from './notes.js';
 import type {
+  BackgroundJob,
+  CreateJobInput,
+  JobDetails,
+  JobListQuery,
+  JobOutputPage,
+  JobOutputQuery,
+  JobPage,
+  JobSettings,
+  JobSummary,
+  UpdateJobSettingsInput,
+} from './jobs.js';
+import type {
   CreateEntryInput,
   DirectoryListing,
   EditorLayout,
@@ -368,6 +380,15 @@ export const IPC_CHANNELS = {
   notificationsMarkAllRead: 'atlas:notifications:mark-all-read',
   notificationsRemove: 'atlas:notifications:remove',
   notificationsClear: 'atlas:notifications:clear',
+  jobsCreate: 'atlas:jobs:create',
+  jobsList: 'atlas:jobs:list',
+  jobsGet: 'atlas:jobs:get',
+  jobsCancel: 'atlas:jobs:cancel',
+  jobsRetry: 'atlas:jobs:retry',
+  jobsOutput: 'atlas:jobs:output',
+  jobsSummary: 'atlas:jobs:summary',
+  jobsGetSettings: 'atlas:jobs:get-settings',
+  jobsSetSettings: 'atlas:jobs:set-settings',
   notesList: 'atlas:notes:list',
   notesGet: 'atlas:notes:get',
   notesCreate: 'atlas:notes:create',
@@ -795,6 +816,22 @@ export interface AtlasApi {
     remove(id: string): Promise<IpcResult<null>>;
     /** Deletes every notification. */
     clear(): Promise<IpcResult<null>>;
+  };
+  /**
+   * Background jobs (SDD-012 Milestone A); changes arrive as `jobs` events. Jobs run in
+   * the Engine and stop when ATLAS quits.
+   */
+  jobs: {
+    /** Fails with JOB_CONFIRMATION_REQUIRED for commands that need `confirmDangerous`. */
+    create(input: CreateJobInput): Promise<IpcResult<BackgroundJob>>;
+    list(query: JobListQuery): Promise<IpcResult<JobPage>>;
+    get(id: string): Promise<IpcResult<JobDetails>>;
+    cancel(id: string): Promise<IpcResult<BackgroundJob>>;
+    retry(id: string): Promise<IpcResult<BackgroundJob>>;
+    output(query: JobOutputQuery): Promise<IpcResult<JobOutputPage>>;
+    summary(): Promise<IpcResult<JobSummary>>;
+    getSettings(): Promise<IpcResult<JobSettings>>;
+    setSettings(input: UpdateJobSettingsInput): Promise<IpcResult<JobSettings>>;
   };
   /** Project Hub notes (SDD-010 Milestone A); changes arrive as `notes` events. */
   notes: {

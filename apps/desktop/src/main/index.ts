@@ -311,7 +311,9 @@ async function confirmQuit(): Promise<boolean> {
   // An Engine that does not answer has nothing to confirm; quitting must stay possible.
   const [info, work] = await Promise.all([
     engine.call('terminals.closeAllInfo').catch(() => ({ runningSessions: 0, busySessions: 0 })),
-    engine.call('engine.backgroundWork').catch(() => ({ gitOperations: 0, preflightRuns: 0 })),
+    engine
+      .call('engine.backgroundWork')
+      .catch(() => ({ gitOperations: 0, preflightRuns: 0, backgroundJobs: 0 })),
   ]);
   const warning = quitWarning(info.runningSessions, work, APP_DISPLAY_NAME, unsavedEditorFiles);
   if (warning === null) return true;

@@ -1,5 +1,9 @@
 import {
   EXECUTION_PROFILES,
+  JOB_STATUSES,
+  type BackgroundJob,
+  type JobDetails,
+  type JobStatus,
   isFinalSessionStatus,
   isFinalTerminalStatus,
   type ContextBundle,
@@ -1090,6 +1094,50 @@ export async function runCli(
     },
   );
 
+  // Background jobs (SDD-012): read-only here; jobs are created and changed in the app.
+  const jobsCommand = program
+    .command('jobs')
+    .description('Background jobs of the ATLAS app (read-only)');
+  jobsCommand
+    .command('list')
+    .description('List background jobs, newest first')
+    .option('-p, --project <id>', 'only jobs of this project')
+    .option('--status <status>', `one of: ${JOB_STATUSES.join(', ')}`)
+    .option('--before <id>', 'only jobs created before this job')
+    .option('-n, --limit <count>', 'maximum jobs (1-200)', '50')
+    .option('--json', 'output JSON')
+    .action(
+      async (options: {
+        project?: string;
+        status?: string;
+        before?: string;
+        limit: string;
+        json?: boolean;
+      }) => {
+        if (!/^\d+$/.test(options.limit)) throw new CliUsageError('--limit must be a number.');
+        const status = options.status?.toUpperCase();
+        if (status !== undefined && !(JOB_STATUSES as readonly string[]).includes(status)) {
+          throw new CliUsageError(`--status must be one of: ${JOB_STATUSES.join(', ')}.`);
+        }
+        const page = await sessionCall('jobs.list', {
+          ...(options.project ? { projectId: options.project } : {}),
+          ...(status ? { statuses: [status as JobStatus] } : {}),
+          ...(options.before ? { before: options.before } : {}),
+          limit: Number(options.limit),
+        });
+        print(Boolean(options.json), page, formatJobList(page.jobs, page.nextBefore));
+      },
+    );
+  jobsCommand
+    .command('show')
+    .description('Show a background job with its attempts and status history')
+    .argument('<id>', 'job id')
+    .option('--json', 'output JSON')
+    .action(async (id: string, options: { json?: boolean }) => {
+      const details = await sessionCall('jobs.get', id);
+      print(Boolean(options.json), details, formatJobDetails(details));
+    });
+
   try {
     await program.parseAsync(argv, { from: 'user' });
     return 0;
@@ -1189,6 +1237,38 @@ function formatSyncPlan(plan: SkillSyncPlan): string {
   if (plan.items.length === 0) lines.push('Nothing to synchronize.');
   for (const item of plan.items)
     lines.push(`  ${item.action.padEnd(9)} ${item.dirName}  ${item.reason}`);
+  return `${lines.join('\n')}\n`;
+}
+
+function formatJobList(jobs: BackgroundJob[], nextBefore: string | null): string {
+  if (jobs.length === 0) return 'No background jobs.\n';
+  const lines = jobs.map(
+    (job) =>
+      `${job.createdAt}  ${job.id}  ${job.type.padEnd(9)} ${job.status.padEnd(16)} ${job.title}` +
+      (job.errorSummary ? `\n    ${job.errorSummary}` : ''),
+  );
+  if (nextBefore) lines.push('', `Older jobs: --before ${nextBefore}`);
+  return `${lines.join('\n')}\n`;
+}
+
+function formatJobDetails({ job, attempts, history }: JobDetails): string {
+  const lines = [
+    `${job.title} — ${job.type} — ${job.status}`,
+    `Queued ${job.queuedAt}; started ${job.startedAt ?? '—'}; finished ${job.finishedAt ?? '—'}`,
+    ...(job.workspacePath ? [`Folder: ${job.workspacePath}`] : []),
+    ...(job.payload.type === 'COMMAND' ? [`Command: ${job.payload.command}`] : []),
+    ...(job.errorSummary ? [`Error: ${job.errorSummary}`] : []),
+  ];
+  for (const attempt of attempts) {
+    lines.push(
+      `Attempt ${attempt.attempt}: ${attempt.status}, exit ${attempt.exitCode ?? '—'}` +
+        (attempt.errorSummary ? ` — ${attempt.errorSummary}` : ''),
+    );
+  }
+  lines.push('', 'History:');
+  for (const change of history) {
+    lines.push(`  ${change.at}  ${change.status}${change.detail ? `  ${change.detail}` : ''}`);
+  }
   return `${lines.join('\n')}\n`;
 }
 

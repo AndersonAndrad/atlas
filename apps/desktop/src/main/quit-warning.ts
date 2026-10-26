@@ -5,8 +5,8 @@ const count = (value: number, singular: string, plural: string) =>
 
 /**
  * What quitting would stop: terminals, Git operations (e.g. a commit running its
- * pre-commit steps) and Preflight runs all end with the Engine, and unsaved editor
- * changes are lost. Null when nothing would be lost.
+ * pre-commit steps), Preflight runs and background jobs all end with the Engine, and
+ * unsaved editor changes are lost. Null when nothing would be lost.
  */
 export function quitWarning(
   runningTerminals: number,
@@ -19,6 +19,9 @@ export function quitWarning(
     runningTerminals > 0 ? count(runningTerminals, 'terminal', 'terminals') : null,
     work.gitOperations > 0 ? count(work.gitOperations, 'Git operation', 'Git operations') : null,
     work.preflightRuns > 0 ? count(work.preflightRuns, 'Preflight run', 'Preflight runs') : null,
+    work.backgroundJobs > 0
+      ? count(work.backgroundJobs, 'background job', 'background jobs')
+      : null,
   ].filter((part): part is string => part !== null);
   if (running.length === 0) {
     return unsaved === null
@@ -28,7 +31,7 @@ export function quitWarning(
           detail: `Quitting ${appName} discards the changes not saved in the editor.`,
         };
   }
-  const total = runningTerminals + work.gitOperations + work.preflightRuns;
+  const total = runningTerminals + work.gitOperations + work.preflightRuns + work.backgroundJobs;
   const list =
     running.length === 1
       ? running[0]!
@@ -39,6 +42,9 @@ export function quitWarning(
       ? 'Running Git operations stop; a commit whose checks are still running is not created.'
       : null,
     work.preflightRuns > 0 ? 'Running Preflight checks are cancelled.' : null,
+    work.backgroundJobs > 0
+      ? 'Background jobs stop and are reported as interrupted; queued ones do not start.'
+      : null,
   ].filter((part): part is string => part !== null);
   return {
     message: `${list} ${total === 1 ? 'is' : 'are'} still running.${

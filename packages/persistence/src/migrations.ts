@@ -670,4 +670,65 @@ export const MIGRATIONS: readonly Migration[] = [
       END;
     `,
   },
+  {
+    version: 13,
+    name: 'background_jobs',
+    // Background jobs, their attempts and status history (SDD-012 Milestone A). Additive.
+    // Output logs live in files; the payload holds what the user asked to run.
+    sql: `
+      CREATE TABLE background_jobs (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        type TEXT NOT NULL CHECK (type IN
+          ('COMMAND', 'GIT', 'PREFLIGHT', 'AGENT', 'ATLAS_SESSION', 'INTEGRATION')),
+        status TEXT NOT NULL CHECK (status IN ('QUEUED', 'RUNNING', 'WAITING_APPROVAL',
+          'COMPLETED', 'FAILED', 'CANCELLED', 'INTERRUPTED')),
+        priority TEXT NOT NULL CHECK (priority IN ('LOW', 'NORMAL', 'HIGH')),
+        project_id TEXT REFERENCES projects (id) ON DELETE SET NULL,
+        workspace_path TEXT CHECK (workspace_path IS NULL OR length(workspace_path) > 0),
+        session_id TEXT,
+        title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 120),
+        description TEXT CHECK (description IS NULL OR length(description) <= 500),
+        origin TEXT NOT NULL CHECK (origin IN ('desktop', 'cli')),
+        payload TEXT NOT NULL CHECK (json_valid(payload)),
+        progress TEXT NOT NULL CHECK (json_valid(progress)),
+        retry_count INTEGER NOT NULL DEFAULT 0 CHECK (retry_count >= 0),
+        max_retries INTEGER NOT NULL DEFAULT 0 CHECK (max_retries >= 0),
+        execution_reference TEXT
+          CHECK (execution_reference IS NULL OR json_valid(execution_reference)),
+        error_summary TEXT CHECK (error_summary IS NULL OR length(error_summary) <= 500),
+        exit_code INTEGER,
+        cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancel_requested IN (0, 1)),
+        created_at TEXT NOT NULL,
+        queued_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT
+      ) STRICT;
+      CREATE INDEX background_jobs_status ON background_jobs (status, queued_at);
+      CREATE INDEX background_jobs_project ON background_jobs (project_id, created_at);
+      CREATE INDEX background_jobs_created ON background_jobs (created_at);
+
+      -- One row per run of a job: the first run and every retry.
+      CREATE TABLE background_job_attempts (
+        job_id TEXT NOT NULL REFERENCES background_jobs (id) ON DELETE CASCADE,
+        attempt INTEGER NOT NULL CHECK (attempt >= 1),
+        status TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        exit_code INTEGER,
+        error_summary TEXT,
+        execution_reference TEXT
+          CHECK (execution_reference IS NULL OR json_valid(execution_reference)),
+        PRIMARY KEY (job_id, attempt)
+      ) STRICT;
+
+      CREATE TABLE background_job_status_history (
+        id INTEGER PRIMARY KEY,
+        job_id TEXT NOT NULL REFERENCES background_jobs (id) ON DELETE CASCADE,
+        status TEXT NOT NULL,
+        at TEXT NOT NULL,
+        detail TEXT
+      ) STRICT;
+      CREATE INDEX background_job_status_history_job ON background_job_status_history (job_id, id);
+    `,
+  },
 ];

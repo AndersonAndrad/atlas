@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-26 — PLAN-039 (Hub E2E independent of the window width).
+Last updated: 2026-10-26 — PLAN-040 (SDD-012 Milestone A: background jobs).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -44,8 +44,39 @@ approval. PLAN-036 (the watched-folder Engine test no longer races macOS FSEvent
 implemented and awaits approval. PLAN-037 (CI build steps get a 4 GB Node heap) is
 implemented and awaits approval. PLAN-038 (15 s default test timeout; the Git hook timeout
 test waits for the hook) is implemented and awaits approval. PLAN-039 (the Hub E2E selects
-Preview instead of relying on Split) is implemented and awaits approval. Version 0.26.5
-(schema v12).
+Preview instead of relying on Split) is implemented and awaits approval. PLAN-040 (SDD-012
+Milestone A: background jobs, Operations Center and header indicator) is implemented and
+awaits approval; SDD-012 Milestones B and C are not started. Version 0.27.0 (schema v13).
+
+## PLAN-040 — SDD-012 Milestone A: background jobs
+
+- Approved 2026-10-26 by Anderson Andrade ("pode seguir com a implementação"). Defaults:
+  unfinished jobs become INTERRUPTED after a restart, limits 2 / 1 per project, CLI
+  read-only. Details: `docs/sdd/SDD-012-background-operations.md`, ADR-064.
+- New `packages/jobs` (state machine, queue selection, service), migration v13
+  (`background_jobs`, `background_job_attempts`, `background_job_status_history`),
+  `SqliteJobRepository`, Engine executors: COMMAND over Preflight's shell executor and
+  PREFLIGHT over the Preflight service (`isRunning` and `settled` added). `jobs.*` methods
+  (CLI: list and get only), a `jobs` event, BACKGROUND_TASK notifications, and background
+  jobs in the quit confirmation.
+- UI: Operations in the main navigation (active and history, filters, details with log,
+  attempts and status history, Cancel, Retry, Open result, Open project, New command job
+  with confirmation of destructive commands, Limits), the header indicator, and Preflight →
+  Run in background. `LogViewer` can read a job's log. CLI: `atlas jobs list` and
+  `atlas jobs show`.
+- Jobs stop when ATLAS quits (reported as interrupted); no daemon. Rolling back to 0.26.x
+  needs a database copy taken before 0.27.0 first ran (older versions refuse schema v13).
+- Staff review: no Critical or High findings. Fixed: a token typed in a command could reach
+  the job title and notifications (now redacted); the log of a job opened as it started
+  could stop polling; an interrupted job showed the executor's stop message instead of
+  why it was interrupted; a nondeterministic test assertion.
+- Validation (2026-10-26): format, lint, typecheck and `pnpm audit --prod` clean.
+  `pnpm test` passed with 892 tests in three full runs. The last run had two timing
+  failures under load (load average 54, with the Docker E2E in parallel). They were the
+  existing cherry-pick and `redactCredentials` timing tests, which this change does not
+  touch, and both files passed alone (76/76). Full E2E in Linux Docker with Xvfb: 97
+  passed, 1 skipped. The first full run found the two issues fixed above; the affected
+  specs then passed 12/12.
 
 ## PLAN-039 — Hub E2E on smaller screens
 

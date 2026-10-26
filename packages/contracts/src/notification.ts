@@ -49,6 +49,10 @@ export const NotificationActionSchema = z.discriminatedUnion('type', [
     workspaceId: z.uuid(),
     runId: z.uuid(),
   }),
+  z.object({
+    type: z.literal('background-job'),
+    jobId: z.uuid(),
+  }),
 ]);
 export type NotificationAction = z.infer<typeof NotificationActionSchema>;
 
@@ -99,4 +103,6 @@ export interface NotificationList {
 export interface BackgroundWork {
   gitOperations: number;
   preflightRuns: number;
+  /** Running and queued background jobs not counted above (SDD-012). */
+  backgroundJobs: number;
 }

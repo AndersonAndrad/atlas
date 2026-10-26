@@ -183,6 +183,9 @@ importers:
       '@atlas/git':
         specifier: workspace:*
         version: link:../../packages/git
+      '@atlas/jobs':
+        specifier: workspace:*
+        version: link:../../packages/jobs
       '@atlas/notes':
         specifier: workspace:*
         version: link:../../packages/notes
@@ -264,6 +267,15 @@ importers:
         specifier: workspace:*
         version: link:../shared
 
+  packages/jobs:
+    dependencies:
+      '@atlas/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@atlas/shared':
+        specifier: workspace:*
+        version: link:../shared
+
   packages/notes:
     dependencies:
       '@atlas/contracts':
@@ -293,6 +305,9 @@ importers:
       '@atlas/git':
         specifier: workspace:*
         version: link:../git
+      '@atlas/jobs':
+        specifier: workspace:*
+        version: link:../jobs
       '@atlas/notes':
         specifier: workspace:*
         version: link:../notes

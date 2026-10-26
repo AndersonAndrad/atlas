@@ -697,3 +697,28 @@ superseded decisions are marked, not deleted.
   links and drop extended attributes/ACLs. TypeScript semantic diagnostics are off until
   language servers exist. No schema change. Monaco's bundled DOMPurify 3.4.15 has
   advisories in modes Monaco does not use; it is updated with a future Monaco release.
+
+## ADR-064 — Background jobs are an Engine queue over existing executors (PLAN-040)
+
+- **Decision**: Background operations are a new Engine service (`packages/jobs`) that stores
+  jobs, attempts and status history in the existing database (migration v13). It
+  dispatches through executor adapters over services that already run things: COMMAND jobs
+  through Preflight's shell executor (process tree, timeout, redacted bounded logs), and
+  PREFLIGHT jobs through the Preflight service with the same digest authorizations. Queue
+  selection is synchronous: FIFO with priorities and global, per-project and per-resource
+  limits. State is saved before dispatch, and progress at most once per second. Jobs stop
+  with the Engine and are reported INTERRUPTED; nothing resumes by itself. Only the desktop
+  creates or changes jobs.
+- **Alternatives**: a second process runner for jobs (rejected: duplicates the
+  process-tree, timeout and redaction handling); running jobs in hidden terminals (rejected:
+  mixes background work with interactive PTYs, FR-1214); turning every existing Preflight
+  run and Git operation into a job (rejected for Milestone A: changes working flows, belongs
+  to Milestone C); a daemon or system service so jobs survive quitting (rejected: out of
+  scope, §17); resuming queued jobs after a restart (rejected by the developer, Q1, until
+  Milestone B policies exist); external queues or databases (rejected by the
+  specification).
+- **Consequences**: A Preflight job and its run are two linked records. Destructive-command
+  detection is pattern based and incomplete. As with every migration, an older ATLAS refuses
+  the v13 database, so going back to 0.26.x needs a copy of the database taken before
+  0.27.0 first ran. GIT, AGENT, ATLAS_SESSION and INTEGRATION are reserved job types without
+  executors.

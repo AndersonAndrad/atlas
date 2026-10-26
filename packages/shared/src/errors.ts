@@ -33,6 +33,10 @@ export const ERROR_CODES = [
   'NOTIFICATION_NOT_FOUND',
   'NOTE_NOT_FOUND',
   'NOTE_CONFLICT',
+  'JOB_NOT_FOUND',
+  'JOB_TRANSITION_INVALID',
+  'JOB_NOT_CANCELLABLE',
+  'JOB_CONFIRMATION_REQUIRED',
   'FILE_NOT_FOUND',
   'FILE_ALREADY_EXISTS',
   'FILE_CONFLICT',
@@ -95,6 +99,11 @@ export const USER_MESSAGES: Record<ErrorCode, string> = {
   NOTE_NOT_FOUND: 'The note could not be found. It may have been deleted.',
   NOTE_CONFLICT:
     'The note was changed elsewhere since you opened it. Reload it or save your version again.',
+  JOB_NOT_FOUND: 'The background job could not be found. It may have been removed.',
+  JOB_TRANSITION_INVALID: 'This action is not available in the current job status.',
+  JOB_NOT_CANCELLABLE: 'This job cannot be stopped safely. Wait for it to finish.',
+  JOB_CONFIRMATION_REQUIRED:
+    'This command may change or delete data. Review the warnings and confirm to queue it.',
   FILE_NOT_FOUND: 'The file or folder could not be found. It may have been moved or deleted.',
   FILE_ALREADY_EXISTS: 'A file or folder with this name already exists. Nothing was overwritten.',
   FILE_CONFLICT:

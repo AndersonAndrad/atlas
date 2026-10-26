@@ -581,11 +581,24 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     [IPC_CHANNELS.notificationsRemove, 'notifications.remove'],
     [IPC_CHANNELS.notificationsClear, 'notifications.clear'],
   ];
+  // Background jobs (SDD-012 Milestone A).
+  const jobChannels: [string, EngineMethod][] = [
+    [IPC_CHANNELS.jobsCreate, 'jobs.create'],
+    [IPC_CHANNELS.jobsList, 'jobs.list'],
+    [IPC_CHANNELS.jobsGet, 'jobs.get'],
+    [IPC_CHANNELS.jobsCancel, 'jobs.cancel'],
+    [IPC_CHANNELS.jobsRetry, 'jobs.retry'],
+    [IPC_CHANNELS.jobsOutput, 'jobs.output'],
+    [IPC_CHANNELS.jobsSummary, 'jobs.summary'],
+    [IPC_CHANNELS.jobsGetSettings, 'jobs.getSettings'],
+    [IPC_CHANNELS.jobsSetSettings, 'jobs.setSettings'],
+  ];
   for (const [channel, method] of [
     ...usageChannels,
     ...preflightChannels,
     ...notificationChannels,
     ...noteChannels,
+    ...jobChannels,
     ...fileChannels,
   ]) {
     handle(channel, ENGINE_METHOD_PARAMS[method] as unknown as z.ZodType<unknown[]>, (args) =>

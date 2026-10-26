@@ -14,6 +14,8 @@ import { SkillsView } from './skills/components/SkillsView';
 import { UsageView } from './usage/components/UsageView';
 import { PreflightView, type PreflightOpenRequest } from './preflight/components/PreflightView';
 import { QuickCommandsView } from './quick-commands/components/QuickCommandsView';
+import { OperationsView, type OperationsOpenRequest } from './operations/components/OperationsView';
+import { OperationsIndicator } from './operations/components/OperationsIndicator';
 import { NotificationCenter } from './notifications/components/NotificationCenter';
 import { Toaster } from './notifications/components/Toaster';
 import { useNotifications } from './notifications/useNotifications';
@@ -42,6 +44,7 @@ export function App() {
   const [gitRequest, setGitRequest] = useState<GitOpenRequest | null>(null);
   const [contextRequest, setContextRequest] = useState<ContextOpenRequest | null>(null);
   const [preflightRequest, setPreflightRequest] = useState<PreflightOpenRequest | null>(null);
+  const [operationsRequest, setOperationsRequest] = useState<OperationsOpenRequest | null>(null);
   // Mounted on first use and then kept, so unsaved editor buffers survive switching views.
   const [editorMounted, setEditorMounted] = useState(false);
   if (view === 'editor' && !editorMounted) setEditorMounted(true);
@@ -129,6 +132,7 @@ export function App() {
   };
   const clearSessionRequest = useCallback(() => setSessionRequest(null), []);
   const clearPreflightRequest = useCallback(() => setPreflightRequest(null), []);
+  const clearOperationsRequest = useCallback(() => setOperationsRequest(null), []);
   const openPreflight = (target: Omit<PreflightOpenRequest, 'nonce'>) => {
     setPreflightRequest({ ...target, nonce: Date.now() });
     setView('preflight');
@@ -148,6 +152,12 @@ export function App() {
           return;
         }
         openGit({ repositoryRoot: action.repositoryRoot, operations: true });
+        return;
+      }
+      if (action.type === 'background-job') {
+        await unwrap(api().jobs.get(action.jobId));
+        setOperationsRequest({ jobId: action.jobId, nonce: Date.now() });
+        setView('operations');
         return;
       }
       await unwrap(api().preflight.run(action.runId));
@@ -193,6 +203,7 @@ export function App() {
                 </Button>
               </p>
             )}
+            <OperationsIndicator onOpen={() => setView('operations')} />
             <NotificationCenter state={notifications} onOpen={openNotification} />
           </div>
           <div className="flex min-h-0 min-w-0 flex-1">
@@ -260,6 +271,18 @@ export function App() {
                 projects={projects.items ?? []}
                 request={preflightRequest}
                 onRequestHandled={clearPreflightRequest}
+              />
+            )}
+            {view === 'operations' && (
+              <OperationsView
+                projects={projects.items ?? []}
+                request={operationsRequest}
+                onRequestHandled={clearOperationsRequest}
+                onOpenPreflightRun={(workspaceId, runId) => openPreflight({ workspaceId, runId })}
+                onOpenProject={(projectId) => {
+                  void projects.select(projectId);
+                  setView('projects');
+                }}
               />
             )}
             {view === 'context' && (

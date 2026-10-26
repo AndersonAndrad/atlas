@@ -1,4 +1,4 @@
-import type { PreflightOutputLine } from '@atlas/contracts';
+import type { PreflightOutputLine, PreflightOutputPage } from '@atlas/contracts';
 import { Copy, Search } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage, unwrap } from '@/api';
@@ -22,9 +22,22 @@ export function isErrorLine(line: PreflightOutputLine): boolean {
 
 /**
  * Live output of one check (FR-717): polled while the check runs, with search, an
- * errors-only filter and copy. Lines arrive already redacted by the Engine.
+ * errors-only filter and copy. Lines arrive already redacted by the Engine. `load`
+ * reads another log with the same paging, e.g. a background job's (SDD-012).
  */
-export function LogViewer({ runId, position }: { runId: string; position: number }) {
+export function LogViewer({
+  runId,
+  position,
+  load,
+  label = 'Check output',
+  testId = 'preflight-log',
+}: {
+  runId: string;
+  position: number;
+  load?: (after: number) => Promise<PreflightOutputPage>;
+  label?: string;
+  testId?: string;
+}) {
   const [lines, setLines] = useState<PreflightOutputLine[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +46,11 @@ export function LogViewer({ runId, position }: { runId: string; position: number
   const [copied, setCopied] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const following = useRef(true);
+  // The log is identified by `runId` and `position`; a new `load` alone does not restart it.
+  const loader = useRef(load);
+  useEffect(() => {
+    loader.current = load;
+  }, [load]);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,7 +61,9 @@ export function LogViewer({ runId, position }: { runId: string; position: number
       try {
         // Pages until the end, then waits for more while the check runs.
         for (;;) {
-          const page = await unwrap(api().preflight.output({ runId, position, after }));
+          const page = loader.current
+            ? await loader.current(after)
+            : await unwrap(api().preflight.output({ runId, position, after }));
           if (cancelled) return;
           if (page.truncatedBefore) setTruncated(true);
           if (page.lines.length > 0) {
@@ -90,7 +110,7 @@ export function LogViewer({ runId, position }: { runId: string; position: number
   }
 
   return (
-    <div className="flex flex-col gap-2" data-testid="preflight-log">
+    <div className="flex flex-col gap-2" data-testid={testId}>
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-40 flex-1">
           <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2" />
@@ -135,7 +155,7 @@ export function LogViewer({ runId, position }: { runId: string; position: number
         className="bg-muted/40 h-80 overflow-auto rounded-md border p-2 font-mono text-xs leading-5 lg:h-[28rem]"
         role="log"
         aria-live="polite"
-        aria-label="Check output"
+        aria-label={label}
       >
         {truncated && (
           <p className="text-muted-foreground italic">

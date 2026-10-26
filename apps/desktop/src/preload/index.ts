@@ -282,6 +282,17 @@ const api: AtlasApi = {
     getLastProject: () => ipcRenderer.invoke(IPC_CHANNELS.editorGetLastProject),
     setLastProject: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.editorSetLastProject, projectId),
   },
+  jobs: {
+    create: (input) => ipcRenderer.invoke(IPC_CHANNELS.jobsCreate, input),
+    list: (query) => ipcRenderer.invoke(IPC_CHANNELS.jobsList, query),
+    get: (id) => ipcRenderer.invoke(IPC_CHANNELS.jobsGet, id),
+    cancel: (id) => ipcRenderer.invoke(IPC_CHANNELS.jobsCancel, id),
+    retry: (id) => ipcRenderer.invoke(IPC_CHANNELS.jobsRetry, id),
+    output: (query) => ipcRenderer.invoke(IPC_CHANNELS.jobsOutput, query),
+    summary: () => ipcRenderer.invoke(IPC_CHANNELS.jobsSummary),
+    getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.jobsGetSettings),
+    setSettings: (input) => ipcRenderer.invoke(IPC_CHANNELS.jobsSetSettings, input),
+  },
   notes: {
     list: (query) => ipcRenderer.invoke(IPC_CHANNELS.notesList, query),
     get: (id) => ipcRenderer.invoke(IPC_CHANNELS.notesGet, id),

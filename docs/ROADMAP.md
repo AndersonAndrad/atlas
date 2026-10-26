@@ -28,6 +28,9 @@
 | M11a      | SDD-011 A     | Code editor: Monaco, explorer, tabs, safe saves, external changes, layout, terminal            | Implemented — awaiting approval       |
 | M11b      | SDD-011 B     | Git decorations, diff, conflicts, search, command palette, language servers                    | Not started (after A is validated)    |
 | M11c      | SDD-011 C     | Editor context for AI, AI change preview, Preflight from the editor, handoff                   | Not started (after B)                 |
+| M12a      | SDD-012 A     | Background jobs: SQLite queue, limits, cancel, progress, logs, Operations Center, indicator    | Implemented — awaiting approval       |
+| M12b      | SDD-012 B     | Scheduling: once, delay, interval; missed-run and overlap policies; recovery; retry policies   | Not started (after A is validated)    |
+| M12c      | SDD-012 C     | Preflight, Git, agent, account, Hub and Shared Context integrations; extension point           | Not started (after B)                 |
 | M4        | TBD           | Agents and multi-agent orchestration                                                           | Not started                           |
 | M5        | TBD           | Skills Hub and Context Engine                                                                  | Not started                           |
 | M6        | PLAN-024      | Packaging and CI release pipeline (done); signing, notarization, auto-update (not started)     | Partially implemented                 |

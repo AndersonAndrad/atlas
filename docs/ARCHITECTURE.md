@@ -473,7 +473,7 @@ Only the Engine host publishes. Publishing never throws, so a notification can n
 the operation it reports. Destinations are validated internal targets (a Git operation or
 a Preflight run), never commands or URLs. Commits run in the background: the commit dialog
 hands the running commit to the Git operations panel. Quitting asks first while Git
-operations or Preflight runs are in progress (`engine.backgroundWork`).
+operations, Preflight runs or background jobs are in progress (`engine.backgroundWork`).
 
 ### Project Hub notes (SDD-010 Milestone A)
 
@@ -517,6 +517,28 @@ replacing it needs an explicit choice. Saving, creating or moving publishes the 
 event. Unsaved buffers stay in the renderer (the view stays mounted); the main process
 knows their count so quitting or closing the window asks first. While the Editor is shown,
 the terminal menu shortcuts are disabled so Cmd+W/F/D… reach Monaco.
+
+### Background jobs (SDD-012 Milestone A)
+
+Full description: `docs/sdd/SDD-012-background-operations.md`.
+
+```text
+ Operations view / header indicator / Preflight "Run in background"
+        ─► atlas.jobs (preload) ─► main IPC ─► Engine `jobs.*` (CLI: list and get only)
+             JobService (packages/jobs): validated transitions, FIFO + priority queue,
+               global and per-project limits, resources, throttled progress, history
+               ├─ CommandJobExecutor ─► ShellPreflightExecutor (process tree, timeout)
+               └─ PreflightJobExecutor ─► PreflightService (same authorizations)
+             SqliteJobRepository (migration v13) · logs in <data>/jobs/logs
+             ─► event { type: 'jobs', job } · NotificationService (BACKGROUND_TASK)
+```
+
+Jobs belong to the Engine: closing a view, a terminal or the window never stops one, and
+jobs never use a PTY. They stop with the Engine. On quit they are reported as interrupted
+and counted by the quit confirmation; after a crash they are marked interrupted on the next
+start. Nothing restarts by itself. A job is completed only when its executor reports
+success. Commands run only in registered project folders the Engine resolves, and
+destructive or external patterns need an explicit confirmation.
 
 ### Project context of a terminal
 
@@ -654,7 +676,8 @@ terminals running as standalone terminals (SDD-003 §2).
   authorizations and runs (additive). Schema v11: notifications (additive). Schema v12:
   Project Hub notes with FTS5 search (additive; project removal keeps notes as workspace
   notes). SDD-011 Milestone A adds no schema: editor preferences and layouts are
-  `application_settings` keys.
+  `application_settings` keys. Schema v13: background jobs, attempts and status history
+  (additive; job limits are the `jobs.settings` application setting).
 - Data dir: macOS `~/Library/Application Support/ATLAS`, Windows `%APPDATA%\ATLAS`, Linux
   `$XDG_DATA_HOME/atlas`; `ATLAS_DATA_DIR` overrides.
 

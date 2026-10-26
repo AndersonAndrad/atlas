@@ -553,6 +553,16 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     },
     'notes.checkLinks': ([input]: [CheckNoteLinksInput]) => engine.notes.checkLinks(input),
     'notes.filePath': ([input]: [RevealNoteFileInput]) => engine.notes.filePath(input),
+    // Background jobs (SDD-012 Milestone A); the service validates every input again.
+    'jobs.create': ([input]: [unknown], scope) => engine.jobs.create(input, scope),
+    'jobs.list': ([query]: [unknown]) => engine.jobs.list(query),
+    'jobs.get': ([id]: [string]) => engine.jobs.get(id),
+    'jobs.cancel': ([id]: [string]) => engine.jobs.cancel(id),
+    'jobs.retry': ([id]: [string]) => engine.jobs.retry(id),
+    'jobs.output': ([query]: [unknown]) => engine.jobs.output(query),
+    'jobs.summary': () => engine.jobs.summary(),
+    'jobs.getSettings': () => engine.jobs.settings(),
+    'jobs.setSettings': ([input]: [unknown]) => engine.jobs.updateSettings(input),
     // Project files and the code editor (SDD-011 Milestone A); validated again by the service.
     'files.list': ([input]: [ListDirectoryInput]) => engine.files.list(input),
     'files.read': ([ref]: [FileRef]) => engine.files.read(ref),

@@ -465,7 +465,11 @@ describe.skipIf(!posix)('Engine Preflight', { timeout: 30_000 }, () => {
         },
       ],
     });
-    expect(engine.backgroundWork()).toEqual({ gitOperations: 0, preflightRuns: 0 });
+    expect(engine.backgroundWork()).toEqual({
+      gitOperations: 0,
+      preflightRuns: 0,
+      backgroundJobs: 0,
+    });
 
     await engine.shutdown();
     engine = open(path.join(temp.dir, 'data'));

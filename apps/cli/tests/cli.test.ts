@@ -512,6 +512,24 @@ describe('atlas CLI', () => {
       expect((await run(['skills', 'list'])).out).toMatch(/on\s+review/);
     });
 
+    it('lists background jobs read-only and validates its options (SDD-012)', async () => {
+      const empty = await run(['jobs', 'list']);
+      expect(empty.code).toBe(0);
+      expect(empty.out).toContain('No background jobs.');
+      expect(JSON.parse((await run(['jobs', 'list', '--json'])).out)).toEqual({
+        jobs: [],
+        nextBefore: null,
+      });
+      expect((await run(['jobs', 'list', '--status', 'done'])).err).toContain(
+        '--status must be one of',
+      );
+      expect((await run(['jobs', 'list', '--limit', 'x'])).err).toContain(
+        '--limit must be a number',
+      );
+      const missing = await run(['jobs', 'show', '00000000-0000-4000-8000-000000000001']);
+      expect(missing.code).not.toBe(0);
+    });
+
     it('lists the Git operation log and validates its options', async () => {
       const empty = await run(['git', 'log-operations']);
       expect(empty.code).toBe(0);

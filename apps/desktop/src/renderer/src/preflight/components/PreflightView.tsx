@@ -12,6 +12,7 @@ import type {
 } from '@atlas/contracts';
 import {
   FolderPlus,
+  ListPlus,
   Pencil,
   Play,
   Plus,
@@ -319,9 +320,12 @@ function WorkspacePanel({
   );
   const [tab, setTab] = useState<Tab>('run');
   const [run, setRun] = useState<PreflightRun | null>(null);
-  const [plan, setPlan] = useState<{ selection: PreflightSelection; plan: PreflightPlan } | null>(
-    null,
-  );
+  const [plan, setPlan] = useState<{
+    selection: PreflightSelection;
+    plan: PreflightPlan;
+    background: boolean;
+  } | null>(null);
+  const [queuedNotice, setQueuedNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
   const config = details.value?.config ?? null;
@@ -368,31 +372,41 @@ function WorkspacePanel({
     }
   }
 
-  async function start(selection: PreflightSelection) {
+  /** Runs now, or queues a background job (SDD-012) after the same authorization. */
+  async function start(selection: PreflightSelection, background = false) {
     setError(null);
+    setQueuedNotice(null);
     try {
       const planned = await unwrap(api().preflight.plan(selection));
       if (planned.checks.some((check) => check.authorization !== null)) {
-        setPlan({ selection, plan: planned });
+        setPlan({ selection, plan: planned, background });
         return;
       }
-      await launch(selection, planned);
+      await launch(selection, planned, background);
     } catch (caught) {
       setError(errorMessage(caught));
     }
   }
 
-  async function launch(selection: PreflightSelection, planned: PreflightPlan) {
+  async function launch(
+    selection: PreflightSelection,
+    planned: PreflightPlan,
+    background: boolean,
+  ) {
     setPlan(null);
+    const authorizations = planned.checks
+      .filter((check) => check.authorization !== null)
+      .map((check) => ({ checkId: check.checkId, digest: check.digest }));
     try {
-      const started = await unwrap(
-        api().preflight.start({
-          ...selection,
-          authorizations: planned.checks
-            .filter((check) => check.authorization !== null)
-            .map((check) => ({ checkId: check.checkId, digest: check.digest })),
-        }),
-      );
+      if (background) {
+        const { retryOf: _retryOf, ...rest } = selection;
+        const job = await unwrap(
+          api().jobs.create({ type: 'PREFLIGHT', selection: { ...rest, authorizations } }),
+        );
+        setQueuedNotice(`${job.title} was queued. Follow it in Operations.`);
+        return;
+      }
+      const started = await unwrap(api().preflight.start({ ...selection, authorizations }));
       setRun(started);
       setTab('run');
     } catch (caught) {
@@ -452,8 +466,18 @@ function WorkspacePanel({
               config={config}
               running={run?.status === 'RUNNING'}
               onStart={(selection) => void start(selection)}
+              onQueue={(selection) => void start(selection, true)}
               onConfigure={() => setTab('checks')}
             />
+            {queuedNotice && (
+              <p
+                className="text-muted-foreground text-sm"
+                role="status"
+                data-testid="preflight-queued"
+              >
+                {queuedNotice}
+              </p>
+            )}
             {run && (
               <RunPanel
                 key={run.id}
@@ -509,7 +533,7 @@ function WorkspacePanel({
         <AuthorizationDialog
           plan={plan.plan}
           onCancel={() => setPlan(null)}
-          onAuthorize={() => void launch(plan.selection, plan.plan)}
+          onAuthorize={() => void launch(plan.selection, plan.plan, plan.background)}
         />
       )}
       {removing && (
@@ -538,12 +562,15 @@ function RunLauncher({
   config,
   running,
   onStart,
+  onQueue,
   onConfigure,
 }: {
   workspaceId: string;
   config: PreflightConfig;
   running: boolean;
   onStart: (selection: PreflightSelection) => void;
+  /** Queues the profile as a background job; it starts once the workspace is free. */
+  onQueue: (selection: PreflightSelection) => void;
   onConfigure: () => void;
 }) {
   const enabled = config.checks.filter((check) => check.enabled);
@@ -584,6 +611,15 @@ function RunLauncher({
           >
             <Play />
             Run profile
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={profileId === null}
+            onClick={() => onQueue({ workspaceId, profileId, checkIds: null })}
+          >
+            <ListPlus />
+            Run in background
           </Button>
         </div>
       )}

@@ -185,6 +185,19 @@ import {
   type ProjectNote,
 } from './notes.js';
 import {
+  CreateJobSchema,
+  JobIdSchema,
+  JobListQuerySchema,
+  JobOutputQuerySchema,
+  UpdateJobSettingsSchema,
+  type BackgroundJob,
+  type JobDetails,
+  type JobOutputPage,
+  type JobPage,
+  type JobSettings,
+  type JobSummary,
+} from './jobs.js';
+import {
   CreateEntrySchema,
   EditorLayoutSchema,
   FileRefSchema,
@@ -452,6 +465,16 @@ export const ENGINE_METHOD_PARAMS = {
   'notes.checkLinks': z.tuple([CheckNoteLinksSchema]),
   /** Absolute path of an `atlas:file/...` link inside the project; for revealing it. */
   'notes.filePath': z.tuple([RevealNoteFileSchema]),
+  // Background jobs (SDD-012 Milestone A). Only the desktop creates or changes jobs.
+  'jobs.create': z.tuple([CreateJobSchema]),
+  'jobs.list': z.tuple([JobListQuerySchema]),
+  'jobs.get': z.tuple([JobIdSchema]),
+  'jobs.cancel': z.tuple([JobIdSchema]),
+  'jobs.retry': z.tuple([JobIdSchema]),
+  'jobs.output': z.tuple([JobOutputQuerySchema]),
+  'jobs.summary': z.tuple([]),
+  'jobs.getSettings': z.tuple([]),
+  'jobs.setSettings': z.tuple([UpdateJobSettingsSchema]),
   // Project files and the code editor (SDD-011 Milestone A); not offered to the CLI.
   'files.list': z.tuple([ListDirectorySchema]),
   'files.read': z.tuple([FileRefSchema]),
@@ -683,6 +706,16 @@ export interface EngineMethodResults {
   'notes.remove': null;
   'notes.checkLinks': NoteLinkStatus[];
   'notes.filePath': string;
+  'jobs.create': BackgroundJob;
+  'jobs.list': JobPage;
+  'jobs.get': JobDetails;
+  /** The job as cancellation left it: cancelled, or still running while it stops. */
+  'jobs.cancel': BackgroundJob;
+  'jobs.retry': BackgroundJob;
+  'jobs.output': JobOutputPage;
+  'jobs.summary': JobSummary;
+  'jobs.getSettings': JobSettings;
+  'jobs.setSettings': JobSettings;
   'files.list': DirectoryListing;
   'files.read': FileContent;
   'files.write': WrittenFile;
@@ -763,4 +796,7 @@ export const CLI_ENGINE_METHODS: readonly EngineMethod[] = [
   'sessions.perform',
   'sessions.tasks',
   'sessions.events',
+  // Background jobs: reading only; jobs are created and changed in the app.
+  'jobs.list',
+  'jobs.get',
 ];

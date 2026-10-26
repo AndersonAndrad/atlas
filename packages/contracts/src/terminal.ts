@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ProjectIdSchema, WorkspacePathSchema } from './project.js';
 import type { GitOperation } from './git.js';
+import type { BackgroundJob } from './jobs.js';
 import type { AtlasNotification } from './notification.js';
 
 export const TERMINAL_STATUSES = [
@@ -232,7 +233,9 @@ export type TerminalEvent =
    * Entries of watched folders changed on disk (SDD-011 FR-1107); `paths` are relative to
    * the project folder. Clients compare versions: the event alone does not mean new content.
    */
-  | { type: 'files'; projectId: string; paths: string[] };
+  | { type: 'files'; projectId: string; paths: string[] }
+  /** A background job was queued, progressed or finished (SDD-012). */
+  | { type: 'jobs'; job: BackgroundJob };
 
 export const TERMINAL_FONT_FAMILIES = ['system', 'menlo', 'sf-mono', 'monaco', 'courier'] as const;
 export type TerminalFontFamily = (typeof TERMINAL_FONT_FAMILIES)[number];

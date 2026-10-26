@@ -420,6 +420,17 @@ export class PreflightService {
     return this.active.size;
   }
 
+  /** Whether a run of the workspace is in progress (one runs at a time). */
+  isRunning(workspaceId: string): boolean {
+    return this.activeByWorkspace.has(workspaceId);
+  }
+
+  /** The run once it finished and was saved; at once for a finished run. */
+  async settled(runId: string): Promise<PreflightRun> {
+    await this.active.get(runId)?.done;
+    return this.run(runId);
+  }
+
   async recover(): Promise<void> {
     const interrupted = await this.options.repository.interruptRunning(this.now());
     if (interrupted.length > 0) {

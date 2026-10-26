@@ -1,11 +1,12 @@
 import type {
+  BackgroundJob,
   CreateNotificationInput,
   GitOperation,
   GitOperationKind,
   PreflightRun,
 } from '@atlas/contracts';
 
-// What existing modules report (FR-915, Git and Preflight only). Messages are short
+// What existing modules report (FR-915: Git, Preflight and background jobs). Messages are short
 // summaries: command output never goes into a notification (FR-924).
 
 /** Operations worth a notification and how they are named when they finish. */
@@ -103,5 +104,42 @@ export function preflightRunNotification(
       return { ...base, type: 'ERROR', title: 'Preflight failed' };
     case 'INCOMPLETE':
       return { ...base, type: 'WARNING', title: 'Preflight incomplete' };
+  }
+}
+
+/**
+ * The notification for a finished background job (SDD-012 FR-1228); null for jobs the
+ * user cancelled. The message is the job's short summary, never its output.
+ */
+export function backgroundJobNotification(
+  job: BackgroundJob,
+  context: NotificationSourceContext,
+): CreateNotificationInput | null {
+  const base = {
+    category: 'BACKGROUND_TASK' as const,
+    projectId: context.projectId,
+    sourceName: context.sourceName,
+    taskId: job.id,
+    action: { type: 'background-job' as const, jobId: job.id },
+  };
+  switch (job.status) {
+    case 'COMPLETED':
+      return { ...base, type: 'SUCCESS', title: 'Background job completed', message: job.title };
+    case 'FAILED':
+      return {
+        ...base,
+        type: 'ERROR',
+        title: 'Background job failed',
+        message: job.errorSummary ? `${job.title}: ${job.errorSummary}` : job.title,
+      };
+    case 'INTERRUPTED':
+      return {
+        ...base,
+        type: 'WARNING',
+        title: 'Background job interrupted',
+        message: `${job.title}: ${job.errorSummary ?? 'it did not finish.'} Retry it if it is safe to run again.`,
+      };
+    default:
+      return null;
   }
 }

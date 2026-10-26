@@ -40,6 +40,7 @@ import {
   SqlitePreflightRepository,
   SqliteNotificationRepository,
   SqliteNoteRepository,
+  SqliteJobRepository,
   SqliteTerminalGroupRepository,
   SqliteTerminalSessionRepository,
   getSchemaVersion,
@@ -100,10 +101,14 @@ import { UsageService } from '@atlas/usage';
 import { PreflightService } from '@atlas/preflight';
 import {
   NotificationService,
+  backgroundJobNotification,
   gitOperationNotification,
   preflightRunNotification,
 } from '@atlas/notifications';
 import { NotesService } from '@atlas/notes';
+import { JobService } from '@atlas/jobs';
+import { CommandJobExecutor } from './jobs/command-executor.js';
+import { PreflightJobExecutor } from './jobs/preflight-executor.js';
 import { EditorSettings, FileWatchHub, ProjectFiles } from '@atlas/editor';
 import { createGitExecutor, createGitRunner } from './git/git-runner.js';
 import { captureLoginShellEnvironment } from './adapters/login-shell-environment.js';
@@ -178,6 +183,8 @@ export interface Engine {
   readonly notifications: NotificationService;
   /** Project Hub notes (SDD-010 Milestone A). */
   readonly notes: NotesService;
+  /** Background jobs (SDD-012 Milestone A); they run only in the Engine host. */
+  readonly jobs: JobService;
   /** Files of registered projects for the code editor (SDD-011 Milestone A). */
   readonly files: ProjectFiles;
   readonly editorSettings: EditorSettings;
@@ -759,20 +766,21 @@ export function createEngine(options: EngineOptions = {}): Engine {
     searchPath: cliSearchPath,
     excludeDirectory: projectConfig.binDir,
   };
+  // Checks and command jobs are processes: only the Engine host, which owns processes,
+  // runs them.
+  const processRunner =
+    ownsExecution && terminalEnvironment !== undefined
+      ? new ShellPreflightExecutor({
+          ...preflightSearch,
+          shell: userShell,
+          env: terminalEnvironment.shellEnvironment(),
+          dataDir,
+        })
+      : undefined;
   const preflight = new PreflightService({
     repository: new SqlitePreflightRepository(db),
     files: new NodeWorkspaceFileAccess(),
-    // Checks are processes: only the Engine host, which owns processes, runs them.
-    ...(ownsExecution && terminalEnvironment !== undefined
-      ? {
-          executor: new ShellPreflightExecutor({
-            ...preflightSearch,
-            shell: userShell,
-            env: terminalEnvironment.shellEnvironment(),
-            dataDir,
-          }),
-        }
-      : {}),
+    ...(processRunner === undefined ? {} : { executor: processRunner }),
     tools: new ActDockerTools({ ...preflightSearch, env, home: homeDirectory }),
     source: new GitSourceStateReader(env),
     logs: new FilePreflightLogStore(path.join(dataDir, 'preflight', 'logs')),
@@ -796,7 +804,58 @@ export function createEngine(options: EngineOptions = {}): Engine {
         sourceName: workspace.name,
       });
       if (input !== null) void notifications.publish(input);
+      // A queued job may have waited for this workspace.
+      jobs.resourceReleased();
     },
+  });
+  const jobs = new JobService({
+    repository: new SqliteJobRepository(db),
+    ...(processRunner === undefined
+      ? {}
+      : {
+          executors: [
+            new CommandJobExecutor({
+              runner: processRunner,
+              projects: {
+                find: async (projectId) => {
+                  try {
+                    const details = await projects.getDetails(projectId);
+                    return {
+                      ...details.project,
+                      available: details.availability.status === 'available',
+                    };
+                  } catch (error) {
+                    if (error instanceof AtlasError && error.code === 'PROJECT_NOT_FOUND') {
+                      return null;
+                    }
+                    throw error;
+                  }
+                },
+              },
+              logs: new FilePreflightLogStore(path.join(dataDir, 'jobs', 'logs')),
+              redact: redactCredentials,
+              logger,
+            }),
+            new PreflightJobExecutor(preflight),
+          ],
+        }),
+    settings,
+    clock,
+    generateId: randomUUID,
+    logger,
+  });
+  jobs.subscribe((job) => terminals?.publish({ type: 'jobs', job }));
+  jobs.onFinished((job) => {
+    void (async () => {
+      const project = job.projectId === null ? null : await projects.findById(job.projectId);
+      const input = backgroundJobNotification(job, {
+        projectId: project?.id ?? null,
+        sourceName: project?.name ?? 'ATLAS',
+      });
+      if (input !== null) await notifications.publish(input);
+    })().catch((error: unknown) =>
+      logger.warn('Background job notification failed', { error: describeError(error) }),
+    );
   });
   const projectGitSettings = new ProjectGitSettingsStore(settings, logger);
   const quickCommands = new QuickCommandStore({ store: settings, generateId: randomUUID, logger });
@@ -1090,6 +1149,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
     preflight,
     notifications,
     notes,
+    jobs,
     files,
     editorSettings,
     backgroundWork: () => ({
@@ -1098,6 +1158,10 @@ export function createEngine(options: EngineOptions = {}): Engine {
         .filter((operation) => operation.status === 'queued' || operation.status === 'running')
         .length,
       preflightRuns: preflight.activeRunCount(),
+      // A running Preflight job is already counted as a Preflight run.
+      backgroundJobs: jobs
+        .unfinished()
+        .filter((job) => !(job.type === 'PREFLIGHT' && job.status === 'RUNNING')).length,
     }),
     llmSessions,
     quickCommands,
@@ -1271,6 +1335,13 @@ export function createEngine(options: EngineOptions = {}): Engine {
           });
         }
         try {
+          await jobs.recover();
+        } catch (error) {
+          logger.warn('Interrupted background jobs could not be closed', {
+            error: describeError(error),
+          });
+        }
+        try {
           await projectConfig.installWrappers();
         } catch (error) {
           logger.warn('Failed to install the LLM wrappers', { error: describeError(error) });
@@ -1387,6 +1458,8 @@ export function createEngine(options: EngineOptions = {}): Engine {
         if (usageTimer !== undefined) clearInterval(usageTimer);
         await usageInbox.close();
         await llmSessions.close();
+        // Queued jobs never start; running ones stop and are reported as interrupted.
+        await jobs.close();
         // Running checks are cancelled and their process trees stopped.
         await preflight.close();
       }

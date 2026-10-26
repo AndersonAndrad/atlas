@@ -198,6 +198,52 @@ describe('desktop IPC handlers', () => {
     expect(opened).toEqual(['https://example.com/a', 'mailto:dev@example.com']);
   });
 
+  it('validates background job requests and keeps their settings (SDD-012)', async () => {
+    const project = await registerProject();
+    for (const input of [
+      { type: 'COMMAND', projectId: project.id, command: '' },
+      { type: 'COMMAND', projectId: 'not-a-project', command: 'ls' },
+      { type: 'COMMAND', projectId: project.id, command: 'ls', timeoutMinutes: 0 },
+      { type: 'COMMAND', projectId: project.id, command: 'ls', cwd: '/etc' },
+      { type: 'SCRIPT', projectId: project.id, command: 'ls' },
+    ]) {
+      expect(await invoke(IPC_CHANNELS.jobsCreate, input)).toMatchObject({
+        ok: false,
+        error: { code: 'VALIDATION_FAILED' },
+      });
+    }
+    expect(
+      await invoke(IPC_CHANNELS.jobsCreate, {
+        type: 'COMMAND',
+        projectId: project.id,
+        command: 'git push --force',
+      }),
+    ).toMatchObject({ ok: false, error: { code: 'JOB_CONFIRMATION_REQUIRED' } });
+    expect(await invoke(IPC_CHANNELS.jobsList, {})).toEqual({
+      ok: true,
+      data: { jobs: [], nextBefore: null },
+    });
+    expect(await invoke(IPC_CHANNELS.jobsCancel, project.id)).toMatchObject({
+      ok: false,
+      error: { code: 'JOB_NOT_FOUND' },
+    });
+    expect(await invoke(IPC_CHANNELS.jobsSummary)).toEqual({
+      ok: true,
+      data: { running: 0, queued: 0, waitingApproval: 0 },
+    });
+    expect(await invoke(IPC_CHANNELS.jobsSetSettings, { maxConcurrentJobs: 3 })).toEqual({
+      ok: true,
+      data: { maxConcurrentJobs: 3, maxJobsPerProject: 1 },
+    });
+    expect(await invoke(IPC_CHANNELS.jobsSetSettings, { maxConcurrentJobs: 9 })).toMatchObject({
+      ok: false,
+      error: { code: 'VALIDATION_FAILED' },
+    });
+    expect(await invoke(IPC_CHANNELS.jobsGetSettings)).toMatchObject({
+      data: { maxConcurrentJobs: 3 },
+    });
+  });
+
   it('edits project files only inside the project (SDD-011)', async () => {
     const project = await registerProject();
     writeFileSync(path.join(workspace, 'a.ts'), 'export {};\n');

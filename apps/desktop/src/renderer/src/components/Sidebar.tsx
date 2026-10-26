@@ -1,4 +1,5 @@
 import {
+  Activity,
   Bot,
   ChartColumn,
   Database,
@@ -26,6 +27,7 @@ export type AppView =
   | 'editor'
   | 'git'
   | 'preflight'
+  | 'operations'
   | 'context'
   | 'sessions'
   | 'skills'
@@ -47,6 +49,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'editor', label: 'Editor', icon: SquareCode, view: 'editor' },
   { id: 'git', label: 'Git', icon: GitBranch, view: 'git' },
   { id: 'preflight', label: 'Preflight', icon: ShieldCheck, view: 'preflight' },
+  { id: 'operations', label: 'Operations', icon: Activity, view: 'operations' },
   { id: 'context', label: 'Context', icon: Database, view: 'context' },
   { id: 'sessions', label: 'Sessions', icon: ListChecks, view: 'sessions' },
   { id: 'agents', label: 'Agents', icon: Bot },
