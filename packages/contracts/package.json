@@ -1,6 +1,6 @@
 {
   "name": "@atlas/contracts",
-  "version": "0.26.0",
+  "version": "0.26.1",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -17,6 +17,6 @@
   },
   "dependencies": {
     "@atlas/shared": "workspace:*",
-    "zod": "4.6.5"
+    "zod": "4.6.7"
   }
 }

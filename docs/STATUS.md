@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-25 — PLAN-034 (Windows x64 installer in GitHub Actions).
+Last updated: 2026-10-25 — PLAN-035 (zod 4.6.7: security update).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -39,7 +39,20 @@ SDD-010 Milestones B (tasks) and C (Jira) are not started. PLAN-033 (SDD-011 Mil
 code editor with Monaco, explorer and terminal panel) is implemented and awaits approval;
 SDD-011 Milestones B and C are not started. PLAN-034 (GitHub Actions also builds a Windows
 x64 NSIS installer; the checks still run only on Linux and macOS) is implemented and awaits
-approval. Version 0.26.0 (schema v12).
+approval. PLAN-035 (zod 4.6.5 → 4.6.7 for GHSA-mrhx-c7xc-m3w5) is implemented and awaits
+approval. Version 0.26.1 (schema v12).
+
+## PLAN-035 — zod security update
+
+- `pnpm audit --prod` failed in CI with GHSA-mrhx-c7xc-m3w5 (High): zod up to 4.6.5 keeps
+  every issue of a failing array, so a huge invalid array can exhaust memory. Patched in
+  4.6.6.
+- zod is pinned to 4.6.7 (exact) in `apps/desktop`, `packages/contracts` and
+  `packages/usage`; the lockfile changed only the zod entries (eslint-plugin-react-hooks
+  and zod-validation-error now resolve 4.6.7 too). 4.6.7 was 13 days old, below the
+  two-week rule of ADR-007: accepted for a security patch release approved by the developer.
+- Validation (2026-10-25, macOS arm64): `pnpm audit --prod` no known vulnerabilities;
+  format, lint, typecheck clean; `pnpm test` 842/842; `pnpm test:e2e` 93 passed, 1 skipped.
 
 ## PLAN-034 — Windows installer in GitHub Actions
 

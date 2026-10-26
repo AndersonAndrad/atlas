@@ -71,6 +71,8 @@ superseded decisions are marked, not deleted.
   TypeScript 5.9.3; React 19.3.0; Zod 4.6.5; Vitest 4.1.12; Playwright 1.63.0. All pinned
   exactly; each release was at least two weeks old when chosen (R2: prefer stable/LTS
   lines over the newest majors such as Vite 8, Vitest 5 and TypeScript 7).
+- **Update (PLAN-035)**: Zod 4.6.7 replaces 4.6.5 for GHSA-mrhx-c7xc-m3w5; a security
+  patch release may be younger than two weeks when the developer approves it.
 
 ## ADR-008 — No packaging in SDD-001
 
