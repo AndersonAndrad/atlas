@@ -37,6 +37,11 @@ test('keeps project notes after a restart (SDD-010 Scenario A)', async ({ atlas 
     'Implementation decisions',
     '# Tariff engine\n\n- [x] Use SQLite FTS5\n- [ ] Review rules\n\n| Rule | Owner |\n| - | - |\n| Fees | Ana |\n\n<script>window.hacked = true</script>\n\n[bad](javascript:alert(1))',
   );
+  // Split mode needs a 1280 px window; smaller screens (such as CI runners) start in Edit.
+  await page
+    .getByRole('group', { name: 'Editor mode' })
+    .getByRole('button', { name: 'Preview' })
+    .click();
   const preview = page.getByTestId('note-preview');
   await expect(preview.getByRole('heading', { name: 'Tariff engine' })).toBeVisible();
   await expect(preview.getByRole('table')).toBeVisible();

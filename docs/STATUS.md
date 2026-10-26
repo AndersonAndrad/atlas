@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-25 — PLAN-038 (process tests tolerate busy machines).
+Last updated: 2026-10-26 — PLAN-039 (Hub E2E independent of the window width).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -43,7 +43,23 @@ approval. PLAN-035 (zod 4.6.5 → 4.6.7 for GHSA-mrhx-c7xc-m3w5) is implemented 
 approval. PLAN-036 (the watched-folder Engine test no longer races macOS FSEvents) is
 implemented and awaits approval. PLAN-037 (CI build steps get a 4 GB Node heap) is
 implemented and awaits approval. PLAN-038 (15 s default test timeout; the Git hook timeout
-test waits for the hook) is implemented and awaits approval. Version 0.26.4 (schema v12).
+test waits for the hook) is implemented and awaits approval. PLAN-039 (the Hub E2E selects
+Preview instead of relying on Split) is implemented and awaits approval. Version 0.26.5
+(schema v12).
+
+## PLAN-039 — Hub E2E on smaller screens
+
+- After PLAN-038 Ubuntu passed, but on macOS "keeps project notes after a restart" did not
+  find the preview heading. The note editor opens in Split only when the window is at least
+  80rem (1280 px) wide, otherwise in Edit (intended); the macOS runner's screen makes the
+  1280 px window narrower, while Xvfb without a window manager does not.
+- The test now chooses Editor mode → Preview before checking the rendered Markdown (heading,
+  table, no script or `javascript:` link). No application change.
+- Validation (2026-10-26, macOS arm64): reproduced with a temporary copy of the test at a
+  1100 px window (failed as on CI; passed with the change; copy removed); `hub.spec` 5/5 at
+  the normal width. Full `pnpm test:e2e` on the Mac: 90 passed and 3 focus-dependent tests
+  failed while the developer used the computer; in a Linux container (node:24.18.0-bookworm,
+  Xvfb, nothing shown on the host): 93 passed, 1 skipped.
 
 ## PLAN-038 — Tests that start processes on busy machines
 

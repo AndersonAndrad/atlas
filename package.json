@@ -1,6 +1,6 @@
 {
   "name": "atlas",
-  "version": "0.26.4",
+  "version": "0.26.5",
   "private": true,
   "description": "ATLAS \u2014 Autonomous Task Leadership & Agent System",
   "type": "module",
