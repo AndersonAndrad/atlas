@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-25 — PLAN-033 (SDD-011 Milestone A: code editor).
+Last updated: 2026-10-25 — PLAN-034 (Windows x64 installer in GitHub Actions).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -37,7 +37,23 @@ account open in it with its session usage) is implemented and awaits approval. P
 (SDD-010 Milestone A: Project Hub with Markdown notes) is implemented and awaits approval;
 SDD-010 Milestones B (tasks) and C (Jira) are not started. PLAN-033 (SDD-011 Milestone A:
 code editor with Monaco, explorer and terminal panel) is implemented and awaits approval;
-SDD-011 Milestones B and C are not started. Version 0.25.0 (schema v12).
+SDD-011 Milestones B and C are not started. PLAN-034 (GitHub Actions also builds a Windows
+x64 NSIS installer; the checks still run only on Linux and macOS) is implemented and awaits
+approval. Version 0.26.0 (schema v12).
+
+## PLAN-034 — Windows installer in GitHub Actions
+
+- The `build` job of `.github/workflows/ci.yml` gains `windows-x64` (`windows-2025`):
+  electron-builder makes `atlas-control-<version>-win-x64.exe` (NSIS, x64, per user,
+  installation folder can be changed), kept as a run artifact and attached to `v*` Releases.
+- Build only, chosen by the developer (option A): the `test` job still runs on Ubuntu and
+  macOS; a step checks that the installer exists and that `node-pty`'s ConPTY addon is
+  unpacked. Not signed (SmartScreen warns).
+- Validation (2026-10-25): cross-build on macOS arm64 with the same configuration produced
+  the `.exe` (127 MB) and a `win-unpacked` with a PE32+ x86-64 `atlas-control.exe` and
+  `conpty.node` unpacked; the CI check command passed on it. The installer has not been run
+  on Windows; the workflow job runs for the first time on GitHub after the push.
+- Details: README "Download builds"; ADR-056 (PLAN-034 update).
 
 ## PLAN-033 — SDD-011 Milestone A: code editor
 

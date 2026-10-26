@@ -29,6 +29,9 @@ them pass, it builds the installers:
 - **Debian/Ubuntu (x64):** `atlas-control-<version>-linux-amd64.deb` —
   `sudo apt install ./atlas-control-<version>-linux-amd64.deb`
 - **macOS (Apple silicon):** `atlas-control-<version>-mac-arm64.dmg` (and `.zip`)
+- **Windows (x64):** `atlas-control-<version>-win-x64.exe` (installer; per user, the
+  installation folder can be changed). The checks do not run on Windows yet, so this build
+  is not verified there.
 
 Download them from the run's **Artifacts** (Actions → the run → Artifacts, kept 30 days), or
 from the GitHub **Release** created for a `v*` tag (`git tag v0.17.0 && git push --tags`).
@@ -36,6 +39,8 @@ from the GitHub **Release** created for a `v*` tag (`git tag v0.17.0 && git push
 The macOS app is not signed with a developer certificate or notarized yet. The first time,
 right-click the app and choose **Open**, or run
 `xattr -dr com.apple.quarantine "/Applications/A.T.L.A.S.app"`.
+The Windows installer is not signed either: if SmartScreen warns, choose **More info** →
+**Run anyway**.
 
 Build the installer for the current system locally with `pnpm package` (output in
 `apps/desktop/dist`).

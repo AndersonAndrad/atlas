@@ -1,6 +1,6 @@
-# ATLAS CI (PLAN-024): every check on Linux and macOS; installers are built only when all
-# of them pass. Download the installers from the run's artifacts, or from the GitHub
-# Release created for a `v*` tag.
+# ATLAS CI (PLAN-024): every check on Linux and macOS; installers for Linux, macOS and
+# Windows (PLAN-034) are built only when all of them pass. Download the installers from
+# the run's artifacts, or from the GitHub Release created for a `v*` tag.
 name: CI
 
 on:
@@ -82,6 +82,10 @@ jobs:
             files: |
               apps/desktop/dist/*.dmg
               apps/desktop/dist/*.zip
+          # Built only: the checks above do not run on Windows yet (PLAN-034).
+          - name: windows-x64
+            os: windows-2025
+            files: apps/desktop/dist/*.exe
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -106,6 +110,12 @@ jobs:
           deb=$(ls apps/desktop/dist/*.deb)
           dpkg-deb --info "$deb"
           dpkg-deb --contents "$deb" | grep -q 'opt/A.T.L.A.S/atlas-control'
+      - name: Check the Windows package
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          ls apps/desktop/dist/*.exe
+          find apps/desktop/dist/win-unpacked -path '*app.asar.unpacked*' -name conpty.node | grep -q .
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: atlas-control-${{ matrix.name }}
@@ -135,4 +145,4 @@ jobs:
           gh release create "$TAG" installers/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "A.T.L.A.S $TAG" \
-            --notes "Installers built after every check passed. macOS builds are not notarized yet: right-click the app and choose Open the first time."
+            --notes "Installers built after every check passed. macOS builds are not notarized yet: right-click the app and choose Open the first time. Windows builds are not signed yet and have not been tested on Windows: if SmartScreen warns, choose More info, then Run anyway."

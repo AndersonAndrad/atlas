@@ -550,6 +550,15 @@ superseded decisions are marked, not deleted.
   dependencies of the desktop package; everything else is bundled, so it moved to
   `devDependencies` and the app archive stays small. `node-pty` is a Node-API addon and is
   not rebuilt for Electron. macOS builds are ad-hoc signed and need "Open" the first time.
+- **Update (PLAN-034)**: The build job also produces a Windows x64 NSIS installer on
+  `windows-2025` (per user, installation folder selectable, same artifact name pattern).
+  The checks are not run on Windows (developer's choice: build only, so an unverified
+  platform cannot block the Linux and macOS installers). Alternatives: running every check on
+  Windows too (full coverage, but Windows was never validated and would gate the other
+  installers); a non-blocking Windows test job (visibility, but a red job nobody must fix);
+  Squirrel.Windows or a portable `.exe` (NSIS is electron-builder's default and supports
+  uninstall). Consequences: the installer is unsigned (SmartScreen warns) and untested on
+  Windows until the checks run there.
 
 ## ADR-057 — The application is presented as A.T.L.A.S (PLAN-025)
 
