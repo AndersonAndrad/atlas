@@ -96,9 +96,10 @@ describe.skipIf(!gitAvailable)('createGitExecutor', () => {
       writeFileSync(path.join(dir, 'a.txt'), 'a\n');
       git('add', 'a.txt');
       const exec = createGitExecutor({ env });
+      // Long enough for the hook to start and write its pid on a busy machine.
       const pending = exec(['commit', '-q', '-m', 'test: slow hook'], {
         cwd: dir,
-        timeoutMs: 1_000,
+        timeoutMs: 3_000,
       });
       await expect(pending).rejects.toMatchObject({ kind: 'timeout' });
       expect(existsSync(pidFile)).toBe(true);

@@ -37,5 +37,8 @@ export default defineConfig({
     include: ['packages/*/tests/**/*.test.ts', 'apps/*/tests/**/*.test.ts'],
     environment: 'node',
     restoreMocks: true,
+    // Many tests start real processes (git, shells, wrappers); 5 s is too short on a busy
+    // machine or CI runner (PLAN-038).
+    testTimeout: 15_000,
   },
 });

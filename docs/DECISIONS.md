@@ -561,6 +561,11 @@ superseded decisions are marked, not deleted.
   Squirrel.Windows or a portable `.exe` (NSIS is electron-builder's default and supports
   uninstall). Consequences: the installer is unsigned (SmartScreen warns) and untested on
   Windows until the checks run there.
+- **Update (PLAN-037)**: The steps that build the desktop bundles (E2E and installers) run
+  with `NODE_OPTIONS=--max-old-space-size=4096`: the renderer build with Monaco needs about
+  3 GB of heap, above the default limit on the 7 GB macOS runner. Alternatives: the limit in
+  the package `build` script (needs `cross-env` on Windows); a smaller build without some
+  Monaco workers (changes the editor; later plan).
 
 ## ADR-057 — The application is presented as A.T.L.A.S (PLAN-025)
 

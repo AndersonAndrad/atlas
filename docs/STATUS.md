@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-25 — PLAN-036 (macOS CI: watched-folder test race).
+Last updated: 2026-10-25 — PLAN-038 (process tests tolerate busy machines).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -41,7 +41,35 @@ SDD-011 Milestones B and C are not started. PLAN-034 (GitHub Actions also builds
 x64 NSIS installer; the checks still run only on Linux and macOS) is implemented and awaits
 approval. PLAN-035 (zod 4.6.5 → 4.6.7 for GHSA-mrhx-c7xc-m3w5) is implemented and awaits
 approval. PLAN-036 (the watched-folder Engine test no longer races macOS FSEvents) is
-implemented and awaits approval. Version 0.26.2 (schema v12).
+implemented and awaits approval. PLAN-037 (CI build steps get a 4 GB Node heap) is
+implemented and awaits approval. PLAN-038 (15 s default test timeout; the Git hook timeout
+test waits for the hook) is implemented and awaits approval. Version 0.26.4 (schema v12).
+
+## PLAN-038 — Tests that start processes on busy machines
+
+- A local `pnpm test` on a loaded machine (load average about 5, with E2E running) had 7
+  timeouts in tests that start real processes (commit environment, Git executor, Preflight
+  `act`, LLM wrappers, Claude status line wrapper); the CLI standalone test had shown the
+  same before. With an idle machine they pass.
+- `vitest.config.ts` sets `testTimeout: 15_000` (was Vitest's 5 s). The Git executor test
+  that stops hook processes on timeout gives `git commit` 3 s instead of 1 s, so the hook can
+  write its pid first; it still checks that the hook dies with Git.
+- Validation (2026-10-25, macOS arm64, 10 cores): `pnpm test` 842/842 twice idle and twice
+  while `pnpm test:e2e` ran in parallel (load averages 14 and 28); that E2E run: 93 passed.
+
+## PLAN-037 — Renderer build out of memory on the macOS runner
+
+- With PLAN-036 the macOS unit tests passed, but `electron-vite build` (E2E step) stopped
+  with "JavaScript heap out of memory" in the renderer build. Since PLAN-033 it bundles
+  Monaco and its workers and needs about 3 GB of heap (peak RSS 3.1 GB); the macOS runner
+  has 7 GB of RAM, so Node's default limit is about 2 GB. Ubuntu and Windows runners have
+  16 GB. Earlier runs had stopped before this step.
+- `ci.yml` sets `NODE_OPTIONS=--max-old-space-size=4096` on the E2E and installer build
+  steps only. Reducing the build's memory (for example without the TypeScript worker) is a
+  possible later plan.
+- Validation (2026-10-25, macOS arm64): with a 2 GB limit the build fails as on CI; with
+  3 GB and 4 GB it passes (about 18 s). `pnpm test:e2e` with the CI setting: 93 passed,
+  1 skipped.
 
 ## PLAN-036 — Watched-folder test race on macOS CI
 

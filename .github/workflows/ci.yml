@@ -59,6 +59,10 @@ jobs:
         run: pnpm test
       - name: End-to-end tests
         run: ${{ runner.os == 'Linux' && 'xvfb-run -a ' || '' }}pnpm test:e2e
+        env:
+          # The renderer build (Monaco and its workers) needs about 3 GB of heap; the macOS
+          # runner's default limit is about 2 GB (PLAN-037).
+          NODE_OPTIONS: --max-old-space-size=4096
       - name: Keep end-to-end traces of failures
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -104,6 +108,8 @@ jobs:
         env:
           # Not signed with a developer certificate yet (ad-hoc on macOS).
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # See the end-to-end tests step (PLAN-037).
+          NODE_OPTIONS: --max-old-space-size=4096
       - name: Check the Debian package
         if: runner.os == 'Linux'
         run: |

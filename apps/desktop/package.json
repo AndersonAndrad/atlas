@@ -1,6 +1,6 @@
 {
   "name": "@atlas/desktop",
-  "version": "0.26.2",
+  "version": "0.26.4",
   "private": true,
   "type": "module",
   "description": "A.T.L.A.S desktop application",
