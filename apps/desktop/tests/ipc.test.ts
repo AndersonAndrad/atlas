@@ -244,6 +244,34 @@ describe('desktop IPC handlers', () => {
     });
   });
 
+  it('validates Docker requests before any Docker command runs (SDD-013)', async () => {
+    const id = 'b0d2b0f1072688cb23d7beb159c6274d422ba483f6bcb0500f5a88b0a1f15cb7';
+    for (const [channel, input] of [
+      [IPC_CHANNELS.dockerContainers, { context: '--host=tcp://evil' }],
+      [IPC_CHANNELS.dockerContainer, { context: 'desktop-linux', containerId: 'redis; rm -rf /' }],
+      [IPC_CHANNELS.dockerLifecycle, { context: 'desktop-linux', containerId: id, action: 'kill' }],
+      [IPC_CHANNELS.dockerRename, { context: 'desktop-linux', containerId: id, name: '-x' }],
+      [IPC_CHANNELS.dockerCreate, { context: 'desktop-linux', image: '--privileged' }],
+      [IPC_CHANNELS.dockerCreate, { context: 'desktop-linux', image: 'x', privileged: true }],
+      [
+        IPC_CHANNELS.dockerCreate,
+        { context: 'desktop-linux', image: 'x', binds: [{ source: 'relative', target: '/a' }] },
+      ],
+      [IPC_CHANNELS.dockerOpenTerminal, { context: 'desktop-linux', containerId: id, user: 'a b' }],
+      [IPC_CHANNELS.dockerLogsRead, { sessionId: 'x', after: -1 }],
+    ] as const) {
+      expect(await invoke(channel, input)).toMatchObject({
+        ok: false,
+        error: { code: 'VALIDATION_FAILED' },
+      });
+    }
+    // The renderer cannot name another window's subscription.
+    expect(await invoke(IPC_CHANNELS.dockerWatch, 'desktop-9-9', true)).toMatchObject({
+      ok: false,
+      error: { code: 'VALIDATION_FAILED' },
+    });
+  });
+
   it('edits project files only inside the project (SDD-011)', async () => {
     const project = await registerProject();
     writeFileSync(path.join(workspace, 'a.ts'), 'export {};\n');

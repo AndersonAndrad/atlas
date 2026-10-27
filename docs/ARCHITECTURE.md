@@ -540,6 +540,25 @@ start. Nothing restarts by itself. A job is completed only when its executor rep
 success. Commands run only in registered project folders the Engine resolves, and
 destructive or external patterns need an explicit confirmation.
 
+### Container Manager (SDD-013 Milestone A)
+
+Full description: `docs/sdd/SDD-013-docker-container-manager.md`.
+
+```text
+ Containers view (lazy) ─► atlas.docker (preload) ─► main IPC (window id for watch/logs)
+        ─► Engine `docker.*` (not offered to the CLI)
+             DockerService (packages/docker): status, contexts (ATLAS's own choice),
+               containers, actions by state, details without env values, creation with
+               confirmations, log sessions, stats, events watch, shell command
+             DockerCliRunner (adapter): `docker --context <ctx> …` as an argument list,
+               minimal environment, timeouts, process tree; private --env-file
+        ─► event { type: 'docker', context, containerId } · terminals for container shells
+```
+
+Docker is optional and the source of truth: nothing about containers is stored, only the
+selected context (`docker.context`). Streams (events, logs) run only while a window shows
+them and stop with it. Mutations are audited in the Engine log without values.
+
 ### Project context of a terminal
 
 `Engine.terminalProjectContext` reports the associated project and the deepest registered

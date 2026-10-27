@@ -87,6 +87,7 @@ function detachCurrentRenderer(): void {
   void engine
     ?.call('files.watch', previous, { projectId: null, directories: [] })
     .catch(() => undefined);
+  void engine?.call('docker.detach', previous).catch(() => undefined);
 }
 
 /** A new renderer starts without editor state: no unsaved buffers, terminal shortcuts on. */

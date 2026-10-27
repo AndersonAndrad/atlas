@@ -1,6 +1,7 @@
 import {
   Activity,
   Bot,
+  Boxes,
   ChartColumn,
   Database,
   FolderGit2,
@@ -28,6 +29,7 @@ export type AppView =
   | 'git'
   | 'preflight'
   | 'operations'
+  | 'containers'
   | 'context'
   | 'sessions'
   | 'skills'
@@ -50,6 +52,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'git', label: 'Git', icon: GitBranch, view: 'git' },
   { id: 'preflight', label: 'Preflight', icon: ShieldCheck, view: 'preflight' },
   { id: 'operations', label: 'Operations', icon: Activity, view: 'operations' },
+  { id: 'containers', label: 'Containers', icon: Boxes, view: 'containers' },
   { id: 'context', label: 'Context', icon: Database, view: 'context' },
   { id: 'sessions', label: 'Sessions', icon: ListChecks, view: 'sessions' },
   { id: 'agents', label: 'Agents', icon: Bot },

@@ -22,6 +22,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       notificationKeys: Object.keys((w.atlas as { notifications: object }).notifications).sort(),
       noteKeys: Object.keys((w.atlas as { notes: object }).notes).sort(),
       jobKeys: Object.keys((w.atlas as { jobs: object }).jobs).sort(),
+      dockerKeys: Object.keys((w.atlas as { docker: object }).docker).sort(),
       projectFileKeys: Object.keys((w.atlas as { projectFiles: object }).projectFiles).sort(),
       editorKeys: Object.keys((w.atlas as { editor: object }).editor).sort(),
     };
@@ -36,6 +37,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'app',
       'context',
       'dialog',
+      'docker',
       'editor',
       'files',
       'git',
@@ -84,6 +86,24 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
     ],
     // Notifications are read, marked read or deleted by id; nothing else crosses the bridge.
     notificationKeys: ['clear', 'list', 'markAllRead', 'markRead', 'remove'],
+    // Docker operations are typed and name their context; no socket, API or command text.
+    dockerKeys: [
+      'container',
+      'containers',
+      'contexts',
+      'create',
+      'lifecycle',
+      'logsClose',
+      'logsOpen',
+      'logsRead',
+      'openTerminal',
+      'remove',
+      'rename',
+      'selectContext',
+      'stats',
+      'status',
+      'watch',
+    ],
     // Background jobs run only in registered projects (or Preflight workspaces) the Engine
     // resolves; commands that look destructive need an explicit confirmation.
     jobKeys: [

@@ -563,6 +563,36 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     'jobs.summary': () => engine.jobs.summary(),
     'jobs.getSettings': () => engine.jobs.settings(),
     'jobs.setSettings': ([input]: [unknown]) => engine.jobs.updateSettings(input),
+    // Docker (SDD-013 Milestone A); the service validates every input again.
+    'docker.status': () => engine.docker.status(),
+    'docker.contexts': () => engine.docker.contexts(true),
+    'docker.selectContext': ([input]: [unknown]) => engine.docker.selectContext(input),
+    'docker.containers': ([input]: [unknown]) => engine.docker.containers(input),
+    'docker.container': ([input]: [unknown]) => engine.docker.container(input),
+    'docker.lifecycle': ([input]: [unknown]) => engine.docker.lifecycle(input),
+    'docker.rename': ([input]: [unknown]) => engine.docker.rename(input),
+    'docker.remove': async ([input]: [unknown]) => {
+      await engine.docker.remove(input);
+      return null;
+    },
+    'docker.create': ([input]: [unknown]) => engine.docker.create(input),
+    'docker.stats': ([input]: [unknown]) => engine.docker.stats(input),
+    'docker.watch': ([subscriber, enabled]: [string, boolean]) => {
+      engine.docker.watch(subscriber, enabled);
+      return null;
+    },
+    'docker.logsOpen': ([subscriber, input]: [string, unknown]) =>
+      engine.docker.openLogs(subscriber, input),
+    'docker.logsRead': ([input]: [unknown]) => engine.docker.readLogs(input),
+    'docker.logsClose': ([sessionId]: [string]) => {
+      engine.docker.closeLogs(sessionId);
+      return null;
+    },
+    'docker.detach': ([subscriber]: [string]) => {
+      engine.docker.detach(subscriber);
+      return null;
+    },
+    'docker.openTerminal': ([input]: [unknown]) => engine.openContainerTerminal(input),
     // Project files and the code editor (SDD-011 Milestone A); validated again by the service.
     'files.list': ([input]: [ListDirectoryInput]) => engine.files.list(input),
     'files.read': ([ref]: [FileRef]) => engine.files.read(ref),

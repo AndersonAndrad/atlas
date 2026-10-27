@@ -93,6 +93,22 @@ import type {
   UpdateJobSettingsInput,
 } from './jobs.js';
 import type {
+  ContainerLifecycleInput,
+  ContainerRef,
+  CreateContainerInput,
+  DockerContainerDetails,
+  DockerContainerStats,
+  DockerContainerSummary,
+  DockerContextList,
+  DockerContextRef,
+  DockerStatus,
+  OpenContainerLogsInput,
+  OpenContainerTerminalInput,
+  ReadContainerLogsInput,
+  RenameContainerInput,
+  SelectDockerContextInput,
+} from './docker.js';
+import type {
   CreateEntryInput,
   DirectoryListing,
   EditorLayout,
@@ -389,6 +405,21 @@ export const IPC_CHANNELS = {
   jobsSummary: 'atlas:jobs:summary',
   jobsGetSettings: 'atlas:jobs:get-settings',
   jobsSetSettings: 'atlas:jobs:set-settings',
+  dockerStatus: 'atlas:docker:status',
+  dockerContexts: 'atlas:docker:contexts',
+  dockerSelectContext: 'atlas:docker:select-context',
+  dockerContainers: 'atlas:docker:containers',
+  dockerContainer: 'atlas:docker:container',
+  dockerLifecycle: 'atlas:docker:lifecycle',
+  dockerRename: 'atlas:docker:rename',
+  dockerRemove: 'atlas:docker:remove',
+  dockerCreate: 'atlas:docker:create',
+  dockerStats: 'atlas:docker:stats',
+  dockerWatch: 'atlas:docker:watch',
+  dockerLogsOpen: 'atlas:docker:logs-open',
+  dockerLogsRead: 'atlas:docker:logs-read',
+  dockerLogsClose: 'atlas:docker:logs-close',
+  dockerOpenTerminal: 'atlas:docker:open-terminal',
   notesList: 'atlas:notes:list',
   notesGet: 'atlas:notes:get',
   notesCreate: 'atlas:notes:create',
@@ -832,6 +863,32 @@ export interface AtlasApi {
     summary(): Promise<IpcResult<JobSummary>>;
     getSettings(): Promise<IpcResult<JobSettings>>;
     setSettings(input: UpdateJobSettingsInput): Promise<IpcResult<JobSettings>>;
+  };
+  /**
+   * Docker (SDD-013 Milestone A). Typed operations only: the renderer never reaches the
+   * Docker socket or API. Changes arrive as `docker` events while watching.
+   */
+  docker: {
+    status(): Promise<IpcResult<DockerStatus>>;
+    contexts(): Promise<IpcResult<DockerContextList>>;
+    /** ATLAS's own choice; Docker's current context is not changed. */
+    selectContext(input: SelectDockerContextInput): Promise<IpcResult<DockerContextList>>;
+    containers(input: DockerContextRef): Promise<IpcResult<DockerContainerSummary[]>>;
+    container(input: ContainerRef): Promise<IpcResult<DockerContainerDetails>>;
+    lifecycle(input: ContainerLifecycleInput): Promise<IpcResult<DockerContainerSummary>>;
+    rename(input: RenameContainerInput): Promise<IpcResult<DockerContainerSummary>>;
+    /** Removes a stopped container; never its volumes. */
+    remove(input: ContainerRef): Promise<IpcResult<null>>;
+    /** Fails with DOCKER_CONFIRMATION_REQUIRED for risky configurations. */
+    create(input: CreateContainerInput): Promise<IpcResult<DockerContainerSummary>>;
+    stats(input: ContainerRef): Promise<IpcResult<DockerContainerStats>>;
+    /** Container events for this window while the Container Manager is open. */
+    watch(enabled: boolean): Promise<IpcResult<null>>;
+    logsOpen(input: OpenContainerLogsInput): Promise<IpcResult<string>>;
+    logsRead(input: ReadContainerLogsInput): Promise<IpcResult<PreflightOutputPage>>;
+    logsClose(sessionId: string): Promise<IpcResult<null>>;
+    /** A new ATLAS terminal running a shell in the container. */
+    openTerminal(input: OpenContainerTerminalInput): Promise<IpcResult<TerminalSession>>;
   };
   /** Project Hub notes (SDD-010 Milestone A); changes arrive as `notes` events. */
   notes: {

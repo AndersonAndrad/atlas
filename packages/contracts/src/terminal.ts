@@ -235,7 +235,12 @@ export type TerminalEvent =
    */
   | { type: 'files'; projectId: string; paths: string[] }
   /** A background job was queued, progressed or finished (SDD-012). */
-  | { type: 'jobs'; job: BackgroundJob };
+  | { type: 'jobs'; job: BackgroundJob }
+  /**
+   * Containers of a Docker context may have changed (SDD-013); `containerId` is null when
+   * the connection itself changed. Clients reload; events are hints, not state.
+   */
+  | { type: 'docker'; context: string; containerId: string | null };
 
 export const TERMINAL_FONT_FAMILIES = ['system', 'menlo', 'sf-mono', 'monaco', 'courier'] as const;
 export type TerminalFontFamily = (typeof TERMINAL_FONT_FAMILIES)[number];

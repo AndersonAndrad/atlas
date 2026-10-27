@@ -12,6 +12,7 @@ const projects = [
   'packages/notifications',
   'packages/notes',
   'packages/jobs',
+  'packages/docker',
   'packages/editor',
   'apps/engine',
   'apps/cli',

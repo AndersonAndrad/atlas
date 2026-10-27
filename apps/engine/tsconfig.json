@@ -21,6 +21,7 @@
     { "path": "../../packages/notifications" },
     { "path": "../../packages/notes" },
     { "path": "../../packages/jobs" },
+    { "path": "../../packages/docker" },
     { "path": "../../packages/editor" }
   ]
 }

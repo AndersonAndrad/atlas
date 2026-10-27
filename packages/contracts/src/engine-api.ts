@@ -198,6 +198,23 @@ import {
   type JobSummary,
 } from './jobs.js';
 import {
+  ContainerLifecycleSchema,
+  ContainerRefSchema,
+  CreateContainerSchema,
+  DockerContextRefSchema,
+  DockerLogSessionIdSchema,
+  OpenContainerLogsSchema,
+  OpenContainerTerminalSchema,
+  ReadContainerLogsSchema,
+  RenameContainerSchema,
+  SelectDockerContextSchema,
+  type DockerContainerDetails,
+  type DockerContainerStats,
+  type DockerContainerSummary,
+  type DockerContextList,
+  type DockerStatus,
+} from './docker.js';
+import {
   CreateEntrySchema,
   EditorLayoutSchema,
   FileRefSchema,
@@ -475,6 +492,25 @@ export const ENGINE_METHOD_PARAMS = {
   'jobs.summary': z.tuple([]),
   'jobs.getSettings': z.tuple([]),
   'jobs.setSettings': z.tuple([UpdateJobSettingsSchema]),
+  // Docker (SDD-013 Milestone A): desktop only; every request names its context.
+  'docker.status': z.tuple([]),
+  'docker.contexts': z.tuple([]),
+  'docker.selectContext': z.tuple([SelectDockerContextSchema]),
+  'docker.containers': z.tuple([DockerContextRefSchema]),
+  'docker.container': z.tuple([ContainerRefSchema]),
+  'docker.lifecycle': z.tuple([ContainerLifecycleSchema]),
+  'docker.rename': z.tuple([RenameContainerSchema]),
+  'docker.remove': z.tuple([ContainerRefSchema]),
+  'docker.create': z.tuple([CreateContainerSchema]),
+  'docker.stats': z.tuple([ContainerRefSchema]),
+  /** The subscriber is the window, set by the main process. */
+  'docker.watch': z.tuple([SubscriberIdSchema, z.boolean()]),
+  'docker.logsOpen': z.tuple([SubscriberIdSchema, OpenContainerLogsSchema]),
+  'docker.logsRead': z.tuple([ReadContainerLogsSchema]),
+  'docker.logsClose': z.tuple([DockerLogSessionIdSchema]),
+  /** Stops the watch and the log streams of a window that went away. */
+  'docker.detach': z.tuple([SubscriberIdSchema]),
+  'docker.openTerminal': z.tuple([OpenContainerTerminalSchema]),
   // Project files and the code editor (SDD-011 Milestone A); not offered to the CLI.
   'files.list': z.tuple([ListDirectorySchema]),
   'files.read': z.tuple([FileRefSchema]),
@@ -716,6 +752,23 @@ export interface EngineMethodResults {
   'jobs.summary': JobSummary;
   'jobs.getSettings': JobSettings;
   'jobs.setSettings': JobSettings;
+  'docker.status': DockerStatus;
+  'docker.contexts': DockerContextList;
+  'docker.selectContext': DockerContextList;
+  'docker.containers': DockerContainerSummary[];
+  'docker.container': DockerContainerDetails;
+  'docker.lifecycle': DockerContainerSummary;
+  'docker.rename': DockerContainerSummary;
+  'docker.remove': null;
+  'docker.create': DockerContainerSummary;
+  'docker.stats': DockerContainerStats;
+  'docker.watch': null;
+  /** The log session id. */
+  'docker.logsOpen': string;
+  'docker.logsRead': PreflightOutputPage;
+  'docker.logsClose': null;
+  'docker.detach': null;
+  'docker.openTerminal': TerminalSession;
   'files.list': DirectoryListing;
   'files.read': FileContent;
   'files.write': WrittenFile;

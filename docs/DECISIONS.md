@@ -722,3 +722,27 @@ superseded decisions are marked, not deleted.
   the v13 database, so going back to 0.26.x needs a copy of the database taken before
   0.27.0 first ran. GIT, AGENT, ATLAS_SESSION and INTEGRATION are reserved job types without
   executors.
+
+## ADR-065 — Docker is reached through the Docker CLI with explicit contexts (PLAN-041)
+
+- **Decision**: The Container Manager talks to Docker only through the Docker CLI (23 or
+  newer) with JSON output and argument lists, from a new Engine service
+  (`packages/docker`) and an Engine runner adapter. Every request names its context and
+  every command gets `--context`; ATLAS stores its own context choice and never changes
+  Docker's current context. Container details are mapped in the Engine and environment
+  values never reach the renderer. Creation uses local images only, offers no privileged
+  mode, asks for confirmation of risky options, and passes environment values through a
+  private env file. Container shells are normal ATLAS terminals running `docker exec`.
+  Events and logs stream only while shown. No schema change.
+- **Alternatives**: `dockerode` or the Engine API over the socket (rejected: a new
+  dependency, and contexts, SSH/TLS endpoints and credential helpers would have to be
+  rebuilt); switching contexts with `docker context use` (rejected: changes Docker for the
+  user outside ATLAS); passing environment values on the command line or in the CLI's
+  environment (rejected: visible in process lists, or able to redirect the CLI through
+  `DOCKER_HOST`); a PTY running `docker exec` directly as a new terminal kind (deferred:
+  changes the Terminal Manager and session restore); polling only (rejected: events are
+  cheaper and faster, and polling remains for reconciliation).
+- **Consequences**: One process per Docker call (cheap compared to the engine's own work).
+  Output formats are parsed defensively against CLI changes. Container shells stay in the
+  host shell's history. Images, networks, volumes and Compose remain for Milestones B and
+  C.

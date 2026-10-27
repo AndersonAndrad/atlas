@@ -98,7 +98,7 @@ import {
 } from '@atlas/git';
 import { NodeSkillFileSystem, SkillsHub } from '@atlas/skills';
 import { UsageService } from '@atlas/usage';
-import { PreflightService } from '@atlas/preflight';
+import { LogBuffer, PreflightService } from '@atlas/preflight';
 import {
   NotificationService,
   backgroundJobNotification,
@@ -107,6 +107,8 @@ import {
 } from '@atlas/notifications';
 import { NotesService } from '@atlas/notes';
 import { JobService } from '@atlas/jobs';
+import { DockerService } from '@atlas/docker';
+import { DockerCliRunner } from './adapters/docker-cli.js';
 import { CommandJobExecutor } from './jobs/command-executor.js';
 import { PreflightJobExecutor } from './jobs/preflight-executor.js';
 import { EditorSettings, FileWatchHub, ProjectFiles } from '@atlas/editor';
@@ -185,6 +187,10 @@ export interface Engine {
   readonly notes: NotesService;
   /** Background jobs (SDD-012 Milestone A); they run only in the Engine host. */
   readonly jobs: JobService;
+  /** Docker through the Docker CLI (SDD-013 Milestone A); optional, never required. */
+  readonly docker: DockerService;
+  /** Opens an ATLAS terminal with a shell in a running container (FR-1308). */
+  openContainerTerminal(input: unknown): Promise<TerminalSession>;
   /** Files of registered projects for the code editor (SDD-011 Milestone A). */
   readonly files: ProjectFiles;
   readonly editorSettings: EditorSettings;
@@ -857,6 +863,18 @@ export function createEngine(options: EngineOptions = {}): Engine {
       logger.warn('Background job notification failed', { error: describeError(error) }),
     );
   });
+  const docker = new DockerService({
+    runner: new DockerCliRunner({ searchPath: cliSearchPath, env, platform }),
+    settings,
+    createLogLines: () => new LogBuffer(redactCredentials),
+    redact: redactCredentials,
+    homeDirectory,
+    clock,
+    generateId: randomUUID,
+    logger,
+    onChange: (context, containerId) =>
+      terminals?.publish({ type: 'docker', context, containerId }),
+  });
   const projectGitSettings = new ProjectGitSettingsStore(settings, logger);
   const quickCommands = new QuickCommandStore({ store: settings, generateId: randomUUID, logger });
 
@@ -1150,6 +1168,15 @@ export function createEngine(options: EngineOptions = {}): Engine {
     notifications,
     notes,
     jobs,
+    docker,
+    openContainerTerminal: async (input) => {
+      const service = requireTerminals();
+      const prepared = await docker.terminalCommand(input);
+      const terminal = await service.create({ title: prepared.title.slice(0, 60) });
+      // Typed like a quick command: the user's shell runs `docker exec` once it started.
+      service.write(terminal.id, `${prepared.command}\r`);
+      return terminal;
+    },
     files,
     editorSettings,
     backgroundWork: () => ({
@@ -1460,6 +1487,8 @@ export function createEngine(options: EngineOptions = {}): Engine {
         await llmSessions.close();
         // Queued jobs never start; running ones stop and are reported as interrupted.
         await jobs.close();
+        // Docker log and event streams stop; containers keep running.
+        docker.close();
         // Running checks are cancelled and their process trees stopped.
         await preflight.close();
       }

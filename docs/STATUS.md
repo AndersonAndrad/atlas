@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-26 — PLAN-040 (SDD-012 Milestone A: background jobs).
+Last updated: 2026-10-26 — PLAN-041 (SDD-013 Milestone A: Container Manager).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -46,7 +46,38 @@ implemented and awaits approval. PLAN-038 (15 s default test timeout; the Git ho
 test waits for the hook) is implemented and awaits approval. PLAN-039 (the Hub E2E selects
 Preview instead of relying on Split) is implemented and awaits approval. PLAN-040 (SDD-012
 Milestone A: background jobs, Operations Center and header indicator) is implemented and
-awaits approval; SDD-012 Milestones B and C are not started. Version 0.27.0 (schema v13).
+awaits approval; SDD-012 Milestones B and C are not started. PLAN-041 (SDD-013 Milestone
+A: Container Manager over the Docker CLI) is implemented and awaits approval; SDD-013
+Milestones B and C are not started. Version 0.28.0 (schema v13).
+
+## PLAN-041 — SDD-013 Milestone A: Container Manager
+
+- Approved 2026-10-26 by Anderson Andrade ("pode seguir, q1 ok, q2 ok, q3 ok, q4 ok"); R1–R8
+  presented, not acknowledged by ID. Q1 local images only, Q2 audit in the Engine log, Q3
+  disposable real-Docker tests, Q4 "Containers". Details:
+  `docs/sdd/SDD-013-docker-container-manager.md`, ADR-065.
+- New `packages/docker` (CLI output parsing, `DockerService`) and the Engine
+  `DockerCliRunner`.
+  - `docker.*` methods (desktop only) and a `docker` event.
+  - The Containers view, lazy-loaded: context selector, connection state, list with search
+    and filters, actions by state, details without environment values, logs, usage, shell in
+    an ATLAS terminal with root confirmation, and creation with risk confirmations.
+  - No schema change; the context choice is the `docker.context` setting.
+- Inside the approved scope: environment values of new containers go through a private
+  `--env-file` instead of the CLI's environment, where `DOCKER_HOST` and similar names
+  could redirect the CLI.
+- Staff review: one Medium security finding was fixed. Risk warnings covered only exact
+  system folders; they now cover anything inside them and credential folders in the home
+  folder (`.ssh`, `.aws`, `.kube`, `.docker`…).
+- Validation (2026-10-26):
+  - format, lint, typecheck and `pnpm audit --prod` are clean.
+  - `pnpm test`: 921 passed, 2 skipped (the opt-in real Docker tests), plus 1 failure in the
+    known 100 ms `redactCredentials` timing test under load. That file is unchanged and
+    passed alone three times (71/71).
+  - Real Docker (`ATLAS_DOCKER_TESTS=1`, Docker Desktop 4.81 / Engine 29.6.1): 8/8. No test
+    container remained, and the developer's containers were untouched.
+  - E2E in Linux Docker with Xvfb (fake CLI): containers and security specs 9/9; full suite
+    102 passed, 1 skipped.
 
 ## PLAN-040 — SDD-012 Milestone A: background jobs
 

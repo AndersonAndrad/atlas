@@ -37,6 +37,13 @@ export const ERROR_CODES = [
   'JOB_TRANSITION_INVALID',
   'JOB_NOT_CANCELLABLE',
   'JOB_CONFIRMATION_REQUIRED',
+  'DOCKER_UNAVAILABLE',
+  'DOCKER_CONTEXT_NOT_FOUND',
+  'DOCKER_CONTAINER_NOT_FOUND',
+  'DOCKER_ACTION_INVALID',
+  'DOCKER_COMMAND_FAILED',
+  'DOCKER_CONFIRMATION_REQUIRED',
+  'DOCKER_SHELL_UNAVAILABLE',
   'FILE_NOT_FOUND',
   'FILE_ALREADY_EXISTS',
   'FILE_CONFLICT',
@@ -104,6 +111,14 @@ export const USER_MESSAGES: Record<ErrorCode, string> = {
   JOB_NOT_CANCELLABLE: 'This job cannot be stopped safely. Wait for it to finish.',
   JOB_CONFIRMATION_REQUIRED:
     'This command may change or delete data. Review the warnings and confirm to queue it.',
+  DOCKER_UNAVAILABLE:
+    'Docker is not available. Check that Docker is installed and running, then try again.',
+  DOCKER_CONTEXT_NOT_FOUND: 'The Docker context could not be found. Choose another context.',
+  DOCKER_CONTAINER_NOT_FOUND: 'The container could not be found. It may have been removed.',
+  DOCKER_ACTION_INVALID: 'This action is not available in the current container state.',
+  DOCKER_COMMAND_FAILED: 'Docker could not complete the operation.',
+  DOCKER_CONFIRMATION_REQUIRED: 'Review the warnings and confirm to continue.',
+  DOCKER_SHELL_UNAVAILABLE: 'No supported shell was found in this container.',
   FILE_NOT_FOUND: 'The file or folder could not be found. It may have been moved or deleted.',
   FILE_ALREADY_EXISTS: 'A file or folder with this name already exists. Nothing was overwritten.',
   FILE_CONFLICT:

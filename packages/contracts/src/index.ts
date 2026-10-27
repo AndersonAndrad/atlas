@@ -16,3 +16,4 @@ export * from './notification.js';
 export * from './notes.js';
 export * from './files.js';
 export * from './jobs.js';
+export * from './docker.js';

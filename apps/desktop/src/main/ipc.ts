@@ -61,6 +61,8 @@ import {
   type RevealNoteFileInput,
   FileRefSchema,
   WatchFilesSchema,
+  OpenContainerLogsSchema,
+  type OpenContainerLogsInput,
   type FileRef,
   type WatchFilesInput,
 } from '@atlas/contracts';
@@ -548,6 +550,30 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     [IPC_CHANNELS.editorGetLastProject, 'editor.getLastProject'],
     [IPC_CHANNELS.editorSetLastProject, 'editor.setLastProject'],
   ];
+  // Docker (SDD-013 Milestone A).
+  const dockerChannels: [string, EngineMethod][] = [
+    [IPC_CHANNELS.dockerStatus, 'docker.status'],
+    [IPC_CHANNELS.dockerContexts, 'docker.contexts'],
+    [IPC_CHANNELS.dockerSelectContext, 'docker.selectContext'],
+    [IPC_CHANNELS.dockerContainers, 'docker.containers'],
+    [IPC_CHANNELS.dockerContainer, 'docker.container'],
+    [IPC_CHANNELS.dockerLifecycle, 'docker.lifecycle'],
+    [IPC_CHANNELS.dockerRename, 'docker.rename'],
+    [IPC_CHANNELS.dockerRemove, 'docker.remove'],
+    [IPC_CHANNELS.dockerCreate, 'docker.create'],
+    [IPC_CHANNELS.dockerStats, 'docker.stats'],
+    [IPC_CHANNELS.dockerLogsRead, 'docker.logsRead'],
+    [IPC_CHANNELS.dockerLogsClose, 'docker.logsClose'],
+    [IPC_CHANNELS.dockerOpenTerminal, 'docker.openTerminal'],
+  ];
+  // Watches and log streams belong to the window; the main process names it.
+  handle(IPC_CHANNELS.dockerWatch, z.tuple([z.boolean()]), async ([enabled]) => {
+    await engine.call('docker.watch', deps.subscriberId(), enabled as boolean);
+    return null;
+  });
+  handle(IPC_CHANNELS.dockerLogsOpen, z.tuple([OpenContainerLogsSchema]), ([input]) =>
+    engine.call('docker.logsOpen', deps.subscriberId(), input as OpenContainerLogsInput),
+  );
   // The window's subscriber id comes from the main process, never from the renderer.
   handle(IPC_CHANNELS.filesWatch, z.tuple([WatchFilesSchema]), async ([input]) => {
     await engine.call('files.watch', deps.subscriberId(), input as WatchFilesInput);
@@ -599,6 +625,7 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     ...notificationChannels,
     ...noteChannels,
     ...jobChannels,
+    ...dockerChannels,
     ...fileChannels,
   ]) {
     handle(channel, ENGINE_METHOD_PARAMS[method] as unknown as z.ZodType<unknown[]>, (args) =>

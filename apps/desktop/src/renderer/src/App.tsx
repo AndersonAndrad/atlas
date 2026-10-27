@@ -1,7 +1,7 @@
 import type { AtlasNotification } from '@atlas/contracts';
 import type { AppCommand } from '@atlas/contracts/ipc';
 import { X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { api, unwrap } from './api';
 import { AboutDialog } from './components/AboutDialog';
 import { ProjectsView } from './components/ProjectsView';
@@ -31,6 +31,13 @@ import { useTerminalPreferences } from './terminal/hooks/useTerminalPreferences'
 import { runningSessionCount, useTerminalSessions } from './terminal/hooks/useTerminalSessions';
 
 type CommandHandler = (command: AppCommand) => void;
+
+// Loaded on first use: Docker is optional (SDD-013 §17).
+const ContainersView = lazy(() =>
+  import('./docker/components/ContainersView').then((module) => ({
+    default: module.ContainersView,
+  })),
+);
 
 export function App() {
   const [view, setView] = useState<AppView>('projects');
@@ -284,6 +291,16 @@ export function App() {
                   setView('projects');
                 }}
               />
+            )}
+            {view === 'containers' && (
+              <Suspense fallback={<p className="text-muted-foreground p-4 text-sm">Loading…</p>}>
+                <ContainersView
+                  onTerminalOpened={() => {
+                    void terminals.reload();
+                    setView('terminals');
+                  }}
+                />
+              </Suspense>
             )}
             {view === 'context' && (
               <ContextView
