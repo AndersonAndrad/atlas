@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-27 — PLAN-046 (Task E01.1: estimated cost per Claude Code session).
+Last updated: 2026-10-27 — PLAN-047 (SDD-024 Task 01: per-project Git monitoring and badges).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -56,7 +56,23 @@ started. PLAN-044 (SDD-016 Task 01: Debug Adapter Protocol foundation, no UI) is
 implemented and awaits approval. PLAN-045 (Task A01: splitting a terminal keeps its
 project, folder, group and shell) is implemented and awaits approval. PLAN-046 (Task
 E01.1: estimated cost per Claude Code session in the Usage view) is implemented and awaits
-approval. Version 0.32.0 (schema v16).
+approval. PLAN-047 (SDD-024 Task 01: per-project Git monitoring, stored Git snapshots and
+project badges) is implemented and awaits approval. Version 0.33.0 (schema v17).
+
+## PLAN-047 — SDD-024 Task 01: per-project Git monitoring and status badges
+
+- Approved 2026-10-27 by Anderson Andrade ("aprovo e q1 a q3 recomendado"). R1–R6 were
+  presented but not acknowledged by ID. Details: SDD-024.
+- What was built:
+  - Migration v17: a monitoring flag (existing projects stay monitored) and
+    `project_git_snapshots`.
+  - `ProjectGitMonitor` with an adaptive, bounded and single-flight schedule.
+  - The `project-git` event.
+  - Badges in the Terminals sidebar and on the Projects cards.
+  - Monitoring switch, live/cached status and the last refresh in the project details.
+  - Refresh and Pause/Resume in the project actions menu.
+  - A new-project default in Settings → Git.
+- Rolling back to 0.32.x needs a database copy taken before 0.33.0 first ran.
 
 ## PLAN-046 — Task E01.1: estimated cost per Claude Code session
 

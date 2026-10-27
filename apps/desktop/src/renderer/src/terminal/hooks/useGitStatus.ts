@@ -1,6 +1,7 @@
 import type { GitStatus, TerminalGitContext } from '@atlas/contracts';
 import { useCallback, useEffect, useState } from 'react';
 import { api, unwrap } from '@/api';
+import { putProjectGitState } from '@/git/state/project-git-states';
 import { onTerminalLifecycle } from '../state/terminal-events';
 
 function rootOf(status: GitStatus | undefined): string | null {
@@ -41,38 +42,57 @@ export function useTerminalGit(sessionId: string, currentCwd: string, enabled: b
   return { context, refresh };
 }
 
-/** Git state of a registered project's directory. */
-export function useProjectGit(projectId: string) {
-  const [status, setStatus] = useState<GitStatus | null>(null);
-  const [loading, setLoading] = useState(true);
+/**
+ * Full Git status of a registered project's directory. With `live` (monitoring on) it is
+ * read when shown and after repository changes; otherwise only `refresh` reads it, which
+ * also updates the stored state shown by badges (SDD-024).
+ */
+export function useProjectGit(projectId: string, live = true) {
+  // Keyed by project so another project's status is never shown.
+  const [result, setResult] = useState<{ projectId: string; status: GitStatus | null } | null>(
+    null,
+  );
+  const [refreshing, setRefreshing] = useState(false);
+  const show = useCallback(
+    (status: GitStatus | null) => setResult({ projectId, status }),
+    [projectId],
+  );
 
   const refresh = useCallback(() => {
-    setLoading(true);
-    unwrap(api().git.project(projectId))
-      .then(setStatus, () => setStatus(null))
-      .finally(() => setLoading(false));
-  }, [projectId]);
+    setRefreshing(true);
+    unwrap(api().git.refreshProject(projectId))
+      .then(
+        (refreshed) => {
+          putProjectGitState(refreshed.state);
+          show(refreshed.status);
+        },
+        () => show(null),
+      )
+      .finally(() => setRefreshing(false));
+  }, [projectId, show]);
 
   useEffect(() => {
+    if (!live) return;
     let cancelled = false;
-    unwrap(api().git.project(projectId))
-      .then(
-        (value) => !cancelled && setStatus(value),
-        () => !cancelled && setStatus(null),
-      )
-      .finally(() => !cancelled && setLoading(false));
+    unwrap(api().git.project(projectId)).then(
+      (value) => !cancelled && show(value),
+      () => !cancelled && show(null),
+    );
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, live, show]);
 
+  const current = result?.projectId === projectId ? result : null;
+  const status = current?.status ?? null;
   const root = rootOf(status ?? undefined);
   useEffect(() => {
-    if (root === null) return;
+    if (!live || root === null) return;
     return onTerminalLifecycle((event) => {
-      if (event.type === 'git' && event.repositoryRoot === root) refresh();
+      if (event.type !== 'git' || event.repositoryRoot !== root) return;
+      unwrap(api().git.project(projectId)).then(show, () => show(null));
     });
-  }, [root, refresh]);
+  }, [live, root, projectId, show]);
 
-  return { status, loading, refresh };
+  return { status, loading: refreshing || (live && current === null), refresh };
 }

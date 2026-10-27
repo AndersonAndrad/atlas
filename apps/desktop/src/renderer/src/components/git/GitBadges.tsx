@@ -1,5 +1,5 @@
 import type { GitRepositorySnapshot } from '@atlas/contracts';
-import { ArrowDown, ArrowUp, FileDiff, GitBranch } from 'lucide-react';
+import { ArrowDown, ArrowUp, GitBranch } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -38,7 +38,11 @@ function Chip({
 }
 
 /** Commits to push (ahead) and to pull (behind); a placeholder without tracking information. */
-export function GitSyncBadges({ snapshot }: { snapshot: GitRepositorySnapshot }) {
+export function GitSyncBadges({
+  snapshot,
+}: {
+  snapshot: Pick<GitRepositorySnapshot, 'ahead' | 'behind' | 'upstream' | 'upstreamGone'>;
+}) {
   const tracking = trackingDescription(snapshot);
   if (snapshot.ahead === null || snapshot.behind === null) {
     return (
@@ -59,21 +63,6 @@ export function GitSyncBadges({ snapshot }: { snapshot: GitRepositorySnapshot })
         {snapshot.behind}
       </Chip>
     </>
-  );
-}
-
-/** Number of changed files (any kind), highlighted when there is something to commit. */
-export function GitChangesBadge({ snapshot }: { snapshot: GitRepositorySnapshot }) {
-  const { total } = snapshot.changes;
-  return (
-    <Chip
-      tone={total > 0 ? 'warning' : 'neutral'}
-      tip={`${plural(total, 'changed file')} (modified, staged or untracked)`}
-      testId="git-changes-count"
-    >
-      <FileDiff className="size-3" aria-hidden="true" />
-      {total}
-    </Chip>
   );
 }
 

@@ -240,7 +240,9 @@ import type {
   GitStatus,
   GitSwitchBranchInput,
   GitWorkingTree,
+  ProjectGitRefreshResult,
   ProjectGitSettings,
+  ProjectGitState,
   StoredGitPreferences,
   StoredProjectGitSettings,
   TerminalGitContext,
@@ -317,6 +319,9 @@ export const IPC_CHANNELS = {
   deleteGroup: 'atlas:groups:delete',
 
   projectGit: 'atlas:git:project',
+  projectGitStates: 'atlas:git:project-states',
+  refreshProjectGit: 'atlas:git:refresh-project',
+  setProjectGitMonitoring: 'atlas:git:set-project-monitoring',
   gitRepositories: 'atlas:git:repositories',
   gitWorkingTree: 'atlas:git:working-tree',
   gitDiff: 'atlas:git:diff',
@@ -721,6 +726,11 @@ export interface AtlasApi {
   };
   git: {
     project(projectId: string): Promise<IpcResult<GitStatus>>;
+    /** Stored Git state of every project; never runs Git (SDD-024). */
+    projectStates(): Promise<IpcResult<ProjectGitState[]>>;
+    /** Reads a project's Git status now, even when monitoring is off. */
+    refreshProject(projectId: string): Promise<IpcResult<ProjectGitRefreshResult>>;
+    setProjectMonitoring(projectId: string, enabled: boolean): Promise<IpcResult<ProjectGitState>>;
     /** Repositories of registered projects and open terminals. */
     repositories(): Promise<IpcResult<GitRepositoryEntry[]>>;
     workingTree(repositoryRoot: string): Promise<IpcResult<GitWorkingTree>>;

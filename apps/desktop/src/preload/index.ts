@@ -88,6 +88,10 @@ const api: AtlasApi = {
   },
   git: {
     project: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.projectGit, projectId),
+    projectStates: () => ipcRenderer.invoke(IPC_CHANNELS.projectGitStates),
+    refreshProject: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.refreshProjectGit, projectId),
+    setProjectMonitoring: (projectId, enabled) =>
+      ipcRenderer.invoke(IPC_CHANNELS.setProjectGitMonitoring, projectId, enabled),
     repositories: () => ipcRenderer.invoke(IPC_CHANNELS.gitRepositories),
     workingTree: (root) => ipcRenderer.invoke(IPC_CHANNELS.gitWorkingTree, root),
     diff: (input) => ipcRenderer.invoke(IPC_CHANNELS.gitDiff, input),

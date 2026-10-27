@@ -833,3 +833,24 @@ superseded decisions are marked, not deleted.
   - A hard Engine crash can leave adapter process groups behind.
   - The UI tasks must add the user action, adapter registration and IPC.
   - No database change; rolling back to 0.30.x needs nothing special.
+
+## ADR-069 — Project Git monitoring is an Engine schedule over stored snapshots (PLAN-047)
+
+- **Decision**:
+  - The Engine owns automatic Git status collection per project (`ProjectGitMonitor`). It
+    reuses `GitInspectionService` and `RepositoryWatcher`.
+  - Results are stored in SQLite (`project_git_snapshots`) and pushed to clients as
+    `project-git` events.
+  - Badges read the stored state and never run Git.
+  - The monitoring preference is a `projects` column that defaults to enabled.
+- **Alternatives**:
+  - Gating the existing renderer hooks: rejected. Polling would stay per component, and
+    nothing would be shared or persisted.
+  - Storing the preference in `application_settings`: rejected. It loses the
+    foreign-key cleanup, and the snapshot table needs a migration anyway.
+- **Consequences**:
+  - Monitored projects refresh every 30–120 s depending on activity.
+  - Paused projects cost nothing in the background.
+  - The Git view's repository discovery still inspects every project when opened.
+  - Rolling back to 0.32.x needs a database copy taken before 0.33.0 first ran (older
+    versions refuse schema v17).

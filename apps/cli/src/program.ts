@@ -138,10 +138,12 @@ export async function runCli(
         inputPath: string,
         options: { name?: string; description?: string; tag: string[]; json?: boolean },
       ) => {
-        const { projects } = getEngine();
+        const engine = getEngine();
+        const { projects } = engine;
         const absolutePath = path.resolve(io.cwd, inputPath);
         const inspection = await projects.inspectPath(absolutePath);
-        const created = await projects.create({
+        // Through the Engine so Git monitoring follows the new-project default (SDD-024).
+        const created = await engine.createProject({
           name: options.name ?? inspection.suggestedName ?? path.basename(absolutePath),
           workspacePath: absolutePath,
           ...(options.description !== undefined ? { description: options.description } : {}),

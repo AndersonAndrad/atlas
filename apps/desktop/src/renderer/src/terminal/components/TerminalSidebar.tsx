@@ -14,7 +14,9 @@ import {
   MoreHorizontal,
 } from 'lucide-react';
 import { useState, type DragEvent, type ReactNode } from 'react';
-import { GitChangesBadge, GitSyncBadges } from '@/components/git/GitBadges';
+import { GitSyncBadges } from '@/components/git/GitBadges';
+import { ProjectGitBadge } from '@/components/git/ProjectGitBadge';
+import { useProjectGitState } from '@/git/state/project-git-states';
 import { ProjectActionsMenu } from '@/components/ProjectActionsMenu';
 import { Button } from '@/components/ui/button';
 import {
@@ -30,7 +32,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import type { ProjectDetails } from '@/types';
-import { useProjectGit } from '../hooks/useGitStatus';
 import { TerminalStatusDot } from './TerminalStatusDot';
 
 const DRAG_TYPE = 'application/x-atlas-terminal';
@@ -251,8 +252,9 @@ function SidebarProjectRow({
   onNewTerminalInProject,
   onRunQuickCommand,
 }: SidebarProjectRowProps) {
-  const { status } = useProjectGit(item.project.id);
-  const snapshot = status?.state === 'repository' ? status.snapshot : null;
+  // Stored state pushed by the Engine: rendering the sidebar never runs Git (SDD-024).
+  const gitState = useProjectGitState(item.project.id);
+  const snapshot = gitState?.snapshot?.state === 'repository' ? gitState.snapshot : null;
   const tracksUpstream = snapshot !== null && snapshot.ahead !== null && snapshot.behind !== null;
   return (
     <li
@@ -274,12 +276,14 @@ function SidebarProjectRow({
         />
         <span className="truncate">{item.project.name}</span>
       </button>
-      {snapshot !== null && (
-        <span className="flex shrink-0 items-center gap-1" data-testid="sidebar-project-sync">
-          <GitChangesBadge snapshot={snapshot} />
-          {tracksUpstream && <GitSyncBadges snapshot={snapshot} />}
-        </span>
-      )}
+      <span className="flex shrink-0 items-center gap-1">
+        <ProjectGitBadge state={gitState} />
+        {tracksUpstream && (
+          <span className="flex items-center gap-1" data-testid="sidebar-project-sync">
+            <GitSyncBadges snapshot={snapshot} />
+          </span>
+        )}
+      </span>
       <span className="mr-1 shrink-0">
         <ProjectActionsMenu
           projectId={item.project.id}

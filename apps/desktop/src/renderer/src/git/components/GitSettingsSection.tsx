@@ -79,7 +79,9 @@ export function GitSettingsSection() {
     );
   }
 
-  function toggle(input: Pick<UpdateGitPreferences, 'requireScope' | 'suggestions'>) {
+  function toggle(
+    input: Pick<UpdateGitPreferences, 'requireScope' | 'suggestions' | 'monitorNewProjects'>,
+  ) {
     // Shown right away; the latest choice wins once every queued save finished.
     setPreferences((current) => (current === null ? current : { ...current, ...input }));
     setToggles({ state: 'saving' });
@@ -221,6 +223,24 @@ export function GitSettingsSection() {
               <Label htmlFor="git-suggestions" className="font-normal">
                 Offer commit message suggestions (from file names and change types; no AI)
               </Label>
+            </div>
+            <div className="flex items-start gap-2">
+              <Checkbox
+                id="git-monitor-new-projects"
+                className="mt-0.5"
+                checked={preferences.monitorNewProjects}
+                onCheckedChange={(checked) => toggle({ monitorNewProjects: checked === true })}
+                aria-describedby="git-monitor-new-projects-help"
+              />
+              <div className="flex flex-col gap-0.5">
+                <Label htmlFor="git-monitor-new-projects" className="font-normal">
+                  Monitor the Git status of new projects automatically
+                </Label>
+                <p id="git-monitor-new-projects-help" className="text-muted-foreground text-xs">
+                  Applies to projects registered from now on. Each project can be paused or resumed
+                  in its details.
+                </p>
+              </div>
             </div>
             {toggles.state === 'error' ? (
               <Alert variant="destructive" role="alert">

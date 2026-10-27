@@ -11,6 +11,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { AVAILABILITY_LABELS, formatDate, gitSummary } from '@/format';
 import type { ProjectDetails } from '@/types';
+import { useState } from 'react';
+import { api, errorMessage, unwrap } from '@/api';
+import { putProjectGitState, useProjectGitState } from '@/git/state/project-git-states';
 import { useProjectGit } from '@/terminal/hooks/useGitStatus';
 import { CommitSettingsForm } from '@/git/components/CommitSettingsForm';
 import { ProjectAiSettings } from '@/context/components/ProjectAiSettings';
@@ -49,9 +52,33 @@ export function ProjectDetailsPanel({
   const { project, availability, git } = details;
   const unavailable = availability.status !== 'available';
   const repositoryRoot = git.repositoryRoot ?? project.git.repositoryRoot;
-  const projectGit = useProjectGit(project.id);
+  const gitState = useProjectGitState(project.id);
+  // Paused projects show their stored snapshot; Git runs only on an explicit refresh.
+  const projectGit = useProjectGit(project.id, gitState?.monitoringEnabled === true);
+  const [monitoringError, setMonitoringError] = useState<string | null>(null);
+  const setMonitoring = (enabled: boolean) => {
+    setMonitoringError(null);
+    unwrap(api().git.setProjectMonitoring(project.id, enabled)).then(
+      putProjectGitState,
+      (caught: unknown) => setMonitoringError(errorMessage(caught)),
+    );
+  };
+  const liveSnapshot =
+    projectGit.status?.state === 'repository' ? projectGit.status.snapshot : null;
+  const storedSnapshot = gitState?.snapshot?.state === 'repository' ? gitState.snapshot : null;
+  // Without a live read (paused), the stored snapshot or the directory's .git decides.
+  const isRepository =
+    projectGit.status !== null
+      ? projectGit.status.state === 'repository'
+      : gitState?.snapshot != null
+        ? gitState.snapshot.state === 'repository'
+        : git.isRepository;
   const pendingActions =
-    projectGit.status?.state === 'repository' ? pendingGitActions(projectGit.status.snapshot) : [];
+    liveSnapshot !== null
+      ? pendingGitActions(liveSnapshot)
+      : storedSnapshot !== null
+        ? pendingGitActions(storedSnapshot)
+        : [];
 
   // Description, details and Git status: the first tab, or the whole panel without tabs.
   const overview = (
@@ -110,6 +137,9 @@ export function ProjectDetailsPanel({
         status={projectGit.status}
         loading={projectGit.loading}
         onRefresh={projectGit.refresh}
+        gitState={gitState}
+        onMonitoringChange={setMonitoring}
+        monitoringError={monitoringError}
       />
     </>
   );
@@ -134,7 +164,7 @@ export function ProjectDetailsPanel({
               Open terminal
             </Button>
           )}
-          {onOpenGit && projectGit.status?.state === 'repository' && (
+          {onOpenGit && isRepository && (
             <Button
               variant="secondary"
               className="relative"
@@ -200,16 +230,14 @@ export function ProjectDetailsPanel({
         <Tabs defaultValue="overview" className="min-w-0">
           <TabsList className="h-auto max-w-full flex-wrap justify-start">
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            {projectGit.status?.state === 'repository' && (
-              <TabsTrigger value="commit-checks">Commit checks</TabsTrigger>
-            )}
+            {isRepository && <TabsTrigger value="commit-checks">Commit checks</TabsTrigger>}
             <TabsTrigger value="ai-context">AI &amp; context</TabsTrigger>
             <TabsTrigger value="quick-commands">Quick commands</TabsTrigger>
           </TabsList>
           <TabsContent value="overview" className="flex min-w-0 flex-col gap-4 pt-2">
             {overview}
           </TabsContent>
-          {projectGit.status?.state === 'repository' && (
+          {isRepository && (
             <TabsContent value="commit-checks" className="pt-2">
               <section
                 className="flex flex-col gap-3 rounded-lg border p-4"

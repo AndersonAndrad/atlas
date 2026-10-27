@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ProjectIdSchema, WorkspacePathSchema } from './project.js';
-import type { GitOperation } from './git.js';
+import type { GitOperation, ProjectGitState } from './git.js';
 import type { BackgroundJob } from './jobs.js';
 import type { DebugEvent } from './debug.js';
 import type { AtlasNotification } from './notification.js';
@@ -241,6 +241,8 @@ export type TerminalEvent =
   | { type: 'groups'; groups: TerminalGroup[] }
   /** Git state of a repository may have changed; clients re-request snapshots. */
   | { type: 'git'; repositoryRoot: string }
+  /** Stored Git state of a project changed (SDD-024); the event carries the new state. */
+  | { type: 'project-git'; state: ProjectGitState }
   /** Progress or outcome of a Git operation started by any client. */
   | { type: 'git-operation'; operation: GitOperation }
   /** Notifications changed; `created` is set when one was just published (for a toast). */

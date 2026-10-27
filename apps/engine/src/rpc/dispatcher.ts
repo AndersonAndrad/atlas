@@ -132,8 +132,9 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
 
     'projects.list': () => projects.listDetails(),
     'projects.get': ([id]: [string]) => projects.getDetails(id),
-    'projects.create': ([input]: [CreateProjectInput]) => projects.create(input),
-    'projects.update': ([id, input]: [string, UpdateProjectInput]) => projects.update(id, input),
+    'projects.create': ([input]: [CreateProjectInput]) => engine.createProject(input),
+    'projects.update': ([id, input]: [string, UpdateProjectInput]) =>
+      engine.updateProject(id, input),
     'projects.remove': async ([id]: [string]) => {
       await engine.removeProject(id);
       return null;
@@ -223,6 +224,10 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     },
 
     'git.project': ([projectId]: [string]) => engine.projectGit(projectId),
+    'git.projectStates': () => engine.projectGitMonitor.states(),
+    'git.refreshProject': ([projectId]: [string]) => engine.projectGitMonitor.refresh(projectId),
+    'git.setProjectMonitoring': ([projectId, enabled]: [string, boolean]) =>
+      engine.projectGitMonitor.setMonitoring(projectId, enabled),
     'git.repositories': () => engine.gitRepositories(),
     'git.workingTree': async ([root]: [string]) => gitService.workingTree(await repo(root)),
     'git.diff': async ([{ repositoryRoot, ...input }]: [GitDiffInput]) =>

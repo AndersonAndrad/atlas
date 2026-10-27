@@ -2,6 +2,8 @@ import { GitBranch } from 'lucide-react';
 import { formatDate, gitSummary } from '@/format';
 import { cn } from '@/lib/utils';
 import type { ProjectDetails } from '@/types';
+import { useProjectGitState } from '@/git/state/project-git-states';
+import { ProjectGitBadge } from './git/ProjectGitBadge';
 import { StatusBadge } from './StatusBadge';
 
 interface ProjectListProps {
@@ -45,6 +47,7 @@ export function ProjectList({ items, selectedId, onSelect }: ProjectListProps) {
                   <GitBranch className="size-3" aria-hidden="true" />
                   {gitSummary(item.git, project.git.isRepository)}
                 </span>
+                <ProjectCardGitBadge projectId={project.id} />
                 <span>Opened: {formatDate(project.lastOpenedAt)}</span>
               </span>
             </button>
@@ -53,4 +56,9 @@ export function ProjectList({ items, selectedId, onSelect }: ProjectListProps) {
       })}
     </ul>
   );
+}
+
+/** Stored Git status of a project card; never runs Git (SDD-024). */
+function ProjectCardGitBadge({ projectId }: { projectId: string }) {
+  return <ProjectGitBadge state={useProjectGitState(projectId)} focusable={false} />;
 }

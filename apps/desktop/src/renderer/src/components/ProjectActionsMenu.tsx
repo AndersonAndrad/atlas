@@ -1,7 +1,8 @@
 import type { ProjectAction } from '@atlas/contracts';
-import { Ellipsis, Play, SquareTerminal } from 'lucide-react';
+import { CirclePause, CirclePlay, Ellipsis, Play, RefreshCw, SquareTerminal } from 'lucide-react';
 import { useRef, useState, type ReactNode } from 'react';
 import { api, errorMessage, unwrap } from '@/api';
+import { putProjectGitState, useProjectGitState } from '@/git/state/project-git-states';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -39,6 +40,26 @@ export function ProjectActionsMenu({
   // An action opens a terminal that takes the focus. It runs once the menu has closed, so
   // the menu neither keeps the focus while closing nor gives it back to its button.
   const pending = useRef<(() => void) | null>(null);
+  const gitState = useProjectGitState(projectId);
+  const [gitBusy, setGitBusy] = useState<'refresh' | 'monitoring' | null>(null);
+
+  /** Git actions keep the menu open, so their progress and errors stay visible. */
+  function gitAction(kind: 'refresh' | 'monitoring', run: () => Promise<void>) {
+    setError(null);
+    setGitBusy(kind);
+    run()
+      .catch((caught: unknown) => setError(errorMessage(caught)))
+      .finally(() => setGitBusy(null));
+  }
+  const refreshGit = () =>
+    gitAction('refresh', async () => {
+      putProjectGitState((await unwrap(api().git.refreshProject(projectId))).state);
+    });
+  const toggleMonitoring = () =>
+    gitAction('monitoring', async () => {
+      const enabled = !(gitState?.monitoringEnabled ?? true);
+      putProjectGitState(await unwrap(api().git.setProjectMonitoring(projectId, enabled)));
+    });
 
   function load(open: boolean) {
     if (!open) return;
@@ -90,6 +111,31 @@ export function ProjectActionsMenu({
           <SquareTerminal />
           Open terminal
         </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={gitBusy !== null}
+          onSelect={(event) => {
+            event.preventDefault();
+            refreshGit();
+          }}
+          data-testid="project-action-git-refresh"
+        >
+          <RefreshCw className={gitBusy === 'refresh' ? 'animate-spin' : undefined} />
+          {gitBusy === 'refresh' ? 'Refreshing Git status…' : 'Refresh Git status'}
+        </DropdownMenuItem>
+        {gitState !== undefined && (
+          <DropdownMenuItem
+            disabled={gitBusy !== null}
+            onSelect={(event) => {
+              event.preventDefault();
+              toggleMonitoring();
+            }}
+            data-testid="project-action-git-monitoring"
+          >
+            {gitState.monitoringEnabled ? <CirclePause /> : <CirclePlay />}
+            {gitState.monitoringEnabled ? 'Pause Git monitoring' : 'Resume Git monitoring'}
+          </DropdownMenuItem>
+        )}
         {commands.length > 0 && <DropdownMenuSeparator />}
         {commands.map((action) => (
           <DropdownMenuItem

@@ -1,5 +1,9 @@
-import type { GitRepositorySnapshot, GitUnavailableReason } from '@atlas/contracts';
-import { plural } from '@/git/format';
+import type {
+  GitRepositorySnapshot,
+  GitUnavailableReason,
+  ProjectGitState,
+} from '@atlas/contracts';
+import { plural } from '../../git/format';
 
 export const GIT_UNAVAILABLE_LABELS: Record<GitUnavailableReason, string> = {
   'not-installed': 'Git is not installed or not on the PATH.',
@@ -9,12 +13,20 @@ export const GIT_UNAVAILABLE_LABELS: Record<GitUnavailableReason, string> = {
   error: 'Git information could not be read.',
 };
 
-export function branchLabel(snapshot: GitRepositorySnapshot): string {
+/** Branch and upstream fields shared by live snapshots and stored project snapshots. */
+type GitTracking = Pick<
+  GitRepositorySnapshot,
+  'branch' | 'detachedHead' | 'upstream' | 'upstreamGone' | 'ahead' | 'behind' | 'changes'
+>;
+
+export function branchLabel(snapshot: Pick<GitTracking, 'branch' | 'detachedHead'>): string {
   if (snapshot.detachedHead) return 'detached HEAD';
   return snapshot.branch ?? 'unknown';
 }
 
-export function trackingDescription(snapshot: GitRepositorySnapshot): string {
+export function trackingDescription(
+  snapshot: Pick<GitTracking, 'upstream' | 'upstreamGone'>,
+): string {
   if (snapshot.upstream === null) return 'No upstream branch is configured.';
   if (snapshot.upstreamGone) return `The upstream ${snapshot.upstream} no longer exists.`;
   return `Compared with ${snapshot.upstream} as of the last fetch. ATLAS never fetches.`;
@@ -40,7 +52,9 @@ export function relativeTime(value: string | null): string {
 }
 
 /** Things waiting in a repository: changed files, commits to push and to pull. */
-export function pendingGitActions(snapshot: GitRepositorySnapshot): string[] {
+export function pendingGitActions(
+  snapshot: Pick<GitTracking, 'changes' | 'ahead' | 'behind'>,
+): string[] {
   const reasons: string[] = [];
   const { total } = snapshot.changes;
   if (total > 0) reasons.push(`${plural(total, 'changed file')} to commit`);
@@ -51,4 +65,60 @@ export function pendingGitActions(snapshot: GitRepositorySnapshot): string[] {
     reasons.push(`${plural(snapshot.behind, 'commit')} to pull`);
   }
   return reasons;
+}
+
+export type ProjectGitIndicatorKind = 'attention' | 'clean' | 'unknown';
+
+export interface ProjectGitIndicator {
+  kind: ProjectGitIndicatorKind;
+  /** Shown as live data: monitored and refreshed successfully since ATLAS started. */
+  live: boolean;
+  /** Changed files, when known. */
+  changes: number | null;
+  /** Full description for tooltips and screen readers (never color alone). */
+  description: string;
+}
+
+/**
+ * Badge of a project's stored Git state (SDD-024 FR-006). Attention means something to
+ * commit or to push; commits to pull are reported separately and are not a required action.
+ */
+export function projectGitIndicator(state: ProjectGitState | undefined): ProjectGitIndicator {
+  const live = state?.freshness === 'live';
+  const freshness =
+    state === undefined || state.refreshedAt === null
+      ? ''
+      : ` ${live ? 'Live' : 'Cached'}, updated ${relativeTime(state.refreshedAt)}.`;
+  const failure =
+    state?.error != null
+      ? ` Last refresh failed: ${GIT_UNAVAILABLE_LABELS[state.error.reason]}`
+      : '';
+  const paused = state !== undefined && !state.monitoringEnabled ? ' Monitoring paused.' : '';
+  const snapshot = state?.snapshot ?? null;
+
+  if (snapshot === null || snapshot.state === 'not-repository') {
+    const what =
+      snapshot?.state === 'not-repository'
+        ? 'No Git repository.'
+        : state?.error != null
+          ? 'Git status unavailable.'
+          : 'Git status unknown: not refreshed yet.';
+    return {
+      kind: 'unknown',
+      live: false,
+      changes: null,
+      description: `${what}${freshness}${failure}${paused}`.trim(),
+    };
+  }
+  const pending = pendingGitActions({ ...snapshot, behind: null });
+  const attention = pending.length > 0;
+  const summary = attention
+    ? `Needs attention: ${pending.join(', ')}.`
+    : 'Clean, nothing to commit or push.';
+  return {
+    kind: attention ? 'attention' : 'clean',
+    live,
+    changes: snapshot.changes.total,
+    description: `${summary} Branch ${branchLabel(snapshot)}.${freshness}${failure}${paused}`,
+  };
 }

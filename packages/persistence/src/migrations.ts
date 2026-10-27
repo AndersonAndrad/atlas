@@ -888,4 +888,33 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX usage_ai_sessions_recent ON usage_ai_sessions (profile_id, updated_at);
     `,
   },
+  {
+    version: 17,
+    name: 'project_git_monitoring',
+    // Per-project Git monitoring and last known status (SDD-024 Task 01). Additive. Existing
+    // projects keep being monitored (DEFAULT 1). The snapshot keeps counts and branch names
+    // only: no identity, file names or file contents. Error columns describe the last failed
+    // refresh and never replace the last successful snapshot.
+    sql: `
+      ALTER TABLE projects ADD COLUMN git_monitoring_enabled INTEGER NOT NULL DEFAULT 1
+        CHECK (git_monitoring_enabled IN (0, 1));
+
+      CREATE TABLE project_git_snapshots (
+        project_id TEXT PRIMARY KEY NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+        state TEXT CHECK (state IS NULL OR state IN ('repository', 'not-repository')),
+        branch TEXT CHECK (branch IS NULL OR length(branch) <= 1000),
+        detached_head INTEGER NOT NULL DEFAULT 0 CHECK (detached_head IN (0, 1)),
+        unborn_head INTEGER NOT NULL DEFAULT 0 CHECK (unborn_head IN (0, 1)),
+        upstream TEXT CHECK (upstream IS NULL OR length(upstream) <= 1000),
+        ahead INTEGER CHECK (ahead IS NULL OR ahead >= 0),
+        behind INTEGER CHECK (behind IS NULL OR behind >= 0),
+        upstream_gone INTEGER NOT NULL DEFAULT 0 CHECK (upstream_gone IN (0, 1)),
+        changes TEXT CHECK (changes IS NULL OR json_valid(changes)),
+        refreshed_at TEXT,
+        error_reason TEXT CHECK (error_reason IS NULL OR length(error_reason) <= 64),
+        error_at TEXT,
+        CHECK ((state IS NULL) = (refreshed_at IS NULL))
+      ) STRICT;
+    `,
+  },
 ];

@@ -806,6 +806,13 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
       (engine.call as (method: string, ...params: unknown[]) => Promise<unknown>)(method, ...args),
     );
   gitCall(IPC_CHANNELS.gitRepositories, NoArgs, 'git.repositories');
+  gitCall(IPC_CHANNELS.projectGitStates, NoArgs, 'git.projectStates');
+  gitCall(IPC_CHANNELS.refreshProjectGit, IdArgs, 'git.refreshProject');
+  gitCall(
+    IPC_CHANNELS.setProjectGitMonitoring,
+    z.tuple([ProjectIdSchema, z.boolean()]),
+    'git.setProjectMonitoring',
+  );
   gitCall(IPC_CHANNELS.gitWorkingTree, RootArgs, 'git.workingTree');
   gitCall(IPC_CHANNELS.gitDiff, z.tuple([GitDiffInputSchema]), 'git.diff');
   gitCall(IPC_CHANNELS.gitStage, z.tuple([GitPathsInputSchema]), 'git.stage');

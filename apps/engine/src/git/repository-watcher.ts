@@ -5,8 +5,11 @@ import type { GitInspectionService } from '@atlas/git';
 
 export interface RepositoryWatcherOptions {
   git: GitInspectionService;
-  /** Called (debounced) when a watched repository may have changed. */
-  onChange: (repositoryRoot: string) => void;
+  /**
+   * Called (debounced) when a watched repository may have changed: `watch` for a file
+   * system notification, `interval` for the periodic fallback refresh.
+   */
+  onChange: (repositoryRoot: string, cause: 'watch' | 'interval') => void;
   logger?: Logger;
   debounceMs?: number;
   /** Fallback refresh interval for changes the watcher cannot see (e.g. file edits). */
@@ -34,7 +37,7 @@ export class RepositoryWatcher {
   constructor(private readonly options: RepositoryWatcherOptions) {
     this.logger = options.logger ?? noopLogger;
     this.interval = setInterval(() => {
-      for (const root of this.watched.keys()) this.changed(root);
+      for (const root of this.watched.keys()) this.changed(root, 'interval');
     }, options.refreshIntervalMs ?? 30_000);
     this.interval.unref?.();
   }
@@ -80,13 +83,13 @@ export class RepositoryWatcher {
     if (entry.timer !== undefined) clearTimeout(entry.timer);
     entry.timer = setTimeout(() => {
       entry.timer = undefined;
-      this.changed(root);
+      this.changed(root, 'watch');
     }, this.options.debounceMs ?? 500);
   }
 
-  private changed(root: string): void {
+  private changed(root: string, cause: 'watch' | 'interval'): void {
     this.options.git.invalidate(root);
-    this.options.onChange(root);
+    this.options.onChange(root, cause);
   }
 
   private evictOldest(): void {
@@ -98,7 +101,8 @@ export class RepositoryWatcher {
     }
   }
 
-  private unwatch(root: string): void {
+  /** Stops watching a repository; a later `watch` starts again. */
+  unwatch(root: string): void {
     const entry = this.watched.get(root);
     if (!entry) return;
     if (entry.timer !== undefined) clearTimeout(entry.timer);

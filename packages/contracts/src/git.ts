@@ -55,6 +55,48 @@ export type GitStatus =
   | { state: 'not-repository'; inspectedAt: string }
   | { state: 'unavailable'; reason: GitUnavailableReason; inspectedAt: string };
 
+/**
+ * Persisted subset of a project's Git status (SDD-024 FR-002). Identity, file names and
+ * branch lists are deliberately not kept.
+ */
+export type ProjectGitSnapshot =
+  | {
+      state: 'repository';
+      branch: string | null;
+      detachedHead: boolean;
+      unbornHead: boolean;
+      upstream: string | null;
+      ahead: number | null;
+      behind: number | null;
+      upstreamGone: boolean;
+      changes: GitChangeCounts;
+    }
+  | { state: 'not-repository' };
+
+/**
+ * `live`: refreshed by monitoring since ATLAS started and the last check succeeded.
+ * `cached`: last known snapshot (monitoring off, failed check, or not refreshed yet).
+ * `none`: no snapshot was ever collected.
+ */
+export type ProjectGitFreshness = 'live' | 'cached' | 'none';
+
+export interface ProjectGitState {
+  projectId: string;
+  monitoringEnabled: boolean;
+  freshness: ProjectGitFreshness;
+  snapshot: ProjectGitSnapshot | null;
+  /** Time of the last successful refresh (ISO 8601). */
+  refreshedAt: string | null;
+  /** Reason of the last failed refresh when it is more recent than `refreshedAt`. */
+  error: { reason: GitUnavailableReason; at: string } | null;
+}
+
+/** Outcome of an explicit refresh: the stored state and the full status just read. */
+export interface ProjectGitRefreshResult {
+  state: ProjectGitState;
+  status: GitStatus;
+}
+
 /** Git state of a terminal, following its current working directory. */
 export interface TerminalGitContext {
   directory: string;
@@ -466,6 +508,8 @@ export const GitPreferencesSchema = z.strictObject({
   headerMaxLength: z.number().int().min(20).max(500).nullable(),
   suggestions: z.enum(['deterministic', 'off']),
   lastRepositoryRoot: GitRepositoryRootSchema.nullable(),
+  /** Automatic Git monitoring for projects registered from now on (SDD-024 FR-001). */
+  monitorNewProjects: z.boolean(),
 });
 export type GitPreferences = z.infer<typeof GitPreferencesSchema>;
 export const UpdateGitPreferencesSchema = GitPreferencesSchema.partial();
@@ -477,6 +521,7 @@ export const DEFAULT_GIT_PREFERENCES: GitPreferences = {
   headerMaxLength: null,
   suggestions: 'deterministic',
   lastRepositoryRoot: null,
+  monitorNewProjects: true,
 };
 
 /** Preferences as read for display. */

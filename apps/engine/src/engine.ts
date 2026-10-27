@@ -6,6 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   CreateProjectInputSchema,
+  type CreateProjectInput,
+  type UpdateProjectInput,
   parseInput,
   type AiSession,
   type AttachTerminalInput,
@@ -43,6 +45,7 @@ import {
   SqliteHttpWorkbenchRepository,
   SqliteExtensionRepository,
   SqliteJobRepository,
+  SqliteProjectGitRepository,
   SqliteTerminalGroupRepository,
   SqliteTerminalSessionRepository,
   getSchemaVersion,
@@ -89,6 +92,7 @@ import {
   GitOperationLog,
   GitPreferencesStore,
   GitWorkspaceService,
+  ProjectGitMonitor,
   ProjectGitSettingsStore,
   RepositoryEvidence,
   recordingExecutor,
@@ -285,6 +289,12 @@ export interface Engine {
   removeProject(id: string): Promise<void>;
   /** Git state of a registered project's directory. */
   projectGit(projectId: string): Promise<GitStatus>;
+  /** Registers a project; Git monitoring follows the new-project default (SDD-024). */
+  createProject(input: CreateProjectInput): Promise<Project>;
+  /** Updates a project; a new folder drops its stored Git snapshot. */
+  updateProject(id: string, input: UpdateProjectInput): Promise<Project>;
+  /** Per-project Git monitoring and stored snapshots (SDD-024). */
+  readonly projectGitMonitor: ProjectGitMonitor;
   /** Git state following a terminal's current working directory. */
   terminalGit(terminalId: string): Promise<TerminalGitContext>;
   /** The LLM open in the terminal and its session window (PLAN-031); null when none. */
@@ -432,6 +442,8 @@ export function createEngine(options: EngineOptions = {}): Engine {
   });
   // Set below, once the context service exists; terminals start after initialization.
   let refreshProjectFiles: (projectId: string) => Promise<void> = async () => undefined;
+  /** Tells clients and project monitoring that a repository may have changed (SDD-024). */
+  let repositoryChanged: (repositoryRoot: string) => void = () => undefined;
   const terminalEnvironment =
     terminalOptions === undefined
       ? undefined
@@ -480,7 +492,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
             void git.inspect(session.currentCwd, { fresh: true }).then((status) => {
               if (status.state === 'repository') {
                 git.invalidate(status.snapshot.repositoryRoot);
-                terminals?.publish({ type: 'git', repositoryRoot: status.snapshot.repositoryRoot });
+                repositoryChanged(status.snapshot.repositoryRoot);
               }
             });
           },
@@ -504,15 +516,51 @@ export function createEngine(options: EngineOptions = {}): Engine {
       ? new RepositoryWatcher({
           git,
           logger,
-          onChange: (repositoryRoot) => terminals.publish({ type: 'git', repositoryRoot }),
+          onChange: (repositoryRoot, cause) => {
+            // The periodic fallback only refreshes clients: monitored projects have their
+            // own adaptive schedule.
+            if (cause === 'watch') repositoryChanged(repositoryRoot);
+            else terminals.publish({ type: 'git', repositoryRoot });
+          },
         })
       : undefined;
 
-  /** Inspects a directory and starts watching its repository for clients. */
-  const inspectAndWatch = async (directory: string): Promise<GitStatus> => {
+  /**
+   * Inspects a directory and, unless `watch` is false, starts watching its repository for
+   * clients. Projects with Git monitoring off are not watched (SDD-024 FR-004).
+   */
+  const inspectAndWatch = async (directory: string, watch = true): Promise<GitStatus> => {
     const status = await git.inspect(directory);
-    if (status.state === 'repository') void watcher?.watch(status.snapshot.repositoryRoot);
+    if (watch && status.state === 'repository') {
+      void watcher?.watch(status.snapshot.repositoryRoot);
+    }
     return status;
+  };
+
+  // Per-project Git monitoring with persisted snapshots (SDD-024 Task 01).
+  const projectGitMonitor = new ProjectGitMonitor({
+    store: new SqliteProjectGitRepository(db),
+    inspect: (directory, fresh) => git.inspect(directory, { fresh }),
+    projectDirectory: async (projectId) => {
+      if ((await projects.findById(projectId)) === null) return { status: 'removed' };
+      const { project, availability } = await projects.getDetails(projectId);
+      return availability.status === 'available'
+        ? { status: 'available', directory: project.workspacePath }
+        : { status: 'unavailable' };
+    },
+    ...(watcher !== undefined
+      ? {
+          watch: (root: string) => void watcher.watch(root),
+          unwatch: (root: string) => watcher.unwatch(root),
+        }
+      : {}),
+    onChange: (state) => terminals?.publish({ type: 'project-git', state }),
+    now: () => clock.now(),
+    logger,
+  });
+  repositoryChanged = (repositoryRoot) => {
+    terminals?.publish({ type: 'git', repositoryRoot });
+    projectGitMonitor.repositoryChanged(repositoryRoot);
   };
 
   const gitOperationLog = new GitOperationLog({
@@ -737,7 +785,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
         .then((status) => {
           if (status.state !== 'repository') return;
           git.invalidate(status.snapshot.repositoryRoot);
-          terminals?.publish({ type: 'git', repositoryRoot: status.snapshot.repositoryRoot });
+          repositoryChanged(status.snapshot.repositoryRoot);
         })
         .catch((error: unknown) =>
           logger.debug('Git refresh after a file change failed', { error: describeError(error) }),
@@ -975,14 +1023,21 @@ export function createEngine(options: EngineOptions = {}): Engine {
       if (source.terminalId !== undefined) entry.terminalIds.push(source.terminalId);
       found.set(root, entry);
     };
-    const projectList = await projects.listDetails();
+    const [projectList, gitStates] = await Promise.all([
+      projects.listDetails(),
+      projectGitMonitor.states(),
+    ]);
+    const monitored = new Set(
+      gitStates.filter((state) => state.monitoringEnabled).map((state) => state.projectId),
+    );
     await Promise.all([
       ...projectList
         .filter((details) => details.availability.status === 'available')
         .map(async (details) =>
-          add(await inspectAndWatch(details.project.workspacePath), {
-            projectId: details.project.id,
-          }),
+          add(
+            await inspectAndWatch(details.project.workspacePath, monitored.has(details.project.id)),
+            { projectId: details.project.id },
+          ),
         ),
       ...(terminals?.list() ?? []).map(async (session) =>
         add(await inspectAndWatch(session.currentCwd), { terminalId: session.id }),
@@ -1225,6 +1280,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
   const close = () => {
     if (closed) return;
     closed = true;
+    projectGitMonitor.close();
     watcher?.close();
     fileWatcher.close();
     db.close();
@@ -1275,6 +1331,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
     llmSessions,
     quickCommands,
     gitPreferences,
+    projectGitMonitor,
     projectGitSettings,
     gitRepositories: discoverRepositories,
     gitCommitContext: async (repositoryRoot) => ({
@@ -1508,6 +1565,15 @@ export function createEngine(options: EngineOptions = {}): Engine {
         usageTimer = setInterval(collectUsage, USAGE_SCHEDULE_MS);
         usageTimer.unref?.();
       }
+      // Automatic Git status collection runs only where repositories are watched (the
+      // desktop Engine host); a failure leaves stored snapshots and manual refresh usable.
+      if (ownsExecution && watcher !== undefined) {
+        try {
+          await projectGitMonitor.start();
+        } catch (error) {
+          logger.warn('Project Git monitoring is unavailable', { error: describeError(error) });
+        }
+      }
     },
     removeProject: async (id) => {
       const { project } = await projects.getDetails(id);
@@ -1520,6 +1586,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
         status.state === 'repository' ? status.snapshot.repositoryRoot : project.workspacePath,
       );
       await projects.remove(project.id);
+      projectGitMonitor.projectRemoved(project.id);
       await projectGitSettings.remove(project.id);
       await quickCommands.removeProject(project.id);
       await skills.projectRemoved(project.id);
@@ -1529,16 +1596,25 @@ export function createEngine(options: EngineOptions = {}): Engine {
       await projectConfig.remove(project.id);
       await terminals?.detachProject(project.id);
     },
-    projectGit: async (projectId) => {
-      const details = await projects.getDetails(projectId);
-      if (details.availability.status !== 'available') {
-        return {
-          state: 'unavailable',
-          reason: 'directory-unavailable',
-          inspectedAt: clock.now().toISOString(),
-        };
+    // An explicit read: it also updates the stored snapshot, and only monitored projects
+    // are watched afterwards.
+    projectGit: async (projectId) =>
+      (await projectGitMonitor.refresh(projectId, { fresh: false })).status,
+    createProject: async (input) => {
+      const project = await projects.create(input);
+      await projectGitMonitor.projectAdded(
+        project.id,
+        (await gitPreferences.get()).monitorNewProjects,
+      );
+      return project;
+    },
+    updateProject: async (id, input) => {
+      const before = await projects.findById(id);
+      const project = await projects.update(id, input);
+      if (before !== null && before.workspacePath !== project.workspacePath) {
+        await projectGitMonitor.projectMoved(project.id);
       }
-      return inspectAndWatch(details.project.workspacePath);
+      return project;
     },
     terminalGit: async (terminalId) => {
       const session = requireTerminals().getById(terminalId);
@@ -1569,6 +1645,10 @@ export function createEngine(options: EngineOptions = {}): Engine {
       // The directory comes from the Engine's own record of the terminal.
       const parsed = parseInput(CreateProjectInputSchema.omit({ workspacePath: true }), input);
       const project = await projects.create({ ...parsed, workspacePath: session.currentCwd });
+      await projectGitMonitor.projectAdded(
+        project.id,
+        (await gitPreferences.get()).monitorNewProjects,
+      );
       const updated = await service.associate(terminalId, project.id);
       return { project, session: updated };
     },

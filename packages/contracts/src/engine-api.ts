@@ -70,7 +70,9 @@ import {
   type GitRepositoryEntry,
   type GitStatus,
   type GitWorkingTree,
+  type ProjectGitRefreshResult,
   type ProjectGitSettings,
+  type ProjectGitState,
   type StoredGitPreferences,
   type StoredProjectGitSettings,
   type TerminalGitContext,
@@ -380,6 +382,9 @@ export const ENGINE_METHOD_PARAMS = {
   'groups.delete': z.tuple([GroupId, z.strictObject({ terminateTerminals: z.boolean() })]),
 
   'git.project': z.tuple([Id]),
+  'git.projectStates': z.tuple([]),
+  'git.refreshProject': z.tuple([Id]),
+  'git.setProjectMonitoring': z.tuple([Id, z.boolean()]),
   'git.repositories': z.tuple([]),
   'git.workingTree': z.tuple([GitRepositoryRootSchema]),
   'git.diff': z.tuple([GitDiffInputSchema]),
@@ -705,6 +710,9 @@ export interface EngineMethodResults {
   'groups.move': TerminalGroup[];
   'groups.delete': null;
   'git.project': GitStatus;
+  'git.projectStates': ProjectGitState[];
+  'git.refreshProject': ProjectGitRefreshResult;
+  'git.setProjectMonitoring': ProjectGitState;
   'git.repositories': GitRepositoryEntry[];
   'git.workingTree': GitWorkingTree;
   'git.diff': GitFileDiff;
