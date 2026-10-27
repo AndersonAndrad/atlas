@@ -73,3 +73,8 @@ export function useProjectGitState(projectId: string): ProjectGitState | undefin
   }, [missing, projectId]);
   return state;
 }
+
+/** Stored Git states of all projects, keyed by project id. */
+export function useProjectGitStates(): ReadonlyMap<string, ProjectGitState> {
+  return useSyncExternalStore(subscribe, snapshot);
+}

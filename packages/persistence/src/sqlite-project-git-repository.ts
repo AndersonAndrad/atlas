@@ -1,4 +1,9 @@
-import type { GitChangeCounts, GitUnavailableReason, ProjectGitSnapshot } from '@atlas/contracts';
+import type {
+  GitChangeCounts,
+  GitUnavailableReason,
+  PendingCommits,
+  ProjectGitSnapshot,
+} from '@atlas/contracts';
 import type { ProjectGitStore, StoredProjectGit } from '@atlas/git';
 import { AtlasError } from '@atlas/shared';
 import type { Database } from './database.js';
@@ -15,6 +20,8 @@ interface Row {
   behind: number | null;
   upstream_gone: number | null;
   changes: string | null;
+  head_oid: string | null;
+  pending: string | null;
   refreshed_at: string | null;
   error_reason: string | null;
   error_at: string | null;
@@ -22,7 +29,7 @@ interface Row {
 
 const SELECT = `SELECT p.id AS project_id, p.git_monitoring_enabled, s.state, s.branch,
     s.detached_head, s.unborn_head, s.upstream, s.ahead, s.behind, s.upstream_gone, s.changes,
-    s.refreshed_at, s.error_reason, s.error_at
+    s.head_oid, s.pending, s.refreshed_at, s.error_reason, s.error_at
   FROM projects p LEFT JOIN project_git_snapshots s ON s.project_id = p.id`;
 
 const EMPTY_CHANGES: GitChangeCounts = {
@@ -41,6 +48,7 @@ function toSnapshot(row: Row): ProjectGitSnapshot | null {
   return {
     state: 'repository',
     branch: row.branch,
+    headOid: row.head_oid,
     detachedHead: row.detached_head === 1,
     unbornHead: row.unborn_head === 1,
     upstream: row.upstream,
@@ -48,6 +56,7 @@ function toSnapshot(row: Row): ProjectGitSnapshot | null {
     behind: row.behind,
     upstreamGone: row.upstream_gone === 1,
     changes: { ...EMPTY_CHANGES, ...(JSON.parse(row.changes ?? '{}') as Partial<GitChangeCounts>) },
+    pending: row.pending === null ? null : (JSON.parse(row.pending) as PendingCommits),
   };
 }
 
@@ -113,14 +122,15 @@ export class SqliteProjectGitRepository implements ProjectGitStore {
       this.db
         .prepare(
           `INSERT INTO project_git_snapshots (project_id, state, branch, detached_head,
-             unborn_head, upstream, ahead, behind, upstream_gone, changes, refreshed_at,
-             error_reason, error_at)
-           SELECT id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL FROM projects WHERE id = ?
+             unborn_head, upstream, ahead, behind, upstream_gone, changes, head_oid, pending,
+             refreshed_at, error_reason, error_at)
+           SELECT id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL FROM projects WHERE id = ?
            ON CONFLICT (project_id) DO UPDATE SET state = excluded.state,
              branch = excluded.branch, detached_head = excluded.detached_head,
              unborn_head = excluded.unborn_head, upstream = excluded.upstream,
              ahead = excluded.ahead, behind = excluded.behind,
              upstream_gone = excluded.upstream_gone, changes = excluded.changes,
+             head_oid = excluded.head_oid, pending = excluded.pending,
              refreshed_at = excluded.refreshed_at, error_reason = NULL, error_at = NULL`,
         )
         .run(
@@ -133,6 +143,8 @@ export class SqliteProjectGitRepository implements ProjectGitStore {
           repository?.behind ?? null,
           repository?.upstreamGone ? 1 : 0,
           repository === null ? null : JSON.stringify(repository.changes),
+          repository?.headOid ?? null,
+          repository?.pending == null ? null : JSON.stringify(repository.pending),
           refreshedAt,
           projectId,
         );

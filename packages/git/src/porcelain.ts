@@ -6,6 +6,8 @@ export interface ParsedStatus {
   detachedHead: boolean;
   /** HEAD has no commit yet. */
   unbornHead: boolean;
+  /** Commit HEAD points to; null when HEAD has no commit yet. */
+  headOid: string | null;
   upstream: string | null;
   ahead: number | null;
   behind: number | null;
@@ -23,6 +25,7 @@ export function parseStatusV2(output: string): ParsedStatus {
     branch: null,
     detachedHead: false,
     unbornHead: false,
+    headOid: null,
     upstream: null,
     ahead: null,
     behind: null,
@@ -47,8 +50,10 @@ export function parseStatusV2(output: string): ParsedStatus {
     if (field.startsWith('# ')) {
       const [key, ...rest] = field.slice(2).split(' ');
       const value = rest.join(' ');
-      if (key === 'branch.oid') result.unbornHead = value === '(initial)';
-      else if (key === 'branch.head') {
+      if (key === 'branch.oid') {
+        result.unbornHead = value === '(initial)';
+        result.headOid = result.unbornHead ? null : value;
+      } else if (key === 'branch.head') {
         result.detachedHead = value === '(detached)';
         result.branch = result.detachedHead ? null : value;
       } else if (key === 'branch.upstream') result.upstream = value;

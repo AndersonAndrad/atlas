@@ -917,4 +917,17 @@ export const MIGRATIONS: readonly Migration[] = [
       ) STRICT;
     `,
   },
+  {
+    version: 18,
+    name: 'project_git_pending_commits',
+    // Commits not pushed to the upstream (SDD-024 Task 02). Additive. Stored with the status
+    // snapshot in the same row and write, so a list always belongs to the stored branch,
+    // HEAD commit and upstream. At most 50 commits: hash, subject, author name and date.
+    sql: `
+      ALTER TABLE project_git_snapshots ADD COLUMN head_oid TEXT
+        CHECK (head_oid IS NULL OR length(head_oid) IN (40, 64));
+      ALTER TABLE project_git_snapshots ADD COLUMN pending TEXT
+        CHECK (pending IS NULL OR (json_valid(pending) AND length(pending) <= 262144));
+    `,
+  },
 ];

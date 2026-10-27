@@ -107,7 +107,7 @@ describe('migration v16 from a v15 database', () => {
       await new SqliteUsageRepository(db).insertProfile(profile);
       db.close();
       db = openDatabase({ filePath: file });
-      expect(getSchemaVersion(db)).toBe(17);
+      expect(getSchemaVersion(db)).toBe(18);
       expect(db.prepare('SELECT COUNT(*) AS n FROM usage_profiles').get()).toEqual({ n: 1 });
       expect(db.prepare('SELECT COUNT(*) AS n FROM usage_ai_sessions').get()).toEqual({ n: 0 });
       db.close();

@@ -3,6 +3,7 @@ import type {
   GitRepositorySnapshot,
   GitStatus,
   GitUnavailableReason,
+  PendingCommit,
   ProjectGitSnapshot,
   ProjectGitState,
 } from '@atlas/contracts';
@@ -62,6 +63,7 @@ function repository(root: string, overrides: Partial<GitRepositorySnapshot> = {}
       branch: 'main',
       detachedHead: false,
       unbornHead: false,
+      headOid: 'a'.repeat(40),
       identity: { name: 'Someone', email: 'someone@example.com' },
       localBranchCount: 1,
       recentBranches: [],
@@ -99,6 +101,16 @@ function setup(options: { projects?: number; maxConcurrentRefreshes?: number } =
     repository(directory);
   const events: ProjectGitState[] = [];
   const watched = new Set<string>();
+  const pendingCalls: { branch: string; headOid: string; skip: number }[] = [];
+  let listPending: (branch: string) => Promise<PendingCommit[]> = async (branch) => [
+    {
+      hash: 'c'.repeat(40),
+      shortHash: 'ccccccc',
+      subject: `work on ${branch}`,
+      author: 'Ana Dev',
+      committedAt: '2026-10-27T09:00:00.000Z',
+    },
+  ];
   const monitor = new ProjectGitMonitor({
     store,
     inspect: async (directory) => {
@@ -113,6 +125,10 @@ function setup(options: { projects?: number; maxConcurrentRefreshes?: number } =
     },
     projectDirectory: async (projectId) =>
       directories.get(projectId) ?? { status: 'removed' as const },
+    pendingCommits: async (_root, branch, headOid, page) => {
+      pendingCalls.push({ branch, headOid, skip: page.skip });
+      return listPending(branch);
+    },
     watch: (root) => watched.add(root),
     unwatch: (root) => watched.delete(root),
     onChange: (state) => events.push(state),
@@ -132,6 +148,8 @@ function setup(options: { projects?: number; maxConcurrentRefreshes?: number } =
     watched,
     peak: () => peak,
     respondWith: (next: (directory: string) => Promise<GitStatus>) => (respond = next),
+    pendingCalls,
+    listPendingWith: (next: (branch: string) => Promise<PendingCommit[]>) => (listPending = next),
   };
 }
 
@@ -473,5 +491,102 @@ describe('ProjectGitMonitor (SDD-024)', () => {
       code: 'PROJECT_NOT_FOUND',
     });
     await expect(t.monitor.state('nope')).rejects.toMatchObject({ code: 'PROJECT_NOT_FOUND' });
+  });
+
+  describe('pending commits (SDD-024 Task 02)', () => {
+    const tracking =
+      (overrides: Partial<GitRepositorySnapshot> = {}) =>
+      async (directory: string) =>
+        repository(directory, { upstream: 'origin/main', ahead: 1, behind: 0, ...overrides });
+    const pendingOf = async (t: ReturnType<typeof setup>) => {
+      const [state] = await t.monitor.states();
+      return state?.snapshot?.state === 'repository' ? state.snapshot : null;
+    };
+
+    it('stores the commits ahead with the branch, commit and upstream they were read for', async () => {
+      const t = setup();
+      t.respondWith(tracking());
+      t.store.rows.get('p0')!.monitoringEnabled = false;
+      await t.monitor.start();
+      await t.monitor.refresh('p0');
+
+      const snapshot = await pendingOf(t);
+      expect(snapshot).toMatchObject({
+        branch: 'main',
+        headOid: 'a'.repeat(40),
+        upstream: 'origin/main',
+        pending: { state: 'ok', total: 1, commits: [{ subject: 'work on main' }] },
+      });
+      expect(t.pendingCalls).toEqual([{ branch: 'main', headOid: 'a'.repeat(40), skip: 0 }]);
+    });
+
+    it('reuses the stored list while nothing changed and reads again after a branch switch', async () => {
+      const t = setup();
+      t.respondWith(tracking());
+      t.store.rows.get('p0')!.monitoringEnabled = false;
+      await t.monitor.start();
+      await t.monitor.refresh('p0');
+      await t.monitor.refresh('p0');
+      expect(t.pendingCalls).toHaveLength(1);
+
+      t.respondWith(tracking({ branch: 'feature', headOid: 'f'.repeat(40) }));
+      await t.monitor.refresh('p0');
+      expect(t.pendingCalls).toHaveLength(2);
+      expect((await pendingOf(t))?.pending?.commits[0]?.subject).toBe('work on feature');
+    });
+
+    it('runs no git log when nothing is ahead', async () => {
+      const t = setup();
+      t.respondWith(tracking({ ahead: 0, behind: 3 }));
+      t.store.rows.get('p0')!.monitoringEnabled = false;
+      await t.monitor.start();
+      await t.monitor.refresh('p0');
+      expect((await pendingOf(t))?.pending).toEqual({ state: 'ok', commits: [], total: 0 });
+      expect(t.pendingCalls).toEqual([]);
+    });
+
+    it.each([
+      ['no-upstream', { upstream: null, ahead: null, behind: null }],
+      ['upstream-gone', { upstreamGone: true, ahead: null, behind: null }],
+      ['detached', { detachedHead: true, branch: null }],
+      ['unborn', { unbornHead: true, headOid: null }],
+    ] as const)('reports %s without listing commits', async (state, overrides) => {
+      const t = setup();
+      t.respondWith(tracking(overrides));
+      t.store.rows.get('p0')!.monitoringEnabled = false;
+      await t.monitor.start();
+      await t.monitor.refresh('p0');
+      expect((await pendingOf(t))?.pending).toEqual({ state, commits: [], total: null });
+      expect(t.pendingCalls).toEqual([]);
+    });
+
+    it('keeps the status and marks pending commits as an error when git log fails', async () => {
+      const t = setup();
+      t.respondWith(tracking({ ahead: 2 }));
+      t.listPendingWith(async () => {
+        throw new Error('bad revision');
+      });
+      t.store.rows.get('p0')!.monitoringEnabled = false;
+      await t.monitor.start();
+      const { state } = await t.monitor.refresh('p0');
+      expect(state.error).toBeNull();
+      expect((await pendingOf(t))?.pending).toEqual({ state: 'error', commits: [], total: 2 });
+    });
+
+    it('loads further pages live with their identity', async () => {
+      const t = setup();
+      t.respondWith(tracking({ ahead: 60 }));
+      await t.monitor.start();
+      t.monitor.close();
+      const page = await t.monitor.pendingCommitsPage('p0', 50);
+      expect(page).toMatchObject({
+        branch: 'main',
+        upstream: 'origin/main',
+        headOid: 'a'.repeat(40),
+        state: 'ok',
+        commits: [{ subject: 'work on main' }],
+      });
+      expect(t.pendingCalls.at(-1)).toMatchObject({ skip: 50 });
+    });
   });
 });

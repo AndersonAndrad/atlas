@@ -1,5 +1,10 @@
 import { stat } from 'node:fs/promises';
-import type { GitRepositorySnapshot, GitStatus, GitUnavailableReason } from '@atlas/contracts';
+import type {
+  GitRepositorySnapshot,
+  GitStatus,
+  GitUnavailableReason,
+  PendingCommit,
+} from '@atlas/contracts';
 import { describeError, noopLogger, type Logger } from '@atlas/shared';
 import { GitCommandError, type GitRunner } from './runner.js';
 import { parseBranches, parseStatusV2 } from './porcelain.js';
@@ -22,6 +27,8 @@ interface CacheEntry {
 }
 
 const RECENT_BRANCHES = 3;
+const PENDING_SUBJECT_MAX_LENGTH = 500;
+const PENDING_AUTHOR_MAX_LENGTH = 200;
 
 /**
  * Read-only Git inspection. Never fetches, never mutates the repository, never
@@ -71,6 +78,47 @@ export class GitInspectionService {
         }
       });
     }
+  }
+
+  /**
+   * Commits reachable from `headOid` but not from `branch`'s upstream, newest first
+   * (`git log <branch>@{upstream}..<headOid>`). The range is pinned to the inspected branch
+   * and commit, so the list never mixes branches. Arguments only, no shell; read-only.
+   */
+  async pendingCommits(
+    repositoryRoot: string,
+    branch: string,
+    headOid: string,
+    page: { limit: number; skip?: number },
+  ): Promise<PendingCommit[]> {
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(headOid)) throw new Error('Invalid commit id.');
+    if (branch === '' || branch.startsWith('-')) throw new Error('Invalid branch name.');
+    const output = await this.git(repositoryRoot, [
+      'log',
+      `--max-count=${Math.max(1, Math.floor(page.limit))}`,
+      `--skip=${Math.max(0, Math.floor(page.skip ?? 0))}`,
+      '-z',
+      '--no-color',
+      '--format=%H%x1f%h%x1f%an%x1f%aI%x1f%s',
+      `${branch}@{upstream}..${headOid}`,
+      '--',
+    ]);
+    return output
+      .split('\0')
+      .filter((record) => record.trim() !== '')
+      .map((record) => {
+        const [hash = '', shortHash = '', author = '', date = '', subject = ''] = record
+          .replace(/^\n/, '')
+          .split('\x1f');
+        // Bounded so a stored list always fits its row, whatever the commit messages.
+        return {
+          hash,
+          shortHash,
+          subject: subject.slice(0, PENDING_SUBJECT_MAX_LENGTH),
+          author: author.slice(0, PENDING_AUTHOR_MAX_LENGTH),
+          committedAt: date === '' ? null : date,
+        };
+      });
   }
 
   /** Absolute path of the repository's git directory, used for change watching. */
@@ -126,6 +174,7 @@ export class GitInspectionService {
         branch: parsed.branch,
         detachedHead: parsed.detachedHead,
         unbornHead: parsed.unbornHead,
+        headOid: parsed.headOid,
         identity: { name, email },
         localBranchCount: allBranches.length,
         recentBranches: allBranches.slice(0, RECENT_BRANCHES),

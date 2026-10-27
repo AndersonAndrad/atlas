@@ -541,6 +541,8 @@ export function createEngine(options: EngineOptions = {}): Engine {
   const projectGitMonitor = new ProjectGitMonitor({
     store: new SqliteProjectGitRepository(db),
     inspect: (directory, fresh) => git.inspect(directory, { fresh }),
+    pendingCommits: (root, branch, headOid, page) =>
+      git.pendingCommits(root, branch, headOid, page),
     projectDirectory: async (projectId) => {
       if ((await projects.findById(projectId)) === null) return { status: 'removed' };
       const { project, availability } = await projects.getDetails(projectId);
@@ -660,9 +662,10 @@ export function createEngine(options: EngineOptions = {}): Engine {
     coordinator: gitOperations,
     now: () => clock.now(),
     logger,
+    // Stage, commit and push refresh project monitoring at once (SDD-024 Task 02).
     onRepositoryChanged: (repositoryRoot) => {
       git.invalidate(repositoryRoot);
-      terminals?.publish({ type: 'git', repositoryRoot });
+      repositoryChanged(repositoryRoot);
     },
   });
   const gitPreferences = new GitPreferencesStore(settings, logger);

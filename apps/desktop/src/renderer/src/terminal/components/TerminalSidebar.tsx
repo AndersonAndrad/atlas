@@ -16,6 +16,7 @@ import {
 import { useState, type DragEvent, type ReactNode } from 'react';
 import { GitSyncBadges } from '@/components/git/GitBadges';
 import { ProjectGitBadge } from '@/components/git/ProjectGitBadge';
+import { PendingPushSection } from '@/git/components/PendingPushSection';
 import { useProjectGitState } from '@/git/state/project-git-states';
 import { ProjectActionsMenu } from '@/components/ProjectActionsMenu';
 import { Button } from '@/components/ui/button';
@@ -233,6 +234,7 @@ export function TerminalSidebar(props: TerminalSidebarProps) {
           />
         ))}
       </ul>
+      <PendingPushSection projects={projects} />
     </nav>
   );
 }

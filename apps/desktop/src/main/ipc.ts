@@ -21,6 +21,7 @@ import {
   UpdateGitOperationLogSettingsSchema,
   GitPathsInputSchema,
   GitPullInputSchema,
+  PendingCommitsSkipSchema,
   GitPushInputSchema,
   GitRenameBranchInputSchema,
   GitRepositoryRootSchema,
@@ -808,6 +809,11 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
   gitCall(IPC_CHANNELS.gitRepositories, NoArgs, 'git.repositories');
   gitCall(IPC_CHANNELS.projectGitStates, NoArgs, 'git.projectStates');
   gitCall(IPC_CHANNELS.refreshProjectGit, IdArgs, 'git.refreshProject');
+  gitCall(
+    IPC_CHANNELS.pendingCommits,
+    z.tuple([ProjectIdSchema, PendingCommitsSkipSchema]),
+    'git.pendingCommits',
+  );
   gitCall(
     IPC_CHANNELS.setProjectGitMonitoring,
     z.tuple([ProjectIdSchema, z.boolean()]),

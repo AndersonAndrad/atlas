@@ -240,6 +240,7 @@ import type {
   GitStatus,
   GitSwitchBranchInput,
   GitWorkingTree,
+  PendingCommitsPage,
   ProjectGitRefreshResult,
   ProjectGitSettings,
   ProjectGitState,
@@ -321,6 +322,7 @@ export const IPC_CHANNELS = {
   projectGit: 'atlas:git:project',
   projectGitStates: 'atlas:git:project-states',
   refreshProjectGit: 'atlas:git:refresh-project',
+  pendingCommits: 'atlas:git:pending-commits',
   setProjectGitMonitoring: 'atlas:git:set-project-monitoring',
   gitRepositories: 'atlas:git:repositories',
   gitWorkingTree: 'atlas:git:working-tree',
@@ -731,6 +733,8 @@ export interface AtlasApi {
     /** Reads a project's Git status now, even when monitoring is off. */
     refreshProject(projectId: string): Promise<IpcResult<ProjectGitRefreshResult>>;
     setProjectMonitoring(projectId: string, enabled: boolean): Promise<IpcResult<ProjectGitState>>;
+    /** Reads further pending commits live ("Load more"). */
+    pendingCommits(projectId: string, skip: number): Promise<IpcResult<PendingCommitsPage>>;
     /** Repositories of registered projects and open terminals. */
     repositories(): Promise<IpcResult<GitRepositoryEntry[]>>;
     workingTree(repositoryRoot: string): Promise<IpcResult<GitWorkingTree>>;

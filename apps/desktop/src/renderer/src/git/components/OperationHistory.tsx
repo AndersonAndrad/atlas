@@ -283,8 +283,8 @@ const CHANGE_LETTERS: Record<GitCommitFile['change'], string> = {
 };
 const SEARCH_DELAY_MS = 300;
 
-/** Message and changed files of the commit of a reflog entry, loaded when it is opened. */
-function CommitFilesPanel({
+/** Message and changed files of a commit (a reflog entry or a pending commit), loaded when opened. */
+export function CommitFilesPanel({
   repositoryRoot,
   hash,
   cached,

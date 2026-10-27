@@ -70,6 +70,8 @@ import {
   type GitRepositoryEntry,
   type GitStatus,
   type GitWorkingTree,
+  PendingCommitsSkipSchema,
+  type PendingCommitsPage,
   type ProjectGitRefreshResult,
   type ProjectGitSettings,
   type ProjectGitState,
@@ -384,6 +386,7 @@ export const ENGINE_METHOD_PARAMS = {
   'git.project': z.tuple([Id]),
   'git.projectStates': z.tuple([]),
   'git.refreshProject': z.tuple([Id]),
+  'git.pendingCommits': z.tuple([Id, PendingCommitsSkipSchema]),
   'git.setProjectMonitoring': z.tuple([Id, z.boolean()]),
   'git.repositories': z.tuple([]),
   'git.workingTree': z.tuple([GitRepositoryRootSchema]),
@@ -712,6 +715,7 @@ export interface EngineMethodResults {
   'git.project': GitStatus;
   'git.projectStates': ProjectGitState[];
   'git.refreshProject': ProjectGitRefreshResult;
+  'git.pendingCommits': PendingCommitsPage;
   'git.setProjectMonitoring': ProjectGitState;
   'git.repositories': GitRepositoryEntry[];
   'git.workingTree': GitWorkingTree;

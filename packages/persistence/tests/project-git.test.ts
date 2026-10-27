@@ -24,6 +24,7 @@ const insertProject = (db: Database, id: string, name: string) =>
 const dirty: ProjectGitSnapshot = {
   state: 'repository',
   branch: 'main',
+  headOid: 'b'.repeat(40),
   detachedHead: false,
   unbornHead: false,
   upstream: 'origin/main',
@@ -38,6 +39,19 @@ const dirty: ProjectGitSnapshot = {
     renamed: 0,
     conflicted: 0,
     total: 5,
+  },
+  pending: {
+    state: 'ok',
+    commits: [
+      {
+        hash: 'c'.repeat(40),
+        shortHash: 'ccccccc',
+        subject: 'feat: add pending push',
+        author: 'Ana Dev',
+        committedAt: '2026-10-27T09:00:00-03:00',
+      },
+    ],
+    total: 2,
   },
 };
 
@@ -66,10 +80,31 @@ describe('project Git monitoring in SQLite (SDD-024)', () => {
     db.close();
 
     db = openDatabase({ filePath: v16Path });
-    expect(getSchemaVersion(db)).toBe(17);
+    expect(getSchemaVersion(db)).toBe(18);
     return expect(new SqliteProjectGitRepository(db).list()).resolves.toEqual([
       { projectId: B, monitoringEnabled: true, snapshot: null, refreshedAt: null, error: null },
     ]);
+  });
+
+  it('keeps v17 snapshots readable without pending commits after migrating to v18', async () => {
+    db.close();
+    const v17Path = path.join(temp.dir, 'v17.db');
+    db = openDatabase({ filePath: v17Path, migrations: MIGRATIONS.slice(0, 17) });
+    insertProject(db, B, 'b');
+    db.prepare(
+      `INSERT INTO project_git_snapshots (project_id, state, branch, changes, refreshed_at)
+       VALUES (?, 'repository', 'main', '{"total":0}', '2026-10-27T10:00:00.000Z')`,
+    ).run(B);
+    db.close();
+
+    db = openDatabase({ filePath: v17Path });
+    expect(getSchemaVersion(db)).toBe(18);
+    expect((await new SqliteProjectGitRepository(db).get(B))?.snapshot).toMatchObject({
+      state: 'repository',
+      branch: 'main',
+      headOid: null,
+      pending: null,
+    });
   });
 
   it('stores the preference and the snapshot, and keeps them after reopening', async () => {

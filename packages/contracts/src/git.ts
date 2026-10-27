@@ -31,6 +31,8 @@ export interface GitRepositorySnapshot {
   detachedHead: boolean;
   /** True when HEAD has no commit yet. */
   unbornHead: boolean;
+  /** Commit HEAD points to; null when HEAD has no commit yet. */
+  headOid: string | null;
   /** Effective configuration (`git config` precedence), not the last commit's author. */
   identity: { name: string | null; email: string | null };
   localBranchCount: number;
@@ -59,10 +61,52 @@ export type GitStatus =
  * Persisted subset of a project's Git status (SDD-024 FR-002). Identity, file names and
  * branch lists are deliberately not kept.
  */
+/** A local commit not reachable from the branch's upstream (SDD-024 Task 02). */
+export interface PendingCommit {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  author: string;
+  /** Author date (ISO 8601). */
+  committedAt: string | null;
+}
+
+/** Commits stored per project; more are read on request ("Load more"). */
+export const PENDING_COMMITS_LIMIT = 50;
+
+/**
+ * `ok`: the list is reliable (empty means nothing to push, as of the last fetch). The other
+ * states mean pending commits cannot be determined; an empty list never implies "pushed".
+ */
+export type PendingCommitsState =
+  'ok' | 'no-upstream' | 'upstream-gone' | 'detached' | 'unborn' | 'error';
+
+export interface PendingCommits {
+  state: PendingCommitsState;
+  /** Newest first, at most PENDING_COMMITS_LIMIT. */
+  commits: PendingCommit[];
+  /** Commits ahead of the upstream (all of them, not only those listed); null when unknown. */
+  total: number | null;
+}
+
+/** Commits to skip when loading more pending commits. */
+export const PendingCommitsSkipSchema = z.number().int().min(0).max(100_000);
+
+/** A further page of pending commits, read live for the given branch and upstream. */
+export interface PendingCommitsPage {
+  branch: string | null;
+  upstream: string | null;
+  headOid: string | null;
+  state: PendingCommitsState;
+  commits: PendingCommit[];
+}
+
 export type ProjectGitSnapshot =
   | {
       state: 'repository';
       branch: string | null;
+      /** Identity of the pending list: it was read for this commit, branch and upstream. */
+      headOid: string | null;
       detachedHead: boolean;
       unbornHead: boolean;
       upstream: string | null;
@@ -70,6 +114,8 @@ export type ProjectGitSnapshot =
       behind: number | null;
       upstreamGone: boolean;
       changes: GitChangeCounts;
+      /** Null for snapshots stored before pending commits were collected. */
+      pending: PendingCommits | null;
     }
   | { state: 'not-repository' };
 

@@ -27,6 +27,7 @@ describe('parseStatusV2', () => {
   it('handles detached HEAD, unborn branches and missing or gone upstreams', () => {
     expect(parseStatusV2(z('# branch.oid 1234', '# branch.head (detached)'))).toMatchObject({
       branch: null,
+      headOid: '1234',
       detachedHead: true,
       upstream: null,
       ahead: null,
@@ -35,6 +36,7 @@ describe('parseStatusV2', () => {
     expect(parseStatusV2(z('# branch.oid (initial)', '# branch.head main'))).toMatchObject({
       branch: 'main',
       unbornHead: true,
+      headOid: null,
     });
     expect(
       parseStatusV2(z('# branch.oid 1', '# branch.head main', '# branch.upstream origin/gone')),

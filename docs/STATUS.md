@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-27 — PLAN-047 (SDD-024 Task 01: per-project Git monitoring and badges).
+Last updated: 2026-10-27 — PLAN-048 (SDD-024 Task 02: Pending Push sidebar).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -57,7 +57,23 @@ implemented and awaits approval. PLAN-045 (Task A01: splitting a terminal keeps 
 project, folder, group and shell) is implemented and awaits approval. PLAN-046 (Task
 E01.1: estimated cost per Claude Code session in the Usage view) is implemented and awaits
 approval. PLAN-047 (SDD-024 Task 01: per-project Git monitoring, stored Git snapshots and
-project badges) is implemented and awaits approval. Version 0.33.0 (schema v17).
+project badges) is implemented and awaits approval. PLAN-048 (SDD-024 Task 02: Pending Push
+sidebar) is implemented and awaits approval. Version 0.34.0 (schema v18).
+
+## PLAN-048 — SDD-024 Task 02: Pending Push sidebar
+
+- Approved 2026-10-27 by Anderson Andrade ("aprovo PLAN-048 rev 1, q1–q3 recomendado,
+  ciente R1–R6"). Details: SDD-024, Task 02.
+- What was built:
+  - Migration v18 (`head_oid`, `pending`).
+  - `git log <branch>@{upstream}..<headOid>` inside the monitoring refresh, reused while
+    nothing changed.
+  - The Pending push section in the Terminals sidebar.
+  - Commit details through `git.commitFiles`.
+  - Load more.
+  - Push through the existing Push dialog.
+  - ATLAS Git operations refresh monitoring at once.
+- Rolling back to 0.33.x needs a database copy taken before 0.34.0 first ran.
 
 ## PLAN-047 — SDD-024 Task 01: per-project Git monitoring and status badges
 

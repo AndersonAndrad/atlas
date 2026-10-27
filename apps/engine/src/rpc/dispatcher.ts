@@ -226,6 +226,8 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     'git.project': ([projectId]: [string]) => engine.projectGit(projectId),
     'git.projectStates': () => engine.projectGitMonitor.states(),
     'git.refreshProject': ([projectId]: [string]) => engine.projectGitMonitor.refresh(projectId),
+    'git.pendingCommits': ([projectId, skip]: [string, number]) =>
+      engine.projectGitMonitor.pendingCommitsPage(projectId, skip),
     'git.setProjectMonitoring': ([projectId, enabled]: [string, boolean]) =>
       engine.projectGitMonitor.setMonitoring(projectId, enabled),
     'git.repositories': () => engine.gitRepositories(),

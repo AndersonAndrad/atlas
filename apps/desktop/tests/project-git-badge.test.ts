@@ -8,6 +8,7 @@ const repository = (
   ({
     state: 'repository',
     branch: 'main',
+    headOid: null,
     detachedHead: false,
     unbornHead: false,
     upstream: 'origin/main',
@@ -23,6 +24,7 @@ const repository = (
       conflicted: 0,
       total: 0,
     },
+    pending: null,
     ...overrides,
   }) satisfies ProjectGitSnapshot;
 

@@ -1,9 +1,15 @@
-import type {
-  GitStatus,
-  GitUnavailableReason,
-  ProjectGitRefreshResult,
-  ProjectGitSnapshot,
-  ProjectGitState,
+import {
+  PENDING_COMMITS_LIMIT,
+  type GitRepositorySnapshot,
+  type GitStatus,
+  type GitUnavailableReason,
+  type PendingCommit,
+  type PendingCommits,
+  type PendingCommitsPage,
+  type PendingCommitsState,
+  type ProjectGitRefreshResult,
+  type ProjectGitSnapshot,
+  type ProjectGitState,
 } from '@atlas/contracts';
 import { AtlasError, describeError, noopLogger, type Logger } from '@atlas/shared';
 
@@ -35,6 +41,13 @@ export interface ProjectGitMonitorOptions {
   /** Read-only status of the repository containing `directory`; `fresh` skips caches. */
   inspect: (directory: string, fresh: boolean) => Promise<GitStatus>;
   projectDirectory: (projectId: string) => Promise<ProjectDirectory>;
+  /** Commits of `branch` at `headOid` not in its upstream (SDD-024 Task 02). */
+  pendingCommits?: (
+    repositoryRoot: string,
+    branch: string,
+    headOid: string,
+    page: { limit: number; skip: number },
+  ) => Promise<PendingCommit[]>;
   /** Starts or stops change watching of a repository root (best effort). */
   watch?: (repositoryRoot: string) => void;
   unwatch?: (repositoryRoot: string) => void;
@@ -332,10 +345,16 @@ export class ProjectGitMonitor {
     }
 
     const succeeded = status.state !== 'unavailable';
+    let snapshot: ProjectGitSnapshot | null = null;
     if (status.state === 'unavailable') {
       await this.options.store.saveError(projectId, status.reason, at);
     } else {
-      await this.options.store.saveSnapshot(projectId, toSnapshot(status), at);
+      // Status and pending commits are stored in one write, so they always describe the
+      // same branch, commit and upstream.
+      const pending =
+        status.state === 'repository' ? await this.pending(projectId, status.snapshot) : null;
+      snapshot = toSnapshot(status, pending);
+      await this.options.store.saveSnapshot(projectId, snapshot, at);
     }
 
     if (!stale && entry.monitored) {
@@ -345,8 +364,7 @@ export class ProjectGitMonitor {
         if (root !== null) this.options.watch?.(root);
         entry.repositoryRoot = root;
       }
-      const fingerprint =
-        status.state === 'unavailable' ? null : JSON.stringify(toSnapshot(status));
+      const fingerprint = snapshot === null ? null : JSON.stringify(snapshot);
       const unchanged = fingerprint !== null && fingerprint === entry.fingerprint;
       entry.intervalMs =
         !succeeded || unchanged
@@ -367,6 +385,84 @@ export class ProjectGitMonitor {
     const state = await this.stateOrEmpty(projectId);
     this.options.onChange(state);
     return { state, status };
+  }
+
+  /**
+   * Reads one more page of pending commits live (an explicit "Load more"). The identity of
+   * the page is returned so the caller can tell whether it still matches its stored list.
+   */
+  async pendingCommitsPage(projectId: string, skip: number): Promise<PendingCommitsPage> {
+    await this.requireStored(projectId);
+    const location = await this.options.projectDirectory(projectId);
+    if (location.status !== 'available') {
+      return { branch: null, upstream: null, headOid: null, state: 'error', commits: [] };
+    }
+    const status = await this.options.inspect(location.directory, false);
+    if (status.state !== 'repository') {
+      return { branch: null, upstream: null, headOid: null, state: 'error', commits: [] };
+    }
+    const { snapshot } = status;
+    const identity = {
+      branch: snapshot.branch,
+      upstream: snapshot.upstream,
+      headOid: snapshot.headOid,
+    };
+    const state = pendingState(snapshot);
+    if (state !== 'ok' || !snapshot.ahead || this.options.pendingCommits === undefined) {
+      return { ...identity, state, commits: [] };
+    }
+    try {
+      const commits = await this.options.pendingCommits(
+        snapshot.repositoryRoot,
+        snapshot.branch!,
+        snapshot.headOid!,
+        { limit: PENDING_COMMITS_LIMIT, skip },
+      );
+      return { ...identity, state, commits };
+    } catch (error) {
+      this.logger.warn('Pending commits could not be read', { error: describeError(error) });
+      return { ...identity, state: 'error', commits: [] };
+    }
+  }
+
+  /**
+   * Pending commits for an inspected status. Git runs only when commits are ahead and the
+   * branch, commit, upstream or counts changed since the stored list was read.
+   */
+  private async pending(
+    projectId: string,
+    snapshot: GitRepositorySnapshot,
+  ): Promise<PendingCommits> {
+    const state = pendingState(snapshot);
+    if (state !== 'ok') return { state, commits: [], total: null };
+    if (snapshot.ahead === 0) return { state, commits: [], total: 0 };
+    const previous = (await this.options.store.get(projectId))?.snapshot;
+    if (
+      previous?.state === 'repository' &&
+      previous.pending?.state === 'ok' &&
+      previous.headOid === snapshot.headOid &&
+      previous.branch === snapshot.branch &&
+      previous.upstream === snapshot.upstream &&
+      previous.ahead === snapshot.ahead &&
+      previous.behind === snapshot.behind
+    ) {
+      return previous.pending;
+    }
+    if (this.options.pendingCommits === undefined) {
+      return { state: 'error', commits: [], total: snapshot.ahead };
+    }
+    try {
+      const commits = await this.options.pendingCommits(
+        snapshot.repositoryRoot,
+        snapshot.branch!,
+        snapshot.headOid!,
+        { limit: PENDING_COMMITS_LIMIT, skip: 0 },
+      );
+      return { state, commits, total: snapshot.ahead };
+    } catch (error) {
+      this.logger.warn('Pending commits could not be read', { error: describeError(error) });
+      return { state: 'error', commits: [], total: snapshot.ahead };
+    }
   }
 
   private async requireStored(projectId: string): Promise<StoredProjectGit> {
@@ -405,15 +501,26 @@ function emptyStored(projectId: string): StoredProjectGit {
   return { projectId, monitoringEnabled: false, snapshot: null, refreshedAt: null, error: null };
 }
 
+/** Whether pending commits can be determined for a status, and why not. */
+export function pendingState(snapshot: GitRepositorySnapshot): PendingCommitsState {
+  if (snapshot.unbornHead || snapshot.headOid === null) return 'unborn';
+  if (snapshot.detachedHead || snapshot.branch === null) return 'detached';
+  if (snapshot.upstream === null) return 'no-upstream';
+  if (snapshot.upstreamGone || snapshot.ahead === null) return 'upstream-gone';
+  return 'ok';
+}
+
 /** The persisted subset of a successful status. */
 export function toSnapshot(
   status: Exclude<GitStatus, { state: 'unavailable' }>,
+  pending: PendingCommits | null = null,
 ): ProjectGitSnapshot {
   if (status.state === 'not-repository') return { state: 'not-repository' };
   const { snapshot } = status;
   return {
     state: 'repository',
     branch: snapshot.branch,
+    headOid: snapshot.headOid,
     detachedHead: snapshot.detachedHead,
     unbornHead: snapshot.unbornHead,
     upstream: snapshot.upstream,
@@ -421,5 +528,6 @@ export function toSnapshot(
     behind: snapshot.behind,
     upstreamGone: snapshot.upstreamGone,
     changes: { ...snapshot.changes },
+    pending,
   };
 }
