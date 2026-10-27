@@ -47,8 +47,9 @@ function claudeSession(dataDir: string, configDir: string) {
   writeFileSync(
     path.join(run, 'status.json'),
     JSON.stringify({
-      session_id: 'e2e',
+      session_id: 'e2e-session-1',
       cwd: '/private/path',
+      model: { id: 'claude-opus-5-5', display_name: 'Opus' },
       cost: { total_cost_usd: 0.42, total_api_duration_ms: 12 * 60_000 },
       rate_limits: {
         five_hour: { used_percentage: 31, resets_at: now + 3600 },
@@ -89,6 +90,15 @@ test('shows the session and weekly limits of each account side by side', async (
   // 72% is high: an icon and a label accompany the color.
   await expect(meter(claude, 'Weekly')).toContainText('High');
   await expect(claude).toContainText('activity counts only sessions started in ATLAS');
+  // The session's own estimate, labeled as not charged on a subscription (Task E01.1).
+  const session = claude.getByTestId('usage-session');
+  await expect(session).toHaveCount(1);
+  await expect(session).toContainText('claude-opus-5-5');
+  await expect(session.getByTestId('usage-session-cost')).toHaveText('$0.42');
+  await expect(session).toContainText('not charged on a subscription');
+  await expect(claude.getByTestId('usage-sessions')).toContainText(
+    'Tokens per session: Unavailable',
+  );
   await expect(claude.getByRole('meter', { name: 'Weekly used' })).toHaveAttribute(
     'aria-valuenow',
     '72',

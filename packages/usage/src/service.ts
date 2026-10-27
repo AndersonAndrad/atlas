@@ -6,7 +6,10 @@ import {
   UpdateUsageSettingsSchema,
   UsageOverviewQuerySchema,
   parseInput,
+  AI_SESSIONS_SHOWN,
+  type AiBillingKind,
   type AiProvider,
+  type AiSessionUsage,
   type TerminalLlmUsage,
   type UsageDayValue,
   type UsageMetric,
@@ -24,6 +27,7 @@ import {
   UsageCollectionFailure,
   type ClaudeAuthReader,
   type CodexReader,
+  type StoredAiSession,
   type UsageRepository,
 } from './ports.js';
 import type { LimitSnapshot } from './windows.js';
@@ -215,6 +219,9 @@ export class UsageService {
         daily,
         weekly: weeklyTotals(daily),
         coverage: profile.providerId === 'codex' ? 'account' : 'atlas-sessions',
+        sessions: (
+          await this.options.repository.recentAiSessions(profile.id, AI_SESSIONS_SHOWN)
+        ).map(sessionUsage),
       });
     }
     return { generatedAt: now.toISOString(), settings, profiles: reports };
@@ -379,9 +386,43 @@ export class UsageService {
       source: 'LOCAL_ESTIMATE',
       isEstimated: true,
     });
+    await this.recordSession(profile, input.status, at);
     await this.saveCollected(profile.id, {
       lastUsedAt: at,
       ...(input.status.windows.length > 0 ? { lastSyncAt: at } : {}),
+    });
+  }
+
+  /**
+   * Keeps the session's estimated cost (Task E01.1). Claude Code reports a cumulative
+   * value; when it drops within the same session its counters restarted, so the previous
+   * run is added to the base and the new run starts: nothing is counted twice, and
+   * re-reading the same answer changes nothing.
+   */
+  private async recordSession(
+    profile: UsageProfile,
+    status: ClaudeStatus,
+    at: string,
+  ): Promise<void> {
+    const { repository } = this.options;
+    const previous = await repository.findAiSession(profile.id, status.sessionId);
+    let base = previous?.costBaseUsd ?? 0;
+    let run = previous?.costRunUsd ?? null;
+    if (status.costUsd !== null) {
+      if (run !== null && status.costUsd < run) base += run;
+      run = status.costUsd;
+    }
+    await repository.saveAiSession({
+      profileId: profile.id,
+      sessionId: status.sessionId,
+      providerId: profile.providerId,
+      model: status.model ?? previous?.model ?? null,
+      costBaseUsd: base,
+      costRunUsd: run,
+      billing: mergeBilling(previous?.billing ?? 'UNKNOWN', billingOf(profile, status)),
+      source: 'LOCAL_ESTIMATE',
+      firstSeenAt: previous?.firstSeenAt ?? at,
+      updatedAt: at,
     });
   }
 
@@ -478,4 +519,44 @@ export class UsageService {
     if (this.options.onProfilesChanged === undefined) return;
     this.options.onProfilesChanged(await this.options.repository.listProfiles());
   }
+}
+
+/**
+ * Billing evidence of one status line answer: plan limits (`five_hour`, `seven_day`) or a
+ * known plan mean a subscription; a gateway spend limit or a sign-in without a plan, API
+ * billing. A usage percentage is never turned into dollars.
+ */
+function billingOf(profile: UsageProfile, status: ClaudeStatus): AiBillingKind {
+  if (status.windows.some((window) => window.key !== 'spend_limit') || profile.plan !== null) {
+    return 'SUBSCRIPTION';
+  }
+  if (status.windows.length > 0) return 'API';
+  if (profile.status === 'CONNECTED' || profile.status === 'LIMITED') return 'API';
+  return 'UNKNOWN';
+}
+
+/** Plan limits seen once settle it; otherwise the latest known evidence wins. */
+function mergeBilling(previous: AiBillingKind, next: AiBillingKind): AiBillingKind {
+  if (previous === 'SUBSCRIPTION' || next === 'UNKNOWN') return previous;
+  return next;
+}
+
+function sessionUsage(session: StoredAiSession): AiSessionUsage {
+  return {
+    sessionId: session.sessionId,
+    providerId: session.providerId,
+    model: session.model,
+    costUsd:
+      session.costRunUsd === null && session.costBaseUsd === 0
+        ? null
+        : session.costBaseUsd + (session.costRunUsd ?? 0),
+    billing: session.billing,
+    inputTokens: null,
+    outputTokens: null,
+    cacheReadTokens: null,
+    cacheWriteTokens: null,
+    source: session.source,
+    firstSeenAt: session.firstSeenAt,
+    updatedAt: session.updatedAt,
+  };
 }

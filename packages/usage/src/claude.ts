@@ -31,6 +31,8 @@ export const ClaudeStatusSchema = z.looseObject({
 export interface ClaudeStatus {
   sessionId: string;
   windows: LimitSnapshot[];
+  /** `model.id`, e.g. `claude-opus-5-5`. */
+  model: string | null;
   /** Cumulative for the session; resets when `/clear` starts a new one. */
   costUsd: number | null;
   apiDurationMs: number | null;
@@ -64,6 +66,7 @@ export function parseClaudeStatus(value: unknown, observedAt: string): ClaudeSta
   return {
     sessionId: parsed.session_id,
     windows,
+    model: parsed.model?.id ?? null,
     costUsd: parsed.cost?.total_cost_usd ?? null,
     apiDurationMs: parsed.cost?.total_api_duration_ms ?? null,
   };

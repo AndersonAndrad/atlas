@@ -5,6 +5,7 @@ import type {
   UsageProfile,
   UsageProfileReport,
   UsageSource,
+  AiBillingKind,
 } from '@atlas/contracts';
 
 /** Meter severity: the fill color is paired with an icon and a label, never color alone. */
@@ -146,4 +147,17 @@ export function llmUsageDescription(usage: TerminalLlmUsage, now: Date): string 
   ]
     .filter((part) => part !== null)
     .join(' · ');
+}
+
+/** Session cost labels (Task E01.1): an estimate is never presented as a bill. */
+export const BILLING_LABELS: Record<AiBillingKind, string> = {
+  SUBSCRIPTION: 'API-equivalent estimate · not charged on a subscription',
+  API: 'Estimated API cost at list price · your bill may differ',
+  UNKNOWN: 'Estimate at list price',
+};
+
+/** A session cost, or "Unavailable" when the session reported none. */
+export function formatSessionCost(costUsd: number | null): string {
+  if (costUsd === null) return 'Unavailable';
+  return costUsd > 0 && costUsd < 0.01 ? '< $0.01' : currency.format(costUsd);
 }

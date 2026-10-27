@@ -152,7 +152,7 @@ describe('migration v15 from a v14 database', () => {
       insertProject(db, PROJECT, '/work/app');
       db.close();
       db = openDatabase({ filePath: file });
-      expect(getSchemaVersion(db)).toBe(15);
+      expect(getSchemaVersion(db)).toBe(16);
       expect(db.prepare('SELECT COUNT(*) AS n FROM projects').get()).toEqual({ n: 1 });
       expect(db.prepare('SELECT COUNT(*) AS n FROM extensions').get()).toEqual({ n: 0 });
       db.close();

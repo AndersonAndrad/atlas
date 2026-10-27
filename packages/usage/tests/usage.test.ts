@@ -171,6 +171,7 @@ describe('Claude Code status line data', () => {
     const parsed = parseClaudeStatus(status, OBSERVED);
     expect(parsed).toEqual({
       sessionId: 'abc',
+      model: 'claude-opus-5-5',
       costUsd: 1.25,
       apiDurationMs: 90_000,
       windows: [
@@ -185,6 +186,7 @@ describe('Claude Code status line data', () => {
     expect(parseClaudeStatus({ session_id: 'x' }, OBSERVED)).toEqual({
       sessionId: 'x',
       windows: [],
+      model: null,
       costUsd: null,
       apiDurationMs: null,
     });

@@ -120,6 +120,43 @@ export interface UsageWeekValue {
   days: number;
 }
 
+/**
+ * How the account behind a session pays (PLAN-046), from evidence ATLAS already has:
+ * - `SUBSCRIPTION`: a Pro or Max plan, or the session reported plan limits. Costs are an
+ *   API-equivalent estimate; nothing is charged per token.
+ * - `API`: signed in without a plan (API key or cloud provider). Costs estimate the bill.
+ * - `UNKNOWN`: not known yet.
+ */
+export const AI_BILLING_KINDS = ['SUBSCRIPTION', 'API', 'UNKNOWN'] as const;
+export type AiBillingKind = (typeof AI_BILLING_KINDS)[number];
+
+/** Recent sessions shown per profile. */
+export const AI_SESSIONS_SHOWN = 10;
+
+/**
+ * One AI CLI session and what it reported (Task E01.1). Values the provider does not
+ * report are null and shown as unavailable, never estimated by ATLAS.
+ */
+export interface AiSessionUsage {
+  sessionId: string;
+  providerId: AiProvider;
+  model: string | null;
+  /**
+   * Estimated cost in USD for the whole session: Claude Code's own list-price estimate,
+   * summed across restarts of its counters. Null when the session reported none.
+   */
+  costUsd: number | null;
+  billing: AiBillingKind;
+  /** Cumulative tokens; Claude Code's status line does not report them (PLAN-046 Q1). */
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+  source: UsageSource;
+  firstSeenAt: string;
+  updatedAt: string;
+}
+
 export interface UsageProfileReport {
   profile: UsageProfile;
   windows: LimitWindow[];
@@ -130,6 +167,8 @@ export interface UsageProfileReport {
    * `atlas-sessions`: only sessions started in ATLAS terminals are covered (FR-814).
    */
   coverage: 'account' | 'atlas-sessions';
+  /** Most recent sessions first, at most `AI_SESSIONS_SHOWN`. */
+  sessions: AiSessionUsage[];
 }
 
 export interface UsageSettings {

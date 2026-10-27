@@ -91,6 +91,7 @@ describe('UsageService with SQLite (SDD-008 Milestone B)', () => {
   let claudeAuth: FakeClaudeAuth;
   let changes: UsageProfile[][];
   let usage: UsageService;
+  let serviceOptions: ConstructorParameters<typeof UsageService>[0];
   let home: string;
   let ids: number;
 
@@ -106,7 +107,7 @@ describe('UsageService with SQLite (SDD-008 Milestone B)', () => {
     claudeAuth = new FakeClaudeAuth();
     changes = [];
     ids = 0;
-    usage = new UsageService({
+    serviceOptions = {
       repository: new SqliteUsageRepository(db),
       settings: new SqliteSettingsRepository(db),
       codex,
@@ -119,7 +120,8 @@ describe('UsageService with SQLite (SDD-008 Milestone B)', () => {
       generateId: () => `00000000-0000-4000-8000-${String(++ids).padStart(12, '0')}`,
       logger: { debug() {}, info() {}, warn() {}, error() {} },
       onProfilesChanged: (profiles) => changes.push(profiles),
-    });
+    };
+    usage = new UsageService(serviceOptions);
   });
   afterEach(() => {
     db.close();
@@ -261,6 +263,111 @@ describe('UsageService with SQLite (SDD-008 Milestone B)', () => {
       expect.objectContaining({ key: 'five_hour', usedPercent: 40, state: 'current' }),
     ]);
     expect(report.profile.lastSyncAt).toBe(now.toISOString());
+  });
+
+  describe('session costs (Task E01.1)', () => {
+    const directory = () => path.join(home, '.claude-work');
+    const record = (session: string, fields: Record<string, unknown>, at = now) =>
+      usage.recordClaudeStatus({
+        configDirectory: directory(),
+        observedAt: at,
+        status: parseClaudeStatus({ session_id: session, ...fields }, at.toISOString()),
+      });
+    const sessions = async () =>
+      (await usage.overview()).profiles.find(
+        (item) => item.profile.profileDirectory === directory(),
+      )!.sessions;
+    const later = (minutes: number) => new Date(now.getTime() + minutes * 60_000);
+
+    it('keeps one cumulative cost per session, without double counting', async () => {
+      const model = { id: 'claude-opus-5-5', display_name: 'Opus' };
+      await record('s1', { model, cost: { total_cost_usd: 0.4 } });
+      await record('s1', { model, cost: { total_cost_usd: 0.4 } }, later(1)); // same answer
+      await record('s1', { model, cost: { total_cost_usd: 1.25 } }, later(2));
+      const [only] = await sessions();
+      expect(only).toMatchObject({
+        sessionId: 's1',
+        providerId: 'claude',
+        model: 'claude-opus-5-5',
+        costUsd: 1.25,
+        source: 'LOCAL_ESTIMATE',
+        inputTokens: null,
+        outputTokens: null,
+        cacheReadTokens: null,
+        cacheWriteTokens: null,
+        firstSeenAt: now.toISOString(),
+        updatedAt: later(2).toISOString(),
+      });
+    });
+
+    it('adds a restarted run of the same session instead of replacing or repeating it', async () => {
+      await record('s1', { cost: { total_cost_usd: 2 } });
+      await record('s1', { cost: { total_cost_usd: 0.5 } }, later(1)); // counters restarted
+      await record('s1', { cost: { total_cost_usd: 0.5 } }, later(2)); // read again
+      await record('s1', { cost: { total_cost_usd: 0.75 } }, later(3));
+      expect((await sessions())[0]?.costUsd).toBe(2.75);
+      // The daily total agrees with the session.
+      const report = (await usage.overview()).profiles.find(
+        (item) => item.profile.profileDirectory === directory(),
+      )!;
+      expect(report.daily.find((day) => day.metric === 'COST')?.value).toBe(2.75);
+    });
+
+    it('keeps sessions apart (a /clear starts a new session id) and survives a restart', async () => {
+      await record('s1', { cost: { total_cost_usd: 1 } });
+      await record('s2', { cost: { total_cost_usd: 0.3 } }, later(5));
+      // A new service over the same database: what was stored is not counted again.
+      const reopened = new UsageService(serviceOptions);
+      await reopened.recordClaudeStatus({
+        configDirectory: directory(),
+        observedAt: later(6),
+        status: parseClaudeStatus(
+          { session_id: 's1', cost: { total_cost_usd: 1 } },
+          later(6).toISOString(),
+        ),
+      });
+      expect((await sessions()).map((item) => [item.sessionId, item.costUsd])).toEqual([
+        ['s1', 1],
+        ['s2', 0.3],
+      ]);
+    });
+
+    it('shows a session without a reported cost as unavailable', async () => {
+      await record('s1', { model: { id: 'claude-sonnet-5-5' } });
+      expect((await sessions())[0]).toMatchObject({ costUsd: null, model: 'claude-sonnet-5-5' });
+    });
+
+    it('labels subscription and API billing from evidence, never from percentages', async () => {
+      // No plan known and no limits yet: unknown.
+      await record('s1', { cost: { total_cost_usd: 0.1 } });
+      expect((await sessions())[0]?.billing).toBe('UNKNOWN');
+      // Plan limits (Pro and Max) mean a subscription, and stay so.
+      await record('s1', {
+        cost: { total_cost_usd: 0.2 },
+        rate_limits: { five_hour: { used_percentage: 90 } },
+      });
+      await record('s1', { cost: { total_cost_usd: 0.3 } }, later(1));
+      expect((await sessions())[0]).toMatchObject({ billing: 'SUBSCRIPTION', costUsd: 0.3 });
+      // A gateway spend limit is API billing.
+      await record(
+        's2',
+        {
+          cost: { total_cost_usd: 1 },
+          rate_limits: { spend_limit: { used_percentage: 10 } },
+        },
+        later(2),
+      );
+      expect((await sessions())[0]).toMatchObject({ sessionId: 's2', billing: 'API' });
+    });
+
+    it('keeps at most ten recent sessions per profile in the overview', async () => {
+      for (let index = 0; index < 12; index += 1) {
+        await record(`s${index}`, { cost: { total_cost_usd: index } }, later(index));
+      }
+      const listed = await sessions();
+      expect(listed).toHaveLength(10);
+      expect(listed[0]?.sessionId).toBe('s11');
+    });
   });
 
   it('describes the session window of the profile open in a terminal (PLAN-031)', async () => {

@@ -9,7 +9,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { STATUS_LABELS, primaryWindows, relativeTime } from '../format';
+import {
+  BILLING_LABELS,
+  STATUS_LABELS,
+  formatSessionCost,
+  primaryWindows,
+  relativeTime,
+} from '../format';
 import { LimitMeter } from './LimitMeter';
 
 export interface ProfileActions {
@@ -141,6 +147,49 @@ export function UsageProfileCard({
         <p className="text-destructive text-xs" role="status">
           Last refresh failed: {profile.lastError.message}
         </p>
+      )}
+      {profile.providerId === 'claude' && (
+        <section
+          className="flex flex-col gap-1.5"
+          aria-label="Recent sessions"
+          data-testid="usage-sessions"
+        >
+          <h4 className="text-sm font-medium">Recent sessions</h4>
+          {report.sessions.length === 0 ? (
+            <p className="text-muted-foreground text-xs">
+              Sessions appear here after Claude Code answers in an ATLAS terminal.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {report.sessions.map((session) => (
+                <li
+                  key={session.sessionId}
+                  className="flex flex-col gap-0.5 text-xs"
+                  data-testid="usage-session"
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="min-w-0 truncate" title={session.sessionId}>
+                      {session.model ?? 'Model unavailable'} · {session.sessionId.slice(0, 8)}
+                    </span>
+                    <span className="shrink-0 font-medium" data-testid="usage-session-cost">
+                      {formatSessionCost(session.costUsd)}
+                    </span>
+                  </div>
+                  <span className="text-muted-foreground">
+                    {session.costUsd === null
+                      ? 'Claude Code reported no cost for this session'
+                      : BILLING_LABELS[session.billing]}{' '}
+                    · updated {relativeTime(session.updatedAt, now)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-muted-foreground text-xs">
+            Source: Claude Code status line. Tokens per session: Unavailable (Claude Code does not
+            report session totals there).
+          </p>
+        </section>
       )}
       {report.coverage === 'atlas-sessions' && (
         <p className="text-muted-foreground text-xs">

@@ -1,4 +1,11 @@
-import type { AiProvider, UsageDayValue, UsageMetric, UsageProfile } from '@atlas/contracts';
+import type {
+  AiBillingKind,
+  AiProvider,
+  UsageDayValue,
+  UsageMetric,
+  UsageProfile,
+  UsageSource,
+} from '@atlas/contracts';
 import type { AccountState, CodexLimits } from './codex.js';
 import type { LimitSnapshot } from './windows.js';
 
@@ -33,8 +40,31 @@ export interface UsageRepository {
     value: number,
     at: string,
   ): Promise<void>;
-  /** Deletes snapshots observed before `before` and daily values dated before `beforeDate`. */
+  findAiSession(profileId: string, sessionId: string): Promise<StoredAiSession | null>;
+  saveAiSession(session: StoredAiSession): Promise<void>;
+  /** Most recently updated first. */
+  recentAiSessions(profileId: string, limit: number): Promise<StoredAiSession[]>;
+  /**
+   * Deletes snapshots, session progress and sessions observed before `before`, and daily
+   * values dated before `beforeDate`.
+   */
   prune(before: string, beforeDate: string): Promise<void>;
+}
+
+/** A session's cost as stored: earlier counter runs plus the current run (Task E01.1). */
+export interface StoredAiSession {
+  profileId: string;
+  sessionId: string;
+  providerId: AiProvider;
+  model: string | null;
+  /** Sum of earlier runs of the session's counters. */
+  costBaseUsd: number;
+  /** The latest cumulative value of the current run; null when none was reported. */
+  costRunUsd: number | null;
+  billing: AiBillingKind;
+  source: UsageSource;
+  firstSeenAt: string;
+  updatedAt: string;
 }
 
 /** Thrown by collectors; `message` is safe to show and never contains provider output. */

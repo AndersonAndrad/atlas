@@ -111,6 +111,41 @@ reused process id does not bring it back. The inbox publishes the `llm-usage` li
 event when the open run of a terminal changes or a status arrives; the renderer re-reads
 `terminals.llmUsage`. Codex is out of scope (no status line; developer decision Q1).
 
+### Session costs (Task E01.1, PLAN-046, v0.32.0, schema v16)
+
+- **Approval:** Anderson Andrade approved it on 2026-10-27 ("pode seguir, q1 recomendado").
+  R1–R4 were presented but not acknowledged by ID.
+- **Source:** the Claude Code status line JSON that the ATLAS wrapper already receives.
+  It is documented and structured; checked with Claude Code 2.1.311. What it provides:
+  - `session_id` and `model.id`;
+  - `cost.total_cost_usd`: Claude Code's own estimate, cumulative for the session, at list
+    price (or a `modelPricing` table). Claude Code says it may differ from the bill.
+  - Its token fields describe only the current context window or the last API call, so
+    cumulative tokens and cache tokens are **Unavailable** (Q1). Session transcripts are
+    not read.
+- **Storage:** `usage_ai_sessions`, one row per profile and session:
+  - model, billing kind, source, first and last observation;
+  - the cost, kept as the earlier counter runs (`cost_base_usd`) plus the current run's
+    latest cumulative value (`cost_run_usd`).
+  - Rules: re-reading an answer changes nothing. A lower value in the same session starts a
+    new run and the previous one is kept in the base. A `/clear` is a new session id.
+    Nothing is counted twice, also across Engine restarts, and the daily `COST` totals
+    agree with the sessions.
+  - Pruned with the other observations, and removed with its profile.
+- **Billing kind:** derived from evidence ATLAS already has; a usage percentage is never
+  converted to dollars.
+  - `SUBSCRIPTION`: plan limits were reported (`five_hour` or `seven_day`), or the profile
+    has a plan. Shown as an "API-equivalent estimate, not charged on a subscription".
+  - `API`: a gateway spend limit, or signed in without a plan. Shown as "estimated API cost
+    at list price; your bill may differ".
+  - `UNKNOWN`: shown as an "estimate at list price".
+  - Once plan limits were seen, the session stays `SUBSCRIPTION`.
+- **Interface:** each Claude profile card lists its ten most recent sessions: model, short
+  session id, estimated cost or "Unavailable", billing label and last update. The source
+  is noted, and so is that tokens per session are unavailable.
+- **Coverage:** only Claude Code sessions started in ATLAS terminals. Codex reports no
+  cost.
+
 ### Known limitations
 
 - The terminal header updates only when Claude Code refreshes its status line (activity);

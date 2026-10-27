@@ -417,7 +417,7 @@ describe('SQLite persistence', () => {
       db.close();
 
       db = openDatabase({ filePath: v5Path });
-      expect(getSchemaVersion(db)).toBe(15);
+      expect(getSchemaVersion(db)).toBe(16);
       expect(db.prepare('SELECT title, required FROM context_entries').all()).toEqual([
         { title: 'Kept', required: 0 },
       ]);
@@ -455,7 +455,7 @@ describe('SQLite persistence', () => {
       db.close();
 
       db = openDatabase({ filePath: v2Path });
-      expect(getSchemaVersion(db)).toBe(15);
+      expect(getSchemaVersion(db)).toBe(16);
       const rows = db
         .prepare(
           'SELECT auto_title, custom_title, group_position, current_cwd FROM terminal_sessions ORDER BY created_at',

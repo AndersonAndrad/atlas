@@ -762,7 +762,8 @@ terminals running as standalone terminals (SDD-003 §2).
   adds no schema (the Docker context is a setting). Schema v14: API Workbench collections,
   folders, requests (without secret values), history and saved responses (additive).
   Schema v15: installed extensions, per-project overrides and extension diagnostics
-  (additive; package files live under `<data>/extensions`).
+  (additive; package files live under `<data>/extensions`). Schema v16: estimated cost per
+  AI CLI session, kept as earlier counter runs plus the current run (additive).
 - Data dir: macOS `~/Library/Application Support/ATLAS`, Windows `%APPDATA%\ATLAS`, Linux
   `$XDG_DATA_HOME/atlas`; `ATLAS_DATA_DIR` overrides.
 

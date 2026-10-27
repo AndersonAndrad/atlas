@@ -865,4 +865,27 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX extension_diagnostics_extension ON extension_diagnostics (extension_id, id);
     `,
   },
+  {
+    version: 16,
+    name: 'usage_ai_sessions',
+    // Estimated cost per AI CLI session (Task E01.1). Additive. A session's cost is kept as
+    // the total of earlier counter runs (`cost_base_usd`) plus the latest cumulative value
+    // of the current run, so restarts never count the same amount twice.
+    sql: `
+      CREATE TABLE usage_ai_sessions (
+        profile_id TEXT NOT NULL REFERENCES usage_profiles (id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL CHECK (length(session_id) BETWEEN 1 AND 200),
+        provider_id TEXT NOT NULL,
+        model TEXT CHECK (model IS NULL OR length(model) <= 200),
+        cost_base_usd REAL NOT NULL DEFAULT 0 CHECK (cost_base_usd >= 0),
+        cost_run_usd REAL CHECK (cost_run_usd IS NULL OR cost_run_usd >= 0),
+        billing TEXT NOT NULL CHECK (billing IN ('SUBSCRIPTION', 'API', 'UNKNOWN')),
+        source TEXT NOT NULL,
+        first_seen_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (profile_id, session_id)
+      ) STRICT;
+      CREATE INDEX usage_ai_sessions_recent ON usage_ai_sessions (profile_id, updated_at);
+    `,
+  },
 ];

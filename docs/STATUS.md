@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-27 — PLAN-045 (Task A01: a split terminal keeps its context).
+Last updated: 2026-10-27 — PLAN-046 (Task E01.1: estimated cost per Claude Code session).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -54,8 +54,30 @@ started. PLAN-043 (SDD-015 Milestone A: Extensions Hub with Open VSX and declara
 contributions) is implemented and awaits approval; SDD-015 Milestones B and C are not
 started. PLAN-044 (SDD-016 Task 01: Debug Adapter Protocol foundation, no UI) is
 implemented and awaits approval. PLAN-045 (Task A01: splitting a terminal keeps its
-project, folder, group and shell) is implemented and awaits approval. Version 0.31.1
-(schema v15).
+project, folder, group and shell) is implemented and awaits approval. PLAN-046 (Task
+E01.1: estimated cost per Claude Code session in the Usage view) is implemented and awaits
+approval. Version 0.32.0 (schema v16).
+
+## PLAN-046 — Task E01.1: estimated cost per Claude Code session
+
+- Approved 2026-10-27 by Anderson Andrade ("pode seguir, q1 recomendado"). R1–R4 were
+  presented but not acknowledged by ID. Details: SDD-008, section "Session costs".
+- Migration v16 (`usage_ai_sessions`). `UsageService` records each status line answer per
+  session, with restart-safe runs, and derives the billing kind from evidence. The overview
+  returns each profile's 10 most recent sessions. The Usage card lists them with the right
+  label, or "Unavailable".
+- Tokens per session are "Unavailable": the status line reports none (Q1).
+- Rolling back to 0.31.x needs a database copy taken before 0.32.0 first ran.
+- Staff review found no Critical or High findings.
+- Validation (2026-10-27):
+  - format, lint and typecheck are clean.
+  - The usage, persistence, Engine usage and IPC tests passed. New tests:
+    - 6 service tests: cumulative updates, the same answer read again, counter restarts
+      agreeing with the daily total, separate sessions with a new service on the same
+      database, a session without cost, billing labels, ten sessions;
+    - 4 persistence tests, including v15 → v16.
+  - A mutation check showed that dropping the restart rule fails the restart test.
+  - E2E in Linux Docker (usage, workspace): 8 passed.
 
 ## PLAN-045 — Task A01: a split terminal keeps its context
 

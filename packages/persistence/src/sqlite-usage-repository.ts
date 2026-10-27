@@ -1,4 +1,5 @@
 import type {
+  AiBillingKind,
   AiProvider,
   LimitWindowKind,
   UsageDayValue,
@@ -8,13 +9,28 @@ import type {
   UsageSource,
 } from '@atlas/contracts';
 import { AtlasError } from '@atlas/shared';
-import type { LimitSnapshot, UsageRepository } from '@atlas/usage';
+import type { LimitSnapshot, StoredAiSession, UsageRepository } from '@atlas/usage';
 import type { Database } from './database.js';
 
 type Row = Record<string, string | number | null>;
 
 const str = (row: Row, key: string) => row[key] as string;
 const strOrNull = (row: Row, key: string) => (row[key] as string | null) ?? null;
+
+function toAiSession(row: Row): StoredAiSession {
+  return {
+    profileId: str(row, 'profile_id'),
+    sessionId: str(row, 'session_id'),
+    providerId: str(row, 'provider_id') as AiProvider,
+    model: strOrNull(row, 'model'),
+    costBaseUsd: row.cost_base_usd as number,
+    costRunUsd: (row.cost_run_usd as number | null) ?? null,
+    billing: str(row, 'billing') as AiBillingKind,
+    source: str(row, 'source') as UsageSource,
+    firstSeenAt: str(row, 'first_seen_at'),
+    updatedAt: str(row, 'updated_at'),
+  };
+}
 
 function toProfile(row: Row): UsageProfile {
   const lastError = strOrNull(row, 'last_error');
@@ -282,10 +298,60 @@ export class SqliteUsageRepository implements UsageRepository {
     });
   }
 
+  async findAiSession(profileId: string, sessionId: string): Promise<StoredAiSession | null> {
+    return this.run('findAiSession', () => {
+      const row = this.db
+        .prepare('SELECT * FROM usage_ai_sessions WHERE profile_id = ? AND session_id = ?')
+        .get(profileId, sessionId) as Row | undefined;
+      return row === undefined ? null : toAiSession(row);
+    });
+  }
+
+  async saveAiSession(session: StoredAiSession): Promise<void> {
+    this.run('saveAiSession', () => {
+      this.db
+        .prepare(
+          `INSERT INTO usage_ai_sessions (profile_id, session_id, provider_id, model,
+             cost_base_usd, cost_run_usd, billing, source, first_seen_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (profile_id, session_id) DO UPDATE SET model = excluded.model,
+             cost_base_usd = excluded.cost_base_usd, cost_run_usd = excluded.cost_run_usd,
+             billing = excluded.billing, source = excluded.source,
+             updated_at = excluded.updated_at`,
+        )
+        .run(
+          session.profileId,
+          session.sessionId,
+          session.providerId,
+          session.model,
+          session.costBaseUsd,
+          session.costRunUsd,
+          session.billing,
+          session.source,
+          session.firstSeenAt,
+          session.updatedAt,
+        );
+    });
+  }
+
+  async recentAiSessions(profileId: string, limit: number): Promise<StoredAiSession[]> {
+    return this.run('recentAiSessions', () =>
+      (
+        this.db
+          .prepare(
+            `SELECT * FROM usage_ai_sessions WHERE profile_id = ?
+             ORDER BY updated_at DESC, session_id LIMIT ?`,
+          )
+          .all(profileId, limit) as Row[]
+      ).map(toAiSession),
+    );
+  }
+
   async prune(before: string, beforeDate: string): Promise<void> {
     this.run('prune', () => {
       this.db.prepare('DELETE FROM usage_window_snapshots WHERE observed_at < ?').run(before);
       this.db.prepare('DELETE FROM usage_session_progress WHERE updated_at < ?').run(before);
+      this.db.prepare('DELETE FROM usage_ai_sessions WHERE updated_at < ?').run(before);
       this.db.prepare('DELETE FROM usage_daily WHERE date < ?').run(beforeDate);
     });
   }
