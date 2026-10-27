@@ -854,3 +854,26 @@ superseded decisions are marked, not deleted.
   - The Git view's repository discovery still inspects every project when opened.
   - Rolling back to 0.32.x needs a database copy taken before 0.33.0 first ran (older
     versions refuse schema v17).
+
+## ADR-070 — Push, pull and fetch run as GIT background jobs over the Git coordinator (PLAN-049)
+
+- **Decision**:
+  - Dialog-confirmed push, pull and fetch become SDD-012 jobs of type `GIT`.
+  - Their executor validates like the direct actions, then calls the same
+    `GitWorkspaceService` methods. Git operations, hooks, logs and notifications are
+    unchanged.
+  - The job follows its Git operation through a coordinator observer.
+  - GIT jobs are exempt from job concurrency limits: the coordinator serializes per
+    repository.
+  - They are never retried. Only fetch can be cancelled while running.
+- **Alternatives**:
+  - A "start" RPC that lists Git operations in the Operations view: rejected. It would bypass
+    the SDD-012 manager, and Git operations live in memory without an interrupted state.
+  - Migrating commits too: rejected; they already run in the background (PLAN-030).
+- **Consequences**:
+  - A push appears both as a job and as a Git operation, linked by the job's reference.
+  - Errors of an accepted push leave the dialog and appear in Operations and
+    notifications.
+  - No schema change. After a rollback to 0.34.x, stored GIT jobs remain in the database.
+    That version has no GIT executor, so it cannot run or retry them (not verified beyond
+    reading the code).

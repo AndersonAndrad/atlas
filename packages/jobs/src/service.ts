@@ -27,6 +27,7 @@ import {
 } from '@atlas/contracts';
 import { AtlasError, describeError, type Logger } from '@atlas/shared';
 import type {
+  CreateJobRequest,
   JobExecutionContext,
   JobExecutionResult,
   JobExecutor,
@@ -34,6 +35,7 @@ import type {
   JobRecord,
   JobRepository,
   KeyValueStore,
+  PreparedJob,
 } from './ports.js';
 import { selectJobsToStart } from './queue.js';
 import { assertTransition } from './state-machine.js';
@@ -119,6 +121,8 @@ export class JobService {
   private readonly running = new Map<string, ActiveJob>();
   /** Jobs whose retry is being saved, so two retries cannot both queue them. */
   private readonly retrying = new Set<string>();
+  /** Duplicate keys of jobs being created, so two equal submissions cannot both pass. */
+  private readonly creatingKeys = new Set<string>();
   private readonly listeners = new Set<JobListener>();
   private readonly finishedListeners = new Set<JobListener>();
   private readonly executors = new Map<JobType, JobExecutor>();
@@ -145,6 +149,34 @@ export class JobService {
     const request = parseInput(CreateJobSchema, input);
     const executor = this.requireExecutor(request.type);
     const prepared = await executor.prepare(request);
+    const key = executor.duplicateKey?.(prepared.payload) ?? null;
+    const scopedKey = key === null ? null : `${request.type}\0${key}`;
+    if (scopedKey !== null) {
+      const active = [...this.queued.values(), ...this.running.values()].some(
+        (job) =>
+          job.job.type === request.type && job.executor.duplicateKey?.(job.job.payload) === key,
+      );
+      if (active || this.creatingKeys.has(scopedKey)) {
+        throw new AtlasError(
+          'JOB_TRANSITION_INVALID',
+          'The same operation is already queued or running.',
+        );
+      }
+      this.creatingKeys.add(scopedKey);
+    }
+    try {
+      return await this.queue(request, executor, prepared, origin);
+    } finally {
+      if (scopedKey !== null) this.creatingKeys.delete(scopedKey);
+    }
+  }
+
+  private async queue(
+    request: CreateJobRequest,
+    executor: JobExecutor,
+    prepared: PreparedJob,
+    origin: JobOrigin,
+  ): Promise<BackgroundJob> {
     await this.settings();
     if (this.closing) throw new AtlasError('ENGINE_UNAVAILABLE', 'The Engine is stopping.');
     const at = this.now();
@@ -156,7 +188,9 @@ export class JobService {
       projectId: prepared.projectId,
       workspacePath: prepared.workspacePath,
       sessionId: null,
-      title: oneLine(request.title ?? prepared.title, 120) || 'Background job',
+      title:
+        oneLine(('title' in request ? request.title : undefined) ?? prepared.title, 120) ||
+        'Background job',
       description: prepared.description,
       origin,
       payload: prepared.payload,
@@ -205,7 +239,9 @@ export class JobService {
     }
     const running = this.running.get(id);
     if (running !== undefined) {
-      if (!running.executor.cancellable) throw new AtlasError('JOB_NOT_CANCELLABLE');
+      if (!this.cancellable(running.executor, running.job)) {
+        throw new AtlasError('JOB_NOT_CANCELLABLE');
+      }
       if (running.job.cancelRequested) return this.view(running.job);
       running.job.cancelRequested = true;
       // As the request left it: the executor may stop (and finish the job) at once.
@@ -234,6 +270,9 @@ export class JobService {
         throw new AtlasError('JOB_TRANSITION_INVALID', `A ${stored.status} job is not retried.`);
       }
       const executor = this.requireExecutor(stored.type);
+      if (executor.retryable === false) {
+        throw new AtlasError('JOB_TRANSITION_INVALID', 'This kind of job is not retried.');
+      }
       await this.settings();
       if (this.closing) throw new AtlasError('ENGINE_UNAVAILABLE', 'The Engine is stopping.');
       const active = this.activate(
@@ -429,10 +468,12 @@ export class JobService {
       projectId: active.job.projectId,
       resource: active.resource,
       ready: this.isReady(active),
+      exempt: active.executor.exemptFromLimits === true,
     }));
     const slots = [...this.running.values()].map((active) => ({
       projectId: active.job.projectId,
       resource: active.resource,
+      exempt: active.executor.exemptFromLimits === true,
     }));
     for (const id of selectJobsToStart(candidates, slots, this.limits)) {
       const active = this.queued.get(id)!;
@@ -655,6 +696,10 @@ export class JobService {
     return executor;
   }
 
+  private cancellable(executor: JobExecutor, job: JobRecord): boolean {
+    return executor.isCancellable?.(job) ?? executor.cancellable;
+  }
+
   private view(job: JobRecord): BackgroundJob {
     const executor = this.executors.get(job.type);
     const running = this.running.has(job.id);
@@ -663,9 +708,13 @@ export class JobService {
       capabilities: {
         cancel:
           this.queued.has(job.id) ||
-          (running && executor?.cancellable === true && !job.cancelRequested),
+          (running &&
+            executor !== undefined &&
+            this.cancellable(executor, job) &&
+            !job.cancelRequested),
         retry:
           executor !== undefined &&
+          executor.retryable !== false &&
           (RETRYABLE_JOB_STATUSES as readonly JobStatus[]).includes(job.status),
         logs: executor?.output !== undefined && (job.startedAt !== null || job.retryCount > 0),
       },

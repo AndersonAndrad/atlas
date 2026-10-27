@@ -10,11 +10,14 @@ export interface QueuedCandidate {
   resource: string | null;
   /** See `JobExecutor.isReady`. */
   ready: boolean;
+  /** See `JobExecutor.exemptFromLimits`; absent means limited. */
+  exempt?: boolean;
 }
 
 export interface RunningSlot {
   projectId: string | null;
   resource: string | null;
+  exempt?: boolean;
 }
 
 /**
@@ -32,17 +35,27 @@ export function selectJobsToStart(
   const perProject = new Map<string, number>();
   const resources = new Set<string>();
   for (const slot of running) {
+    if (slot.resource !== null) resources.add(slot.resource);
+    // Exempt jobs neither count toward nor wait for the limits.
+    if (slot.exempt) {
+      total -= 1;
+      continue;
+    }
     if (slot.projectId !== null) {
       perProject.set(slot.projectId, (perProject.get(slot.projectId) ?? 0) + 1);
     }
-    if (slot.resource !== null) resources.add(slot.resource);
   }
   const ordered = [...queued].sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]);
   const selected: string[] = [];
   for (const job of ordered) {
-    if (total >= limits.maxConcurrentJobs) break;
     if (!job.ready) continue;
     if (job.resource !== null && resources.has(job.resource)) continue;
+    if (job.exempt) {
+      selected.push(job.id);
+      if (job.resource !== null) resources.add(job.resource);
+      continue;
+    }
+    if (total >= limits.maxConcurrentJobs) continue;
     const projectCount = job.projectId === null ? 0 : (perProject.get(job.projectId) ?? 0);
     if (job.projectId !== null && projectCount >= limits.maxJobsPerProject) continue;
     selected.push(job.id);

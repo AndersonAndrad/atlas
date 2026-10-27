@@ -142,6 +142,7 @@ import { ActDockerTools } from './adapters/preflight-tools.js';
 import { QuickCommandStore } from './quick-commands.js';
 import { RepositoryWatcher } from './git/repository-watcher.js';
 import { GIT_SHUTDOWN_TIMEOUT_MS } from './shutdown-timing.js';
+import { GitJobExecutor } from './jobs/git-executor.js';
 
 export interface TerminalRuntimeOptions {
   /** Version reported to shells through TERM_PROGRAM_VERSION. */
@@ -914,12 +915,22 @@ export function createEngine(options: EngineOptions = {}): Engine {
       jobs.resourceReleased();
     },
   });
+  // Push, pull and fetch confirmed in their dialogs run as jobs (SDD-025 Task 01).
+  const gitJobs = new GitJobExecutor({
+    git: gitWorkspace,
+    resolveRepository: (root) => requireGitRepository(root),
+    projectOf: async (root) => (await repositoryProjects(root))[0] ?? null,
+    cancelOperation: (operationId) => void gitOperations.cancel(operationId),
+    operationDetails: (operationId) => gitOperationLog.details(operationId),
+    shutdownGraceMs: GIT_SHUTDOWN_TIMEOUT_MS,
+  });
   const jobs = new JobService({
     repository: new SqliteJobRepository(db),
     ...(processRunner === undefined
-      ? {}
+      ? { executors: [gitJobs] }
       : {
           executors: [
+            gitJobs,
             new CommandJobExecutor({
               runner: processRunner,
               projects: {
@@ -1660,6 +1671,8 @@ export function createEngine(options: EngineOptions = {}): Engine {
         projects.resolveAvailableDirectory(directory),
       ),
     shutdown: async () => {
+      // Git operations share one bounded wait, also when a GIT job waited for its push.
+      const gitDeadline = Date.now() + GIT_SHUTDOWN_TIMEOUT_MS;
       if (ownsExecution) {
         if (usageTimer !== undefined) clearInterval(usageTimer);
         await usageInbox.close();
@@ -1679,7 +1692,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
       // settles as cancelled), queued ones and running pre-commit steps are cancelled;
       // commits and pushes that cannot be interrupted get a bounded time to finish.
       gitOperations.close();
-      if (!(await gitOperations.idle(GIT_SHUTDOWN_TIMEOUT_MS))) {
+      if (!(await gitOperations.idle(Math.max(0, gitDeadline - Date.now())))) {
         logger.warn('Git operations were still running at shutdown');
       }
       try {

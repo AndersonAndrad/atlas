@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-27 — PLAN-048 (SDD-024 Task 02: Pending Push sidebar).
+Last updated: 2026-10-27 — PLAN-049 (SDD-025 Task 01: non-blocking background operations).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -58,7 +58,21 @@ project, folder, group and shell) is implemented and awaits approval. PLAN-046 (
 E01.1: estimated cost per Claude Code session in the Usage view) is implemented and awaits
 approval. PLAN-047 (SDD-024 Task 01: per-project Git monitoring, stored Git snapshots and
 project badges) is implemented and awaits approval. PLAN-048 (SDD-024 Task 02: Pending Push
-sidebar) is implemented and awaits approval. Version 0.34.0 (schema v18).
+sidebar) is implemented and awaits approval. PLAN-049 (SDD-025 Task 01: push, pull and fetch
+run as background jobs) is implemented and awaits approval. Version 0.35.0 (schema v18).
+
+## PLAN-049 — SDD-025 Task 01: non-blocking background operations
+
+- Approved 2026-10-27 by Anderson Andrade ("aprovo PLAN-049 rev 1, q1–q3 recomendado,
+  ciente R1–R5"). Details: SDD-025.
+- What was built:
+  - `GitJobExecutor` (type `GIT`) runs the existing push, pull and fetch, with validation
+    before acceptance.
+  - The Push and Pull dialogs, and Fetch, close once the Engine accepted the job, then
+    show an inline notice with **View in Operations**.
+  - New optional `JobExecutor` settings: exempt from limits, duplicate key, per-job
+    cancellation, not retryable.
+- No schema change.
 
 ## PLAN-048 — SDD-024 Task 02: Pending Push sidebar
 

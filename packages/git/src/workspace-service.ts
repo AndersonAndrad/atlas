@@ -634,13 +634,47 @@ export class GitWorkspaceService {
    * Pushes the current branch to its upstream, or to an explicitly chosen remote
    * branch that becomes its upstream. Never forces.
    */
-  async push(repositoryRoot: string, setUpstream?: GitSetUpstream): Promise<GitOperation> {
+  async push(
+    repositoryRoot: string,
+    setUpstream?: GitSetUpstream,
+    observe?: (operation: GitOperation) => void,
+  ): Promise<GitOperation> {
     const plan = await this.planPush(
       repositoryRoot,
       await this.workingTree(repositoryRoot),
       setUpstream,
     );
-    return this.runPush(repositoryRoot, plan);
+    return this.runPush(repositoryRoot, plan, null, observe);
+  }
+
+  /**
+   * Validates a push without running it (for background submission, SDD-025): the same
+   * checks as `push`. Returns the branch and its destination.
+   */
+  async preparePush(
+    repositoryRoot: string,
+    setUpstream?: GitSetUpstream,
+  ): Promise<{ branch: string; destination: string }> {
+    const plan = await this.planPush(
+      repositoryRoot,
+      await this.workingTree(repositoryRoot),
+      setUpstream,
+    );
+    return { branch: plan.branch, destination: plan.destination };
+  }
+
+  /** Validates a pull without running it; returns the branch and its upstream. */
+  async preparePull(repositoryRoot: string): Promise<{ branch: string; upstream: string }> {
+    const tree = await this.workingTree(repositoryRoot);
+    this.checkPullable(tree);
+    return { branch: tree.branch!, upstream: tree.upstream! };
+  }
+
+  /** Validates a fetch without running it. */
+  async prepareFetch(repositoryRoot: string, remote?: string): Promise<void> {
+    if (remote !== undefined && !(await this.remoteNames(repositoryRoot)).includes(remote)) {
+      throw invalid('remote', 'Choose one of the configured remotes.');
+    }
   }
 
   /** Validates a push of the current branch and resolves its arguments; never mutates. */
@@ -689,6 +723,7 @@ export class GitWorkspaceService {
     repositoryRoot: string,
     plan: PushPlan,
     commitShell: CommitShell | null = null,
+    observe?: (operation: GitOperation) => void,
   ): Promise<GitOperation> {
     const outcome = await this.mutate(
       repositoryRoot,
@@ -730,17 +765,18 @@ export class GitWorkspaceService {
           value: null,
         };
       },
+      observe,
     );
     return outcome.operation;
   }
 
-  async pull(repositoryRoot: string, mode: GitPullInput['mode']): Promise<GitOperation> {
+  async pull(
+    repositoryRoot: string,
+    mode: GitPullInput['mode'],
+    observe?: (operation: GitOperation) => void,
+  ): Promise<GitOperation> {
     const tree = await this.workingTree(repositoryRoot);
-    if (tree.branch === null) throw invalid('branch', 'Switch to a branch before pulling.');
-    if (tree.upstream === null || tree.upstreamGone) throw new AtlasError('GIT_NO_UPSTREAM');
-    if (tree.inProgress !== null) {
-      throw invalid('branch', `A ${tree.inProgress} is in progress. Finish or abort it first.`);
-    }
+    this.checkPullable(tree);
     const args = [
       'pull',
       '--progress',
@@ -779,14 +815,17 @@ export class GitWorkspaceService {
           throw error;
         }
       },
+      observe,
     );
     return outcome.operation;
   }
 
-  async fetch(repositoryRoot: string, remote?: string): Promise<GitOperation> {
-    if (remote !== undefined && !(await this.remoteNames(repositoryRoot)).includes(remote)) {
-      throw invalid('remote', 'Choose one of the configured remotes.');
-    }
+  async fetch(
+    repositoryRoot: string,
+    remote?: string,
+    observe?: (operation: GitOperation) => void,
+  ): Promise<GitOperation> {
+    await this.prepareFetch(repositoryRoot, remote);
     const outcome = await this.mutate(
       repositoryRoot,
       'fetch',
@@ -800,6 +839,7 @@ export class GitWorkspaceService {
         });
         return { summary: `Fetched ${remote ?? 'the default remote'}.`, value: null };
       },
+      observe,
     );
     return outcome.operation;
   }
@@ -1241,6 +1281,7 @@ export class GitWorkspaceService {
     lanes: ('index' | 'remote')[],
     cancellable: boolean,
     task: (context: GitOperationContext) => Promise<{ summary: string; value: T }>,
+    observe?: (operation: GitOperation) => void,
   ): Promise<GitOperationOutcome<T>> {
     try {
       return await this.options.coordinator.run(
@@ -1261,9 +1302,19 @@ export class GitWorkspaceService {
             throw error;
           }
         },
+        observe,
       );
     } finally {
       this.options.onRepositoryChanged?.(repositoryRoot);
+    }
+  }
+
+  /** Refuses a pull that cannot run: no branch, no upstream, or a merge in progress. */
+  private checkPullable(tree: GitWorkingTree): void {
+    if (tree.branch === null) throw invalid('branch', 'Switch to a branch before pulling.');
+    if (tree.upstream === null || tree.upstreamGone) throw new AtlasError('GIT_NO_UPSTREAM');
+    if (tree.inProgress !== null) {
+      throw invalid('branch', `A ${tree.inProgress} is in progress. Finish or abort it first.`);
     }
   }
 

@@ -108,6 +108,8 @@ export class GitOperationCoordinator {
   private readonly scope = new AsyncLocalStorage<GitOperationScope>();
   /** Last status passed to the journal per unfinished operation. */
   private readonly journaled = new Map<string, GitOperation['status']>();
+  /** Per-operation observers (e.g. a background job following its operation). */
+  private readonly observers = new Map<string, (operation: GitOperation) => void>();
   private closed = false;
 
   constructor(private readonly options: GitOperationCoordinatorOptions) {
@@ -205,9 +207,11 @@ export class GitOperationCoordinator {
     }
   }
 
+  /** `observe` sees every change of this operation, from `queued` to its final status. */
   async run<T>(
     request: GitOperationRequest,
     task: (context: GitOperationContext) => Promise<{ summary: string; value: T }>,
+    observe?: (operation: GitOperation) => void,
   ): Promise<GitOperationOutcome<T>> {
     const controller = new AbortController();
     const operation: GitOperation = {
@@ -226,6 +230,7 @@ export class GitOperationCoordinator {
     let settle!: () => void;
     const done = new Promise<void>((resolve) => (settle = resolve));
     this.track({ operation, controller, done });
+    if (observe !== undefined) this.observers.set(operation.id, observe);
     this.emit(operation);
     if (this.closed) {
       settle();
@@ -325,6 +330,15 @@ export class GitOperationCoordinator {
 
   private emit(operation: GitOperation): void {
     this.options.onChange?.(copy(operation));
+    const observer = this.observers.get(operation.id);
+    if (observer !== undefined) {
+      try {
+        observer(copy(operation));
+      } catch (error) {
+        this.logger.warn('Git operation observer failed', { error: describeError(error) });
+      }
+      if (operation.finishedAt !== null) this.observers.delete(operation.id);
+    }
     const { journal } = this.options;
     if (journal === undefined || this.journaled.get(operation.id) === operation.status) return;
     if (operation.status === 'queued' || operation.status === 'running') {

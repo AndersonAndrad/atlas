@@ -1,4 +1,6 @@
+import { isFinalJobStatus } from '@atlas/contracts';
 import type {
+  BackgroundJob,
   GitCommitFiles,
   GitWorkingTree,
   PendingCommit,
@@ -6,7 +8,7 @@ import type {
   ProjectGitState,
 } from '@atlas/contracts';
 import { ChevronDown, ChevronRight, GitCommitHorizontal, RefreshCw, Upload } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api, errorMessage, unwrap } from '@/api';
 import { relativeTime } from '@/components/git/git-format';
 import { Button } from '@/components/ui/button';
@@ -23,6 +25,8 @@ import { putProjectGitState, useProjectGitStates } from '../state/project-git-st
 import { plural } from '../format';
 import { CommitFilesPanel } from './OperationHistory';
 import { PushDialog } from './RemoteDialogs';
+import { SubmittedNotice } from '@/operations/components/SubmittedNotice';
+import { onTerminalLifecycle } from '@/terminal/state/terminal-events';
 
 /** Why pending commits cannot be listed; never presented as "everything pushed". */
 const UNKNOWN_LABELS: Record<Exclude<PendingCommitsState, 'ok' | 'unborn'>, string> = {
@@ -45,6 +49,23 @@ interface Group {
 export function PendingPushSection({ projects }: { projects: ProjectDetails[] }) {
   const states = useProjectGitStates();
   const [collapsed, setCollapsed] = useState(false);
+  /** The last push handed to the Engine; it keeps running after its dialog closed. */
+  const [submitted, setSubmitted] = useState<BackgroundJob | null>(null);
+  const submittedId = submitted?.id ?? null;
+  const submittedProject = submitted?.projectId ?? null;
+  useEffect(() => {
+    if (submittedId === null || submittedProject === null) return;
+    // Monitored projects are refreshed by the Engine after the push; reading again once the
+    // job finished also updates a paused project's stored list (the user asked for it).
+    return onTerminalLifecycle((event) => {
+      if (event.type !== 'jobs' || event.job.id !== submittedId) return;
+      if (!isFinalJobStatus(event.job.status)) return;
+      unwrap(api().git.refreshProject(submittedProject)).then(
+        ({ state }) => putProjectGitState(state),
+        () => undefined,
+      );
+    });
+  }, [submittedId, submittedProject]);
 
   const groups: Group[] = [];
   let upToDate = 0;
@@ -102,12 +123,21 @@ export function PendingPushSection({ projects }: { projects: ProjectDetails[] })
       </div>
       {!collapsed && (
         <div className="flex flex-col gap-1.5 px-1.5 pb-3">
+          {submitted !== null && (
+            <SubmittedNotice job={submitted} onDismiss={() => setSubmitted(null)} />
+          )}
           {groups.length === 0 ? (
             <p className="text-muted-foreground px-2 text-xs" data-testid="pending-push-empty">
               No pending commits found in the stored Git status.
             </p>
           ) : (
-            groups.map((group) => <PendingProject key={group.item.project.id} group={group} />)
+            groups.map((group) => (
+              <PendingProject
+                key={group.item.project.id}
+                group={group}
+                onSubmitted={setSubmitted}
+              />
+            ))
           )}
           {upToDate > 0 && (
             <p
@@ -123,7 +153,13 @@ export function PendingPushSection({ projects }: { projects: ProjectDetails[] })
   );
 }
 
-function PendingProject({ group }: { group: Group }) {
+function PendingProject({
+  group,
+  onSubmitted,
+}: {
+  group: Group;
+  onSubmitted: (job: BackgroundJob) => void;
+}) {
   const { item, state, snapshot } = group;
   const pending = snapshot.pending!;
   const ok = pending.state === 'ok';
@@ -316,11 +352,9 @@ function PendingProject({ group }: { group: Group }) {
         <PushDialog
           tree={pushTree}
           onClose={() => setPushTree(null)}
-          // Monitored projects are refreshed by the Engine after the push; reading again here
-          // also updates a paused project's stored list (an explicit action).
-          onDone={() => {
+          onSubmitted={(job) => {
             setPushTree(null);
-            refresh();
+            onSubmitted(job);
           }}
         />
       )}

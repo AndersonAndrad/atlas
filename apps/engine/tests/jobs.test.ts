@@ -32,6 +32,13 @@ const waitFor = async (condition: () => boolean | Promise<boolean>, timeoutMs = 
   }
 };
 
+/** The Preflight run a PREFLIGHT job started. */
+function preflightRunOf(job: BackgroundJob): string {
+  const reference = job.executionReference;
+  if (reference?.type !== 'preflight-run') throw new Error('Not a Preflight job.');
+  return reference.runId;
+}
+
 describe('command job helpers', () => {
   it('asks for confirmation for local and external side effects', () => {
     expect(commandJobDangers('npm test')).toEqual([]);
@@ -346,7 +353,7 @@ describe.skipIf(!posix)('Engine background jobs (SDD-012 Milestone A)', { timeou
         executionReference: { type: 'preflight-run', workspaceId: preflight.id },
         capabilities: { logs: false },
       });
-      const runId = done.executionReference!.runId;
+      const runId = preflightRunOf(done);
       expect((await engine.preflight.run(runId)).status).toBe('PASSED');
       // Preflight reports the run itself; the job adds no second notification.
       await waitFor(async () => (await engine.notifications.list()).items.length > 0);
@@ -377,9 +384,7 @@ describe.skipIf(!posix)('Engine background jobs (SDD-012 Milestone A)', { timeou
       await engine.jobs.cancel(first.id);
       const cancelled = await finished(first.id);
       expect(cancelled.status).toBe('CANCELLED');
-      expect((await engine.preflight.run(cancelled.executionReference!.runId)).status).toBe(
-        'CANCELLED',
-      );
+      expect((await engine.preflight.run(preflightRunOf(cancelled))).status).toBe('CANCELLED');
     });
 
     it('never reuses one-time authorizations on a retry', async () => {

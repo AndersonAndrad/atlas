@@ -1,6 +1,7 @@
 import type {
   BackgroundJob,
   CreateCommandJob,
+  CreateGitJob,
   CreatePreflightJob,
   JobAttempt,
   JobExecutionReference,
@@ -43,7 +44,7 @@ export interface JobRepository {
   prune(keep: number): Promise<string[]>;
 }
 
-export type CreateJobRequest = CreateCommandJob | CreatePreflightJob;
+export type CreateJobRequest = CreateCommandJob | CreatePreflightJob | CreateGitJob;
 
 /** What an executor resolved from a request; the service adds ids, times and status. */
 export interface PreparedJob {
@@ -90,6 +91,17 @@ export interface JobExecutor {
   readonly type: JobType;
   /** Whether a running job can be stopped safely (FR-1207). */
   readonly cancellable: boolean;
+  /** Per job, when it depends on the payload (e.g. a push cannot stop once running). */
+  isCancellable?(job: JobRecord): boolean;
+  /** False: finished jobs are never retried manually (e.g. pushes). Default true. */
+  readonly retryable?: boolean;
+  /**
+   * The executor's service already serializes its work (e.g. Git operations per
+   * repository): its jobs start without waiting for the job concurrency limits.
+   */
+  readonly exemptFromLimits?: boolean;
+  /** Jobs with the same key cannot be queued or running twice (duplicate submission). */
+  duplicateKey?(payload: JobPayload): string | null;
   /** The service the executor calls already notifies about the outcome. */
   readonly notifiesOutcome: boolean;
   /** Validates the request and resolves what will run. Throws AtlasError. */

@@ -1,5 +1,5 @@
 import type {
-  GitOperation,
+  BackgroundJob,
   GitPullInfo,
   GitPullInput,
   GitRemote,
@@ -28,29 +28,31 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { plural } from '../format';
-import { OperationResult } from './OperationsPanel';
 
 interface RemoteDialogProps {
   tree: GitWorkingTree;
   onClose: () => void;
-  onDone: (operation: GitOperation) => void;
+  /**
+   * The Engine accepted the operation as a background job (SDD-025): the dialog is done and
+   * the job keeps running whatever happens to it. Refusals stay in the dialog.
+   */
+  onSubmitted: (job: BackgroundJob) => void;
 }
 
+/** Submits a confirmed action as a background job; the dialog stays open on refusal. */
 function useRemoteAction() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [failed, setFailed] = useState<GitOperation | null>(null);
   const run = async (
-    action: () => Promise<GitOperation>,
-    onDone: (operation: GitOperation) => void,
+    action: () => Promise<BackgroundJob>,
+    onSubmitted: (job: BackgroundJob) => void,
   ) => {
+    // A second click while the first submission is pending submits nothing.
+    if (busy) return;
     setBusy(true);
     setError(null);
-    setFailed(null);
     try {
-      const operation = await action();
-      if (operation.status === 'succeeded') onDone(operation);
-      else setFailed(operation);
+      onSubmitted(await action());
     } catch (caught) {
       setError(
         caught instanceof ApiError && caught.issues.length > 0
@@ -61,24 +63,15 @@ function useRemoteAction() {
       setBusy(false);
     }
   };
-  return { busy, error, failed, run };
+  return { busy, error, run };
 }
 
-function Outcome({ error, failed }: { error: string | null; failed: GitOperation | null }) {
-  return (
-    <>
-      {error && (
-        <Alert variant="destructive" role="alert">
-          <AlertDescription data-testid="git-dialog-error">{error}</AlertDescription>
-        </Alert>
-      )}
-      {failed && (
-        <div className="rounded-md border p-3">
-          <OperationResult operation={failed} />
-        </div>
-      )}
-    </>
-  );
+function Outcome({ error }: { error: string | null }) {
+  return error ? (
+    <Alert variant="destructive" role="alert">
+      <AlertDescription data-testid="git-dialog-error">{error}</AlertDescription>
+    </Alert>
+  ) : null;
 }
 
 function Route({ from, to, icon }: { from: string; to: string; icon: ReactNode }) {
@@ -95,13 +88,13 @@ function Route({ from, to, icon }: { from: string; to: string; icon: ReactNode }
 }
 
 /** Push the current branch to its upstream, or to an explicitly chosen destination. */
-export function PushDialog({ tree, onClose, onDone }: RemoteDialogProps) {
+export function PushDialog({ tree, onClose, onSubmitted }: RemoteDialogProps) {
   const id = useId();
   const needsDestination = tree.upstream === null || tree.upstreamGone;
   const [remotes, setRemotes] = useState<GitRemote[] | null>(null);
   const [remote, setRemote] = useState('');
   const [branch, setBranch] = useState(tree.branch ?? '');
-  const { busy, error, failed, run } = useRemoteAction();
+  const { busy, error, run } = useRemoteAction();
 
   useEffect(() => {
     if (!needsDestination) return;
@@ -125,12 +118,14 @@ export function PushDialog({ tree, onClose, onDone }: RemoteDialogProps) {
     run(
       () =>
         unwrap(
-          api().git.push({
+          api().jobs.create({
+            type: 'GIT',
+            action: 'push',
             repositoryRoot: tree.repositoryRoot,
             ...(needsDestination ? { setUpstream: { remote, branch: branch.trim() } } : {}),
           }),
         ),
-      onDone,
+      onSubmitted,
     );
 
   return (
@@ -138,7 +133,9 @@ export function PushDialog({ tree, onClose, onDone }: RemoteDialogProps) {
       <DialogContent className="sm:max-w-md" data-testid="push-dialog">
         <DialogHeader>
           <DialogTitle>Push</DialogTitle>
-          <DialogDescription>Ordinary push only; ATLAS never force-pushes.</DialogDescription>
+          <DialogDescription>
+            Ordinary push only; ATLAS never force-pushes. It runs in the background once started.
+          </DialogDescription>
         </DialogHeader>
         {tree.branch === null ? (
           <p className="text-sm">Switch to a branch before pushing (HEAD is detached).</p>
@@ -195,13 +192,13 @@ export function PushDialog({ tree, onClose, onDone }: RemoteDialogProps) {
             </p>
           </div>
         )}
-        <Outcome error={error} failed={failed} />
+        <Outcome error={error} />
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button onClick={() => void push()} disabled={!ready || busy}>
-            {busy ? 'Pushing…' : 'Push'}
+            {busy ? 'Starting…' : 'Push'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -218,11 +215,11 @@ const STRATEGY_TEXT: Record<GitPullInfo['configuredStrategy'], string> = {
 };
 
 /** Pull with an explanation of what will happen; fast-forward only by default. */
-export function PullDialog({ tree, onClose, onDone }: RemoteDialogProps) {
+export function PullDialog({ tree, onClose, onSubmitted }: RemoteDialogProps) {
   const id = useId();
   const [info, setInfo] = useState<GitPullInfo | null>(null);
   const [mode, setMode] = useState<GitPullInput['mode']>('ff-only');
-  const { busy, error, failed, run } = useRemoteAction();
+  const { busy, error, run } = useRemoteAction();
 
   useEffect(() => {
     let cancelled = false;
@@ -237,7 +234,18 @@ export function PullDialog({ tree, onClose, onDone }: RemoteDialogProps) {
 
   const ready = tree.branch !== null && tree.upstream !== null && !tree.upstreamGone;
   const pull = () =>
-    run(() => unwrap(api().git.pull({ repositoryRoot: tree.repositoryRoot, mode })), onDone);
+    run(
+      () =>
+        unwrap(
+          api().jobs.create({
+            type: 'GIT',
+            action: 'pull',
+            repositoryRoot: tree.repositoryRoot,
+            mode,
+          }),
+        ),
+      onSubmitted,
+    );
   const options: { value: GitPullInput['mode']; title: string; text: string }[] = [
     {
       value: 'ff-only',
@@ -312,13 +320,13 @@ export function PullDialog({ tree, onClose, onDone }: RemoteDialogProps) {
             </fieldset>
           </>
         )}
-        <Outcome error={error} failed={failed} />
+        <Outcome error={error} />
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button onClick={() => void pull()} disabled={!ready || busy}>
-            {busy ? 'Pulling…' : 'Pull'}
+            {busy ? 'Starting…' : 'Pull'}
           </Button>
         </DialogFooter>
       </DialogContent>

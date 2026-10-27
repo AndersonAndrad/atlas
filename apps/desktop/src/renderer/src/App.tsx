@@ -15,6 +15,7 @@ import { UsageView } from './usage/components/UsageView';
 import { PreflightView, type PreflightOpenRequest } from './preflight/components/PreflightView';
 import { QuickCommandsView } from './quick-commands/components/QuickCommandsView';
 import { OperationsView, type OperationsOpenRequest } from './operations/components/OperationsView';
+import { onOpenOperationsJob } from './operations/navigation';
 import { OperationsIndicator } from './operations/components/OperationsIndicator';
 import { NotificationCenter } from './notifications/components/NotificationCenter';
 import { Toaster } from './notifications/components/Toaster';
@@ -158,6 +159,15 @@ export function App() {
   const clearSessionRequest = useCallback(() => setSessionRequest(null), []);
   const clearPreflightRequest = useCallback(() => setPreflightRequest(null), []);
   const clearOperationsRequest = useCallback(() => setOperationsRequest(null), []);
+  // "View in Operations" from any view that submitted a background job (SDD-025).
+  useEffect(
+    () =>
+      onOpenOperationsJob((jobId) => {
+        setOperationsRequest({ jobId, nonce: Date.now() });
+        setView('operations');
+      }),
+    [],
+  );
   const openPreflight = (target: Omit<PreflightOpenRequest, 'nonce'>) => {
     setPreflightRequest({ ...target, nonce: Date.now() });
     setView('preflight');
@@ -304,6 +314,9 @@ export function App() {
                 request={operationsRequest}
                 onRequestHandled={clearOperationsRequest}
                 onOpenPreflightRun={(workspaceId, runId) => openPreflight({ workspaceId, runId })}
+                onOpenGitOperations={(repositoryRoot) =>
+                  openGit({ repositoryRoot, operations: true })
+                }
                 onOpenProject={(projectId) => {
                   void projects.select(projectId);
                   setView('projects');

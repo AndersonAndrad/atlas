@@ -102,7 +102,18 @@ class FakeExecutor implements JobExecutor {
   executions: Execution[] = [];
   ready = true;
   resource: ((job: JobRecord) => string | null) | null = null;
+  exemptFromLimits = false;
+  retryable = true;
+  /** Same command, same key: refused while one is queued or running. */
+  duplicates = false;
+  cancellableJob: ((job: JobRecord) => boolean) | null = null;
   constructor(public cancellable = true) {}
+  duplicateKey(payload: JobPayload) {
+    return this.duplicates && payload.type === 'COMMAND' ? payload.command : null;
+  }
+  isCancellable(job: JobRecord) {
+    return this.cancellableJob?.(job) ?? this.cancellable;
+  }
   async prepare(request: CreateJobRequest) {
     if (request.type !== 'COMMAND') throw new AtlasError('VALIDATION_FAILED');
     return {
@@ -255,6 +266,91 @@ describe('queue selection', () => {
     expect(
       selectJobsToStart([job(1, { projectId: 'a' })], [{ projectId: 'a', resource: null }], limits),
     ).toEqual([]);
+  });
+
+  it('starts exempt jobs regardless of the limits, still one per resource (SDD-025)', () => {
+    const busy = [
+      { projectId: 'a', resource: null },
+      { projectId: 'b', resource: null },
+    ];
+    expect(
+      selectJobsToStart(
+        [
+          job(1, { projectId: 'a' }),
+          job(2, { projectId: 'a', exempt: true, resource: 'git:/a' }),
+          job(3, { projectId: 'a', exempt: true, resource: 'git:/a' }),
+        ],
+        busy,
+        limits,
+      ),
+    ).toEqual(['j2']);
+    // A running exempt job takes no slot from limited ones.
+    expect(
+      selectJobsToStart(
+        [job(1, { projectId: 'a' })],
+        [{ projectId: 'a', resource: 'git:/a', exempt: true }],
+        limits,
+      ),
+    ).toEqual(['j1']);
+  });
+});
+
+describe('executor options (SDD-025)', () => {
+  it('refuses a duplicate while the first one is queued or running, then accepts it again', async () => {
+    const executor = new FakeExecutor();
+    executor.duplicates = true;
+    const { create } = setup({ executor });
+    const first = await create('git push');
+    await expect(create('git push')).rejects.toMatchObject({ code: 'JOB_TRANSITION_INVALID' });
+    // Two submissions at the same moment: only one is accepted.
+    const both = await Promise.allSettled([create('git fetch'), create('git fetch')]);
+    expect(both.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    await flush();
+    executor.of('git push').resolve({ status: 'COMPLETED' });
+    await flush();
+    expect((await create('git push')).id).not.toBe(first.id);
+  });
+
+  it('never retries jobs of a non-retryable executor', async () => {
+    const executor = new FakeExecutor();
+    executor.retryable = false;
+    const { service, create } = setup({ executor });
+    const job = await create('git push');
+    await flush();
+    executor.of('git push').resolve({ status: 'FAILED', errorSummary: 'rejected' });
+    await flush();
+    expect((await service.get(job.id)).job.capabilities.retry).toBe(false);
+    await expect(service.retry(job.id)).rejects.toMatchObject({ code: 'JOB_TRANSITION_INVALID' });
+  });
+
+  it('asks the executor whether a running job can be cancelled', async () => {
+    const executor = new FakeExecutor();
+    executor.cancellableJob = (job) =>
+      job.payload.type === 'COMMAND' && job.payload.command.includes('fetch');
+    const { service, create } = setup({ executor });
+    const push = await create('git push');
+    const queuedFetch = await create('git fetch');
+    // Queued jobs can always be cancelled.
+    expect((await service.cancel(queuedFetch.id)).status).toBe('CANCELLED');
+    await flush();
+    expect((await service.get(push.id)).job.capabilities.cancel).toBe(false);
+    await expect(service.cancel(push.id)).rejects.toMatchObject({ code: 'JOB_NOT_CANCELLABLE' });
+    executor.of('git push').resolve({ status: 'COMPLETED' });
+    await flush();
+  });
+
+  it('starts exempt jobs while the project is at its limit', async () => {
+    const executor = new FakeExecutor();
+    const { create } = setup({ executor });
+    await create('npm run build');
+    await flush();
+    executor.exemptFromLimits = true;
+    await create('git push');
+    await flush();
+    expect(executor.executions.map((e) => e.context.job.title)).toEqual([
+      'npm run build',
+      'git push',
+    ]);
   });
 });
 

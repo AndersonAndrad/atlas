@@ -383,7 +383,11 @@ test('fetches, pulls fast-forward only and manages branches', async ({ atlas }) 
   await expect(pull.getByRole('radio', { name: /Fast-forward only/ })).toBeChecked();
   await pull.getByRole('button', { name: 'Pull', exact: true }).click();
   await expect(pull).toBeHidden({ timeout: 15_000 });
-  expect(git('log', '-1', '--format=%s').trim()).toBe('feat: remote');
+  // The pull runs in the background once accepted (SDD-025).
+  await expect(page.getByTestId('background-submitted')).toContainText('started in the background');
+  await expect
+    .poll(() => git('log', '-1', '--format=%s').trim(), { timeout: 15_000 })
+    .toBe('feat: remote');
 
   // Branches: create and switch, then switch back.
   await gitAction(page, 'Branches…');

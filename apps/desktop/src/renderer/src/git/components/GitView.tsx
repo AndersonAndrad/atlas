@@ -1,4 +1,4 @@
-import type { GitCommitResult, GitOperation, GitRemote } from '@atlas/contracts';
+import type { BackgroundJob, GitCommitResult, GitOperation, GitRemote } from '@atlas/contracts';
 import {
   ArrowDown,
   ArrowUp,
@@ -65,6 +65,7 @@ import { DiffViewer } from './DiffViewer';
 import { OperationsButton, OperationsSheet, useOperationsSheet } from './OperationsSheet';
 import { MergeDialog } from './MergeDialog';
 import { PullDialog, PushDialog } from './RemoteDialogs';
+import { SubmittedNotice } from '@/operations/components/SubmittedNotice';
 import { CherryPickDialog } from './CherryPickDialog';
 
 /** Opens the Git view on the repository of a project or a terminal. */
@@ -142,6 +143,8 @@ export function GitView({ request, onRequestHandled, onOpenPreflight }: GitViewP
     null,
   );
   const [actionError, setActionError] = useState<string | null>(null);
+  /** The last push, pull or fetch handed to the Engine as a background job (SDD-025). */
+  const [submitted, setSubmitted] = useState<BackgroundJob | null>(null);
 
   // A request from a project or terminal: taken once, then resolved against the
   // repository list as soon as it contains the project's or terminal's repository.
@@ -259,8 +262,19 @@ export function GitView({ request, onRequestHandled, onOpenPreflight }: GitViewP
   );
   const fetch = (remote?: string) =>
     void mutate(() =>
-      unwrap(api().git.fetch({ repositoryRoot: repositoryRoot!, ...(remote ? { remote } : {}) })),
-    );
+      unwrap(
+        api().jobs.create({
+          type: 'GIT',
+          action: 'fetch',
+          repositoryRoot: repositoryRoot!,
+          ...(remote ? { remote } : {}),
+        }),
+      ),
+    ).then((job) => job !== null && setSubmitted(job));
+  const onSubmitted = (job: BackgroundJob) => {
+    setDialog(null);
+    setSubmitted(job);
+  };
 
   const error = actionError ?? listError ?? treeError;
 
@@ -375,6 +389,9 @@ export function GitView({ request, onRequestHandled, onOpenPreflight }: GitViewP
           <Alert variant="destructive" role="alert">
             <AlertDescription data-testid="git-error">{error}</AlertDescription>
           </Alert>
+        )}
+        {submitted !== null && submitted.workspacePath === repositoryRoot && (
+          <SubmittedNotice job={submitted} onDismiss={() => setSubmitted(null)} />
         )}
 
         {repositories !== null && repositories.length === 0 && (
@@ -748,10 +765,10 @@ export function GitView({ request, onRequestHandled, onOpenPreflight }: GitViewP
         />
       )}
       {tree && dialog === 'push' && (
-        <PushDialog tree={tree} onClose={() => setDialog(null)} onDone={() => setDialog(null)} />
+        <PushDialog tree={tree} onClose={() => setDialog(null)} onSubmitted={onSubmitted} />
       )}
       {tree && dialog === 'pull' && (
-        <PullDialog tree={tree} onClose={() => setDialog(null)} onDone={() => setDialog(null)} />
+        <PullDialog tree={tree} onClose={() => setDialog(null)} onSubmitted={onSubmitted} />
       )}
       {tree && (
         <OperationsSheet

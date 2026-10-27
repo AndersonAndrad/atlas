@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { GitRemoteNameSchema, GitRepositoryRootSchema, GitSetUpstreamSchema } from './git.js';
 import { PreflightStartSchema, type PreflightOutputPage } from './preflight.js';
 import { ProjectIdSchema } from './project.js';
 
@@ -65,7 +66,14 @@ export interface JobProgress {
 }
 
 /** The execution a job started in another ATLAS service. */
-export type JobExecutionReference = { type: 'preflight-run'; workspaceId: string; runId: string };
+export type JobExecutionReference =
+  | { type: 'preflight-run'; workspaceId: string; runId: string }
+  /** The Git operation a GIT job runs (SDD-025); its log is the job's output. */
+  | { type: 'git-operation'; operationId: string; repositoryRoot: string };
+
+/** Git actions that run as background jobs (SDD-025 Task 01). */
+export const GIT_JOB_ACTIONS = ['push', 'pull', 'fetch'] as const;
+export type GitJobAction = (typeof GIT_JOB_ACTIONS)[number];
 
 /** Who asked for the job. */
 export type JobOrigin = 'desktop' | 'cli';
@@ -88,6 +96,17 @@ export type JobPayload =
       concurrency?: number;
       /** Digests the user authorized when queueing; a retry never reuses them. */
       authorizations: { checkId: string; digest: string }[];
+    }
+  | {
+      type: 'GIT';
+      action: GitJobAction;
+      repositoryRoot: string;
+      /** Push only: publish to this remote branch, which becomes the upstream. */
+      setUpstream?: { remote: string; branch: string };
+      /** Pull only. */
+      mode?: 'ff-only' | 'configured';
+      /** Fetch only; the default remote when absent. */
+      remote?: string;
     };
 
 export interface BackgroundJob {
@@ -181,13 +200,43 @@ export const CreatePreflightJobSchema = z.strictObject({
   selection: PreflightStartSchema.omit({ retryOf: true }),
 });
 
-export const CreateJobSchema = z.discriminatedUnion('type', [
+/**
+ * A push, pull or fetch confirmed in its dialog (SDD-025). Validated like the direct
+ * actions before it is queued; the repository must be one the Engine resolved.
+ */
+export const CreateGitJobSchema = z.discriminatedUnion('action', [
+  z.strictObject({
+    type: z.literal('GIT'),
+    action: z.literal('push'),
+    repositoryRoot: GitRepositoryRootSchema,
+    setUpstream: GitSetUpstreamSchema.optional(),
+    priority: z.enum(JOB_PRIORITIES).default('NORMAL'),
+  }),
+  z.strictObject({
+    type: z.literal('GIT'),
+    action: z.literal('pull'),
+    repositoryRoot: GitRepositoryRootSchema,
+    mode: z.enum(['ff-only', 'configured']),
+    priority: z.enum(JOB_PRIORITIES).default('NORMAL'),
+  }),
+  z.strictObject({
+    type: z.literal('GIT'),
+    action: z.literal('fetch'),
+    repositoryRoot: GitRepositoryRootSchema,
+    remote: GitRemoteNameSchema.optional(),
+    priority: z.enum(JOB_PRIORITIES).default('NORMAL'),
+  }),
+]);
+
+export const CreateJobSchema = z.union([
   CreateCommandJobSchema,
   CreatePreflightJobSchema,
+  CreateGitJobSchema,
 ]);
 export type CreateJobInput = z.input<typeof CreateJobSchema>;
 export type CreateCommandJob = z.output<typeof CreateCommandJobSchema>;
 export type CreatePreflightJob = z.output<typeof CreatePreflightJobSchema>;
+export type CreateGitJob = z.output<typeof CreateGitJobSchema>;
 
 export const JobListQuerySchema = z.strictObject({
   statuses: z.array(z.enum(JOB_STATUSES)).min(1).max(JOB_STATUSES.length).optional(),

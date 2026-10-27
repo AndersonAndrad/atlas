@@ -1,11 +1,13 @@
 import type { BackgroundJob } from '@atlas/contracts';
-import { FolderOpen, RotateCcw, ShieldCheck, Square } from 'lucide-react';
+import { FolderOpen, GitBranch, RotateCcw, ShieldCheck, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export interface JobActionHandlers {
   cancel: (job: BackgroundJob) => void;
   retry: (job: BackgroundJob) => void;
   openPreflightRun: (workspaceId: string, runId: string) => void;
+  /** Opens the Git view's operations of a repository (a GIT job's operation). */
+  openGitOperations: (repositoryRoot: string) => void;
   openProject: (projectId: string) => void;
 }
 
@@ -43,6 +45,16 @@ export function JobActions({
         >
           <ShieldCheck />
           Open result
+        </Button>
+      )}
+      {reference?.type === 'git-operation' && (
+        <Button
+          size={size}
+          variant="ghost"
+          onClick={() => handlers.openGitOperations(reference.repositoryRoot)}
+        >
+          <GitBranch />
+          Open in Git
         </Button>
       )}
       {!compact && job.projectId !== null && (

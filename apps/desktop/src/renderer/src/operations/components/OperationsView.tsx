@@ -261,12 +261,14 @@ export function OperationsView({
   request,
   onRequestHandled,
   onOpenPreflightRun,
+  onOpenGitOperations,
   onOpenProject,
 }: {
   projects: ProjectDetails[];
   request: OperationsOpenRequest | null;
   onRequestHandled: () => void;
   onOpenPreflightRun: (workspaceId: string, runId: string) => void;
+  onOpenGitOperations: (repositoryRoot: string) => void;
   onOpenProject: (projectId: string) => void;
 }) {
   const [projectFilter, setProjectFilter] = useState<string>('all');
@@ -428,6 +430,7 @@ export function OperationsView({
     cancel: (job) => void act(unwrap(api().jobs.cancel(job.id))),
     retry: (job) => void act(unwrap(api().jobs.retry(job.id))),
     openPreflightRun: onOpenPreflightRun,
+    openGitOperations: onOpenGitOperations,
     openProject: onOpenProject,
   };
 

@@ -95,6 +95,11 @@ export function JobDetailsPanel({
           {job.payload.command}
         </pre>
       )}
+      {job.payload.type === 'GIT' && (
+        <p className="text-muted-foreground font-mono text-xs break-all" data-testid="job-git">
+          git {job.payload.action} · {job.payload.repositoryRoot}
+        </p>
+      )}
       <JobActions job={job} handlers={actions} />
       {job.capabilities.logs && (
         <div className="flex min-w-0 flex-col gap-2">
