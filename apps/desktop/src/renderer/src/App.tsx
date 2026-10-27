@@ -26,7 +26,7 @@ import { TooltipProvider } from './components/ui/tooltip';
 import { useAppInfo, versionLabel } from './hooks/useAppInfo';
 import { useProjects } from './hooks/useProjects';
 import { SessionsView } from './sessions/components/SessionsView';
-import { TerminalsView } from './terminal/components/TerminalsView';
+import { TerminalsView, type ProjectsNavigationRequest } from './terminal/components/TerminalsView';
 import { useTerminalGroups } from './terminal/hooks/useTerminalGroups';
 import { useTerminalPreferences } from './terminal/hooks/useTerminalPreferences';
 import { runningSessionCount, useTerminalSessions } from './terminal/hooks/useTerminalSessions';
@@ -58,6 +58,8 @@ export function App() {
   const [view, setView] = useState<AppView>('projects');
   const [aboutOpen, setAboutOpen] = useState(false);
   const [openRequest, setOpenRequest] = useState<{ projectId: string; nonce: number } | null>(null);
+  /** Project palette or drawer asked from the menu; shown by the Terminals view (PLAN-052). */
+  const [projectsRequest, setProjectsRequest] = useState<ProjectsNavigationRequest | null>(null);
   const [sessionRequest, setSessionRequest] = useState<{
     projectId: string | null;
     nonce: number;
@@ -126,6 +128,14 @@ export function App() {
           case 'app.about':
             setAboutOpen(true);
             return;
+          case 'projects.palette':
+          case 'projects.drawer':
+            setProjectsRequest({
+              surface: command === 'projects.palette' ? 'palette' : 'drawer',
+              nonce: Date.now(),
+            });
+            setView('terminals');
+            return;
           default:
             break;
         }
@@ -146,6 +156,7 @@ export function App() {
   };
 
   const clearOpenRequest = useCallback(() => setOpenRequest(null), []);
+  const clearProjectsRequest = useCallback(() => setProjectsRequest(null), []);
   const clearGitRequest = useCallback(() => setGitRequest(null), []);
   const clearContextRequest = useCallback(() => setContextRequest(null), []);
   const openContext = (request: Omit<ContextOpenRequest, 'nonce'>) => {
@@ -272,6 +283,8 @@ export function App() {
                 preferences={preferences}
                 openRequest={openRequest}
                 onOpenRequestHandled={clearOpenRequest}
+                projectsRequest={projectsRequest}
+                onProjectsRequestHandled={clearProjectsRequest}
                 subscribeCommands={subscribeCommands}
                 onOpenGit={(terminalId) => openGit({ terminalId })}
                 onOpenPreflight={(terminalId) => openPreflight({ terminalId })}

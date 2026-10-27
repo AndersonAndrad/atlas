@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
-import { expect, test } from './fixtures';
+import { expect, openProjectsDrawer, test } from './fixtures';
 
 /** A clone tracking `origin/main` with `count` local commits not pushed yet. */
 function cloneWithPending(root: string, name: string, count: number) {
@@ -60,7 +60,9 @@ test('pending push lists unpushed commits, shows details and pushes after confir
   const { page } = await atlas.launch();
   await openTerminals(page);
 
-  const section = page.getByTestId('pending-push');
+  // Listed in the Projects drawer, not in the terminal sidebar (PLAN-052).
+  await expect(page.getByTestId('pending-push')).toHaveCount(0);
+  const section = (await openProjectsDrawer(page)).getByTestId('pending-push');
   const web = section.getByTestId('pending-push-project').filter({ hasText: 'web' });
   await expect(web.getByTestId('pending-commit')).toHaveCount(3, { timeout: 15_000 });
   await expect(section.getByTestId('pending-push-total')).toHaveText('3');

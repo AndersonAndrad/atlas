@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-27 — PLAN-051 (SDD-024 Task 03: Git identity management).
+Last updated: 2026-10-27 — PLAN-052 (SDD-023 Task A03: project palette and drawer).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -62,7 +62,22 @@ sidebar) is implemented and awaits approval. PLAN-049 (SDD-025 Task 01: push, pu
 run as background jobs) is implemented and awaits approval. PLAN-050 (SDD-023 Task A02:
 terminal tab status with explicit review) is implemented and awaits approval. PLAN-051
 (SDD-024 Task 03: global and per-project Git identity) is implemented and awaits approval.
-Version 0.37.0 (schema v19).
+PLAN-052 (SDD-023 Task A03: project palette and Projects drawer; the Terminals sidebar lists
+only open terminals) is implemented and awaits approval. Version 0.38.0 (schema v19).
+
+## PLAN-052 — SDD-023 Task A03: project palette and Projects drawer
+
+- Approved 2026-10-27 by Anderson Andrade ("opde seguir, q1 vai para gaveta também, q2
+  recomendado, q3 servem porém também preciso de um ícone para fazer isso, sempre vai ser
+  comando + manual action nunca somente atalho"). R1–R5 were presented but not acknowledged
+  by ID. Details: SDD-023, Task A03.
+- What was built:
+  - The Terminals sidebar shows only terminal groups and open terminals.
+  - Projects drawer (⇧⌘P / Ctrl+Alt+Shift+P, or its button): projects as accordions with
+    badges and actions; Pending push moved here.
+  - Project palette (⌘P / Ctrl+Shift+P, or its button): project, then action; recently
+    opened projects in memory.
+- No schema change.
 
 ## PLAN-051 — SDD-024 Task 03: Git identity management
 

@@ -131,8 +131,30 @@ export const test = base.extend<{ atlas: AtlasHarness }>({
 
 export { expect } from '@playwright/test';
 
-/** Opens a terminal in a project from its Actions menu in the Terminals sidebar (PLAN-023). */
+/** Opens the Projects drawer from its button in the Terminals view (PLAN-052). */
+export async function openProjectsDrawer(page: Page) {
+  const drawer = page.getByTestId('projects-drawer');
+  if (!(await drawer.isVisible())) {
+    await page.getByRole('button', { name: 'Show projects panel' }).click();
+  }
+  await drawer.waitFor();
+  return drawer;
+}
+
+/** Expands a project in the Projects drawer and returns its list of actions (PLAN-052). */
+export async function projectActions(page: Page, projectName: string) {
+  const drawer = await openProjectsDrawer(page);
+  const trigger = drawer
+    .getByTestId('drawer-project')
+    .filter({ hasText: projectName })
+    .getByRole('button', { name: projectName, exact: true });
+  if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
+  return drawer.getByRole('list', { name: `Actions for ${projectName}` });
+}
+
+/** Opens a terminal in a project from its actions in the Projects drawer (PLAN-023, PLAN-052). */
 export async function openProjectTerminal(page: Page, projectName: string): Promise<void> {
-  await page.getByRole('button', { name: `Project actions for ${projectName}` }).click();
-  await page.getByRole('menuitem', { name: 'Open terminal' }).click();
+  const actions = await projectActions(page, projectName);
+  await actions.getByRole('button', { name: 'Open terminal' }).click();
+  await page.getByTestId('projects-drawer').waitFor({ state: 'hidden' });
 }

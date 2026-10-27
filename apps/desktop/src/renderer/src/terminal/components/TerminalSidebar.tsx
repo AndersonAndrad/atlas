@@ -15,11 +15,6 @@ import {
   MoreHorizontal,
 } from 'lucide-react';
 import { useState, type DragEvent, type ReactNode } from 'react';
-import { GitSyncBadges } from '@/components/git/GitBadges';
-import { ProjectGitBadge } from '@/components/git/ProjectGitBadge';
-import { PendingPushSection } from '@/git/components/PendingPushSection';
-import { useProjectGitState } from '@/git/state/project-git-states';
-import { ProjectActionsMenu } from '@/components/ProjectActionsMenu';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -34,6 +29,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import type { ProjectDetails } from '@/types';
+import { ProjectNavigationButtons } from './ProjectNavigationButtons';
 import { TerminalStatusDot } from './TerminalStatusDot';
 import { markTerminalReviewed, useTerminalActivity } from '../state/terminal-activity';
 
@@ -55,15 +51,17 @@ export interface TerminalSidebarActions {
   onAssociate: (session: TerminalSession, projectId: string | null) => void;
   onCloseTerminal: (session: TerminalSession) => void;
   onProjectInfo: (projectId: string) => void;
-  onNewTerminalInProject: (projectId: string) => void;
-  /** Opens a terminal in the project running a quick command (PLAN-023). */
-  onRunQuickCommand: (projectId: string, commandId: string) => void;
+  /** Opens the project command palette (PLAN-052). */
+  onSearchProjects: () => void;
+  /** Opens the Projects drawer (PLAN-052). */
+  onShowProjects: () => void;
 }
 
 interface TerminalSidebarProps extends TerminalSidebarActions {
   groups: TerminalGroup[];
   /** All terminals, any project. */
   sessions: TerminalSession[];
+  /** Registered projects; only used to name and associate terminals, never listed here. */
   projects: ProjectDetails[];
   activeWorkspace: string;
 }
@@ -76,8 +74,9 @@ export function membersOf(sessions: TerminalSession[], groupId: string | null): 
 }
 
 /**
- * Terminal groups (collapsible), ungrouped terminals and registered projects.
- * Terminals move by drag and drop or, equivalently, through their menus.
+ * Terminal groups (collapsible) and ungrouped terminals: only what is open, so sharing the
+ * screen does not show every registered project (PLAN-052). Projects are reached from the
+ * palette and the drawer. Terminals move by drag and drop or, equivalently, their menus.
  */
 export function TerminalSidebar(props: TerminalSidebarProps) {
   const { groups, sessions, projects, activeWorkspace } = props;
@@ -120,23 +119,26 @@ export function TerminalSidebar(props: TerminalSidebarProps) {
   );
 
   return (
-    <nav
-      className="flex min-h-0 flex-1 flex-col overflow-y-auto"
-      aria-label="Terminal groups and projects"
-    >
+    <nav className="flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="Terminal groups">
       <div className="flex items-center justify-between px-3 pt-3 pb-1">
         <h2 className="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
           Terminal groups
         </h2>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label="New group"
-          title="New group"
-          onClick={props.onCreateGroup}
-        >
-          <FolderPlus />
-        </Button>
+        <span className="flex items-center gap-0.5">
+          <ProjectNavigationButtons
+            onSearch={props.onSearchProjects}
+            onShowDrawer={props.onShowProjects}
+          />
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="New group"
+            title="New group"
+            onClick={props.onCreateGroup}
+          >
+            <FolderPlus />
+          </Button>
+        </span>
       </div>
 
       <ul className="flex flex-col gap-0.5 px-1.5">
@@ -216,88 +218,7 @@ export function TerminalSidebar(props: TerminalSidebarProps) {
           {terminalRows(ungrouped, null)}
         </li>
       </ul>
-
-      <div className="mt-3 border-t px-3 pt-3 pb-1">
-        <h2 className="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
-          Projects
-        </h2>
-      </div>
-      <ul className="flex flex-col gap-0.5 px-1.5 pb-3" aria-label="Projects">
-        {projects.length === 0 && (
-          <li className="text-muted-foreground px-2 text-xs">No projects registered.</li>
-        )}
-        {projects.map((item) => (
-          <SidebarProjectRow
-            key={item.project.id}
-            item={item}
-            onProjectInfo={props.onProjectInfo}
-            onNewTerminalInProject={props.onNewTerminalInProject}
-            onRunQuickCommand={props.onRunQuickCommand}
-          />
-        ))}
-      </ul>
-      <PendingPushSection projects={projects} />
     </nav>
-  );
-}
-
-interface SidebarProjectRowProps {
-  item: ProjectDetails;
-  onProjectInfo: (projectId: string) => void;
-  onNewTerminalInProject: (projectId: string) => void;
-  /** Opens a terminal in the project running a quick command (PLAN-023). */
-  onRunQuickCommand: (projectId: string, commandId: string) => void;
-}
-
-/** A registered project with its commits to push and to pull, when it tracks an upstream. */
-function SidebarProjectRow({
-  item,
-  onProjectInfo,
-  onNewTerminalInProject,
-  onRunQuickCommand,
-}: SidebarProjectRowProps) {
-  // Stored state pushed by the Engine: rendering the sidebar never runs Git (SDD-024).
-  const gitState = useProjectGitState(item.project.id);
-  const snapshot = gitState?.snapshot?.state === 'repository' ? gitState.snapshot : null;
-  const tracksUpstream = snapshot !== null && snapshot.ahead !== null && snapshot.behind !== null;
-  return (
-    <li
-      className="group/project flex items-center rounded-md hover:bg-accent/50"
-      data-testid="sidebar-project"
-    >
-      <button
-        type="button"
-        className="flex h-8 min-w-0 flex-1 items-center gap-2 px-2 text-left text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        onClick={() => onProjectInfo(item.project.id)}
-        title="Project details"
-      >
-        <span
-          className={cn(
-            'size-1.5 shrink-0 rounded-full',
-            item.availability.status === 'available' ? 'bg-success' : 'bg-warning',
-          )}
-          aria-hidden="true"
-        />
-        <span className="truncate">{item.project.name}</span>
-      </button>
-      <span className="flex shrink-0 items-center gap-1">
-        <ProjectGitBadge state={gitState} />
-        {tracksUpstream && (
-          <span className="flex items-center gap-1" data-testid="sidebar-project-sync">
-            <GitSyncBadges snapshot={snapshot} />
-          </span>
-        )}
-      </span>
-      <span className="mr-1 shrink-0">
-        <ProjectActionsMenu
-          projectId={item.project.id}
-          projectName={item.project.name}
-          disabled={item.availability.status !== 'available'}
-          onOpenTerminal={() => onNewTerminalInProject(item.project.id)}
-          onRunCommand={(commandId) => onRunQuickCommand(item.project.id, commandId)}
-        />
-      </span>
-    </li>
   );
 }
 

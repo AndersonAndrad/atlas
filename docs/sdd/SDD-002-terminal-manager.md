@@ -121,6 +121,8 @@ Shortcuts are application-menu accelerators (visible in the menu bar).
 | Paste (alternative)       | —            | Shift+Insert                |
 | Select all                | —            | Ctrl+Shift+A                |
 | Projects / Terminals view | ⌘1 / ⌘2      | Ctrl+Shift+1 / Ctrl+Shift+2 |
+| Search projects (palette) | ⌘P           | Ctrl+Shift+P                |
+| Projects panel (drawer)   | ⇧⌘P          | Ctrl+Alt+Shift+P            |
 | Close window              | ⇧⌘W          | (closing quits)             |
 
 Rename a tab by double-clicking it or pressing F2. On Windows/Linux, Ctrl+C, Ctrl+D,

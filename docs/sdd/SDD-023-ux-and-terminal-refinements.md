@@ -1,7 +1,58 @@
 # SDD-023 — UX & Terminal Refinements
 
-Status: Task A02 implemented (PLAN-050 revision 1). Task A01 (split terminals keep their
-context) was PLAN-045. Other tasks need their own plans.
+Status: Task A02 implemented (PLAN-050 revision 1). Task A03 implemented (PLAN-052
+revision 1). Task A01 (split terminals keep their context) was PLAN-045. Other tasks need
+their own plans.
+
+## Task A03 — Project palette and Projects drawer
+
+Approved 2026-10-27 by Anderson Andrade ("opde seguir, q1 vai para gaveta também, q2
+recomendado, q3 servem porém também preciso de um ícone para fazer isso, sempre vai ser
+comando + manual action nunca somente atalho"). R1–R5 were presented but not acknowledged by
+ID. Version 0.38.0, no schema change.
+
+The Terminals sidebar lists only terminal groups and open terminals, so sharing the screen
+does not show every registered project. Projects are reached on demand:
+
+- **Projects drawer** (right side, overlay): every project as an accordion. The header shows
+  availability, name, Git status badge and commits to push/pull. Expanded, it lists the
+  project actions: Open terminal, Project details, Refresh Git status, Pause/Resume Git
+  monitoring and the project's quick commands (read from the Engine on each expansion). A
+  filter field narrows the list. **Pending push** (SDD-024 Task 02) moved here (Q1).
+- **Project palette** (floating): search a project, then one of its actions. Arrow keys move,
+  Enter chooses; Escape, or Backspace in an empty search, goes back from the actions to the
+  projects; Escape on the projects closes it. With an empty search it shows **Recently
+  opened** projects (opened a terminal or ran a quick command), kept in memory only (Q2):
+  the list is empty after a restart.
+- Search ignores case and accents; names starting with the query come first.
+- Every shortcut also has a button (Q3): the search and panel icons in the sidebar header
+  (and next to the group selector in narrow windows).
+
+| Action          | macOS | Windows / Linux  |
+| --------------- | ----- | ---------------- |
+| Search projects | ⌘P    | Ctrl+Shift+P     |
+| Projects panel  | ⇧⌘P   | Ctrl+Alt+Shift+P |
+
+From another view, either shortcut switches to Terminals first. Actions that open a terminal
+or a sheet run after the drawer or palette closed, so the new terminal keeps the keyboard.
+The former per-project "…" menu of the sidebar was replaced by the drawer and the palette;
+both use one `useProjectActions` hook.
+
+### Tests
+
+- `apps/desktop/tests/project-navigation.test.ts`: filtering (case, accents, order, literal
+  text) and the recently opened list (order, duplicates, limit).
+- `tests/e2e/project-navigation.spec.ts`: the sidebar does not list projects; palette by
+  button and shortcut, keyboard only, back navigation, recently opened; drawer by shortcut
+  from another view, filter, Escape, Project details.
+- Updated for the drawer: `quick-commands`, `git-monitoring`, `workspace` and `pending-push`
+  E2E specs, and the `openProjectTerminal` fixture.
+
+### Known limitations
+
+- Recently opened projects are not persisted (Q2).
+- Ctrl+Shift+P on Windows/Linux is taken by the application menu, so a terminal program
+  that binds it does not receive it.
 
 ## Task A02 — Intelligent terminal tab status
 

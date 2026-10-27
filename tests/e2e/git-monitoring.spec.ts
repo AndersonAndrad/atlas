@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
-import { expect, test } from './fixtures';
+import { expect, openProjectsDrawer, projectActions, test } from './fixtures';
 
 /** A repository with one commit, one modified and one untracked file (no upstream). */
 function dirtyRepository(dir: string, home: string) {
@@ -15,8 +15,12 @@ function dirtyRepository(dir: string, home: string) {
   writeFileSync(path.join(dir, 'notes.txt'), 'new\n');
 }
 
-const sidebarBadge = (page: Page, name: string) =>
-  page.getByTestId('sidebar-project').filter({ hasText: name }).getByTestId('project-git-badge');
+const drawerBadge = (page: Page, name: string) =>
+  page
+    .getByTestId('projects-drawer')
+    .getByTestId('drawer-project')
+    .filter({ hasText: name })
+    .getByTestId('project-git-badge');
 
 async function openTerminals(page: Page) {
   await page
@@ -59,17 +63,17 @@ test('project badges follow monitoring, paused projects keep a cached status and
   // No background check while paused: a new file is not seen until an explicit refresh.
   writeFileSync(path.join(repo, 'more.txt'), 'more\n');
   await openTerminals(page);
-  const badge = sidebarBadge(page, 'repo');
+  await openProjectsDrawer(page);
+  const badge = drawerBadge(page, 'repo');
   await expect(badge).toHaveAttribute('data-freshness', 'cached');
   await page.waitForTimeout(2_000);
   await expect(badge.getByTestId('git-changes-count')).toHaveText('2');
 
-  await page.getByRole('button', { name: 'Project actions for repo' }).click();
-  const menu = page.getByTestId('project-actions-menu');
-  await menu.getByRole('menuitem', { name: 'Refresh Git status' }).click();
+  let actions = await projectActions(page, 'repo');
+  await actions.getByRole('button', { name: 'Refresh Git status' }).click();
   await expect(badge.getByTestId('git-changes-count')).toHaveText('3');
   // The preference did not change.
-  await expect(menu.getByRole('menuitem', { name: 'Resume Git monitoring' })).toBeVisible();
+  await expect(actions.getByRole('button', { name: 'Resume Git monitoring' })).toBeVisible();
   await expect(badge).toHaveAttribute('data-freshness', 'cached');
   await page.keyboard.press('Escape');
 
@@ -77,16 +81,14 @@ test('project badges follow monitoring, paused projects keep a cached status and
   await first.app.close();
   ({ page } = await atlas.launch());
   await openTerminals(page);
-  const restored = sidebarBadge(page, 'repo');
+  await openProjectsDrawer(page);
+  const restored = drawerBadge(page, 'repo');
   await expect(restored).toHaveAttribute('data-freshness', 'cached', { timeout: 15_000 });
   await expect(restored.getByTestId('git-changes-count')).toHaveText('3');
 
-  // Resuming from the menu makes it live again.
-  await page.getByRole('button', { name: 'Project actions for repo' }).click();
-  await page
-    .getByTestId('project-actions-menu')
-    .getByRole('menuitem', { name: 'Resume Git monitoring' })
-    .click();
+  // Resuming from the project's actions makes it live again.
+  actions = await projectActions(page, 'repo');
+  await actions.getByRole('button', { name: 'Resume Git monitoring' }).click();
   await expect(restored).toHaveAttribute('data-freshness', 'live', { timeout: 15_000 });
 });
 

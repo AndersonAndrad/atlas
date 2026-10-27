@@ -8,7 +8,7 @@ import type {
   ProjectGitState,
 } from '@atlas/contracts';
 import { ChevronDown, ChevronRight, GitCommitHorizontal, RefreshCw, Upload } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { api, errorMessage, unwrap } from '@/api';
 import { relativeTime } from '@/components/git/git-format';
 import { Button } from '@/components/ui/button';
@@ -43,6 +43,23 @@ interface Group {
 }
 
 /**
+ * Reads the project's Git state again once the push job finished. Monitored projects are
+ * refreshed by the Engine; this also updates a paused project's stored list (the user asked
+ * for it). Not tied to the section, which unmounts when the Projects drawer closes (PLAN-052).
+ */
+function refreshWhenJobEnds(jobId: string, projectId: string): void {
+  const unsubscribe = onTerminalLifecycle((event) => {
+    if (event.type !== 'jobs' || event.job.id !== jobId) return;
+    if (!isFinalJobStatus(event.job.status)) return;
+    unsubscribe();
+    unwrap(api().git.refreshProject(projectId)).then(
+      ({ state }) => putProjectGitState(state),
+      () => undefined,
+    );
+  });
+}
+
+/**
  * Local commits not pushed to their upstream, across projects (SDD-024 Task 02). Rendered
  * from stored snapshots: showing it never runs Git. Refresh, Load more and Push are explicit.
  */
@@ -51,21 +68,10 @@ export function PendingPushSection({ projects }: { projects: ProjectDetails[] })
   const [collapsed, setCollapsed] = useState(false);
   /** The last push handed to the Engine; it keeps running after its dialog closed. */
   const [submitted, setSubmitted] = useState<BackgroundJob | null>(null);
-  const submittedId = submitted?.id ?? null;
-  const submittedProject = submitted?.projectId ?? null;
-  useEffect(() => {
-    if (submittedId === null || submittedProject === null) return;
-    // Monitored projects are refreshed by the Engine after the push; reading again once the
-    // job finished also updates a paused project's stored list (the user asked for it).
-    return onTerminalLifecycle((event) => {
-      if (event.type !== 'jobs' || event.job.id !== submittedId) return;
-      if (!isFinalJobStatus(event.job.status)) return;
-      unwrap(api().git.refreshProject(submittedProject)).then(
-        ({ state }) => putProjectGitState(state),
-        () => undefined,
-      );
-    });
-  }, [submittedId, submittedProject]);
+  const onSubmitted = useCallback((job: BackgroundJob) => {
+    setSubmitted(job);
+    if (job.projectId !== null) refreshWhenJobEnds(job.id, job.projectId);
+  }, []);
 
   const groups: Group[] = [];
   let upToDate = 0;
@@ -132,11 +138,7 @@ export function PendingPushSection({ projects }: { projects: ProjectDetails[] })
             </p>
           ) : (
             groups.map((group) => (
-              <PendingProject
-                key={group.item.project.id}
-                group={group}
-                onSubmitted={setSubmitted}
-              />
+              <PendingProject key={group.item.project.id} group={group} onSubmitted={onSubmitted} />
             ))
           )}
           {upToDate > 0 && (

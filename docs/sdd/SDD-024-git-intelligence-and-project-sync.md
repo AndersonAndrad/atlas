@@ -161,6 +161,10 @@ Rendering a badge never runs Git.
 
 ## Task 02 — Pending Push sidebar
 
+> Amendment 2026-10-27 (PLAN-052, SDD-023 Task A03): the project list with its badges and
+> the Pending push section moved from the Terminals sidebar to the Projects drawer. Their
+> behavior is unchanged.
+
 Approved 2026-10-27 by Anderson Andrade: "aprovo PLAN-048 rev 1, q1–q3 recomendado, ciente
 R1–R6". Version 0.34.0, schema v18.
 

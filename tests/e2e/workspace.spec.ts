@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Locator, Page } from '@playwright/test';
 import type { TerminalSession } from '@atlas/contracts';
-import { expect, test, openProjectTerminal } from './fixtures';
+import { expect, test, openProjectTerminal, openProjectsDrawer } from './fixtures';
 
 // SDD-003 Milestone A: standalone terminals, names, groups, Git and version.
 // Repositories are created in temporary directories with a temporary HOME.
@@ -215,19 +215,20 @@ test('shows Git details for projects and terminals, and plain folders without Gi
   await expect(page.getByTestId('atlas-logo')).toBeVisible();
   await expect(page).toHaveTitle('A.T.L.A.S — Autonomous Task Leadership & Agent System');
 
-  // Sidebar projects: commits to push/pull; nothing for plain folders.
+  // Drawer projects: commits to push/pull; nothing for plain folders.
   await openTerminals(page);
-  const novaSync = page
-    .getByTestId('sidebar-project')
+  const drawer = await openProjectsDrawer(page);
+  const novaSync = drawer
+    .getByTestId('drawer-project')
     .filter({ hasText: 'nova' })
-    .getByTestId('sidebar-project-sync');
+    .getByTestId('drawer-project-sync');
   await expect(novaSync.getByTestId('git-ahead')).toContainText('1');
   await expect(novaSync.getByTestId('git-behind')).toContainText('0');
   await expect(
-    page
-      .getByTestId('sidebar-project')
+    drawer
+      .getByTestId('drawer-project')
       .filter({ hasText: 'plain' })
-      .getByTestId('sidebar-project-sync'),
+      .getByTestId('drawer-project-sync'),
   ).toHaveCount(0);
 
   // Terminal header: branch, modified count, ahead/behind; nothing for plain folders.

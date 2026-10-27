@@ -615,6 +615,8 @@ export const APP_COMMANDS = [
   'view.terminals',
   'view.sessions',
   'view.git',
+  'projects.palette',
+  'projects.drawer',
   'terminal.new',
   'terminal.close',
   'terminal.next',

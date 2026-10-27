@@ -25,9 +25,13 @@ import type { TerminalSessionsState } from '../hooks/useTerminalSessions';
 import { CloseTerminalDialog } from './CloseTerminalDialog';
 import { DeleteGroupDialog } from './DeleteGroupDialog';
 import { NameDialog } from './NameDialog';
+import { ProjectCommandPalette } from './ProjectCommandPalette';
 import { ProjectSheet, type ProjectSheetRequest } from './ProjectSheet';
+import { ProjectsDrawer } from './ProjectsDrawer';
+import { ProjectNavigationButtons } from './ProjectNavigationButtons';
 import { TerminalSidebar, membersOf } from './TerminalSidebar';
 import type { TerminalContextAction } from './TerminalPane';
+import { markProjectRecent } from '../state/project-navigation';
 import { TerminalWorkspace } from './TerminalWorkspace';
 
 interface TerminalsViewProps {
@@ -39,6 +43,9 @@ interface TerminalsViewProps {
   openRequest: { projectId: string; nonce: number } | null;
   /** Called once the request was taken, so it is not replayed when the view mounts again. */
   onOpenRequestHandled: () => void;
+  /** Show the project palette or drawer once the view is shown (menu shortcut, PLAN-052). */
+  projectsRequest: ProjectsNavigationRequest | null;
+  onProjectsRequestHandled: () => void;
   subscribeCommands: (handler: (command: AppCommand) => void) => () => void;
   /** Opens the Git view on a terminal's repository. */
   onOpenGit: (terminalId: string) => void;
@@ -46,6 +53,11 @@ interface TerminalsViewProps {
   onOpenPreflight: (terminalId: string) => void;
   /** Shared context actions requested from a terminal. */
   onContextAction: (terminalId: string, action: TerminalContextAction) => void;
+}
+
+export interface ProjectsNavigationRequest {
+  surface: 'palette' | 'drawer';
+  nonce: number;
 }
 
 type NameDialogState =
@@ -69,6 +81,8 @@ export function TerminalsView({
   preferences,
   openRequest,
   onOpenRequestHandled,
+  projectsRequest,
+  onProjectsRequestHandled,
   subscribeCommands,
   onOpenGit,
   onOpenPreflight,
@@ -84,6 +98,7 @@ export function TerminalsView({
   const [deleteGroup, setDeleteGroup] = useState<TerminalGroup | null>(null);
   const [sheet, setSheet] = useState<ProjectSheetRequest | null>(null);
   const [pendingClose, setPendingClose] = useState<PendingClose | null>(null);
+  const [projectSurface, setProjectSurface] = useState<'palette' | 'drawer' | null>(null);
 
   const sessions = useMemo(() => terminals.sessions ?? [], [terminals.sessions]);
   const groupList = groups.groups ?? [];
@@ -118,6 +133,7 @@ export function TerminalsView({
 
   const openInProject = useCallback(
     async (projectId: string) => {
+      markProjectRecent(projectId);
       const session = await run(() =>
         unwrap(
           api().terminals.create({
@@ -136,6 +152,7 @@ export function TerminalsView({
   /** Opens a terminal in the project that runs the quick command (PLAN-023). */
   const runQuickCommand = useCallback(
     async (projectId: string, commandId: string) => {
+      markProjectRecent(projectId);
       const session = await run(() =>
         unwrap(
           api().quickCommands.run({
@@ -160,6 +177,17 @@ export function TerminalsView({
     onOpenRequestHandled();
     void openInProject(openRequest.projectId);
   }, [onOpenRequestHandled, openInProject, openRequest]);
+
+  // A menu shortcut asked for the project palette or drawer.
+  const handledProjectsRequest = useRef<number | null>(null);
+  useEffect(() => {
+    if (projectsRequest === null || projectsRequest.nonce === handledProjectsRequest.current) {
+      return;
+    }
+    handledProjectsRequest.current = projectsRequest.nonce;
+    onProjectsRequestHandled();
+    setProjectSurface(projectsRequest.surface);
+  }, [onProjectsRequestHandled, projectsRequest]);
 
   /** Closing terminates the process; asks first when a program is running. */
   const requestClose = useCallback(
@@ -200,6 +228,13 @@ export function TerminalsView({
   const updateSession = (action: () => Promise<TerminalSession>) =>
     void run(async () => terminals.upsert(await action()));
 
+  const projectNavigation = {
+    onOpenTerminal: (projectId: string) => void openInProject(projectId),
+    onRunQuickCommand: (projectId: string, commandId: string) =>
+      void runQuickCommand(projectId, commandId),
+    onProjectInfo: (projectId: string) => setSheet({ kind: 'project', projectId }),
+  };
+
   const workspaceSessions = membersOf(sessions, activeGroup ? activeGroup.id : null);
 
   return (
@@ -238,16 +273,16 @@ export function TerminalsView({
           }
           onCloseTerminal={(session) => void requestClose(session.id)}
           onProjectInfo={(projectId) => setSheet({ kind: 'project', projectId })}
-          onNewTerminalInProject={(projectId) => void openInProject(projectId)}
-          onRunQuickCommand={(projectId, commandId) => void runQuickCommand(projectId, commandId)}
+          onSearchProjects={() => setProjectSurface('palette')}
+          onShowProjects={() => setProjectSurface('drawer')}
         />
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* Compact workspace switcher for narrow windows. */}
-        <div className="border-b p-2 md:hidden">
+        <div className="flex items-center gap-1 border-b p-2 md:hidden">
           <Select value={workspaceKey} onValueChange={selectWorkspace}>
-            <SelectTrigger className="w-full" aria-label="Terminal group">
+            <SelectTrigger className="min-w-0 flex-1" aria-label="Terminal group">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -259,6 +294,10 @@ export function TerminalsView({
               <SelectItem value={UNGROUPED_WORKSPACE}>Ungrouped</SelectItem>
             </SelectContent>
           </Select>
+          <ProjectNavigationButtons
+            onSearch={() => setProjectSurface('palette')}
+            onShowDrawer={() => setProjectSurface('drawer')}
+          />
         </div>
 
         {(error ?? terminals.error ?? groups.error) && (
@@ -351,6 +390,19 @@ export function TerminalsView({
           onClose={() => setDeleteGroup(null)}
         />
       )}
+
+      <ProjectsDrawer
+        open={projectSurface === 'drawer'}
+        onOpenChange={(open) => setProjectSurface(open ? 'drawer' : null)}
+        projects={projectList}
+        {...projectNavigation}
+      />
+      <ProjectCommandPalette
+        open={projectSurface === 'palette'}
+        onOpenChange={(open) => setProjectSurface(open ? 'palette' : null)}
+        projects={projectList}
+        {...projectNavigation}
+      />
 
       {sheet && (
         <ProjectSheet

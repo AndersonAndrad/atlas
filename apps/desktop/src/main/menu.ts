@@ -52,6 +52,22 @@ const VIEW_SHORTCUTS: readonly ShortcutDefinition[] = [
   { command: 'view.git', label: 'Git', mac: 'Cmd+Shift+G', other: 'Ctrl+Shift+G' },
 ];
 
+/** Project navigation (PLAN-052); each one also has a button in the Terminals view. */
+const PROJECT_SHORTCUTS: readonly ShortcutDefinition[] = [
+  {
+    command: 'projects.palette',
+    label: 'Search Projects…',
+    mac: 'Cmd+P',
+    other: 'Ctrl+Shift+P',
+  },
+  {
+    command: 'projects.drawer',
+    label: 'Show Projects Panel',
+    mac: 'Cmd+Shift+P',
+    other: 'Ctrl+Alt+Shift+P',
+  },
+];
+
 export interface MenuOptions {
   platform: NodeJS.Platform;
   appName: string;
@@ -149,6 +165,8 @@ export function buildMenuTemplate(options: MenuOptions): MenuItemConstructorOpti
       label: 'View',
       submenu: [
         ...VIEW_SHORTCUTS.map(item),
+        { type: 'separator' },
+        ...PROJECT_SHORTCUTS.map(item),
         { type: 'separator' },
         find('terminal.fontIncrease'),
         find('terminal.fontDecrease'),
