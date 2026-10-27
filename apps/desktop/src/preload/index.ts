@@ -91,6 +91,11 @@ const api: AtlasApi = {
   git: {
     project: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.projectGit, projectId),
     projectStates: () => ipcRenderer.invoke(IPC_CHANNELS.projectGitStates),
+    globalIdentity: () => ipcRenderer.invoke(IPC_CHANNELS.globalGitIdentity),
+    setGlobalIdentity: (input) => ipcRenderer.invoke(IPC_CHANNELS.setGlobalGitIdentity, input),
+    projectIdentity: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.projectGitIdentity, projectId),
+    setProjectIdentity: (projectId, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.setProjectGitIdentity, projectId, input),
     refreshProject: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.refreshProjectGit, projectId),
     pendingCommits: (projectId, skip) =>
       ipcRenderer.invoke(IPC_CHANNELS.pendingCommits, projectId, skip),

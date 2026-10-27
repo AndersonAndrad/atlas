@@ -241,8 +241,12 @@ import type {
   GitStatus,
   GitSwitchBranchInput,
   GitWorkingTree,
+  GitIdentityValues,
   PendingCommitsPage,
+  ProjectGitIdentity,
   ProjectGitRefreshResult,
+  SetGlobalGitIdentity,
+  SetProjectGitIdentity,
   ProjectGitSettings,
   ProjectGitState,
   StoredGitPreferences,
@@ -324,6 +328,10 @@ export const IPC_CHANNELS = {
   markTerminalReviewed: 'atlas:terminals:mark-reviewed',
   projectGit: 'atlas:git:project',
   projectGitStates: 'atlas:git:project-states',
+  globalGitIdentity: 'atlas:git:global-identity',
+  setGlobalGitIdentity: 'atlas:git:set-global-identity',
+  projectGitIdentity: 'atlas:git:project-identity',
+  setProjectGitIdentity: 'atlas:git:set-project-identity',
   refreshProjectGit: 'atlas:git:refresh-project',
   pendingCommits: 'atlas:git:pending-commits',
   setProjectGitMonitoring: 'atlas:git:set-project-monitoring',
@@ -735,6 +743,16 @@ export interface AtlasApi {
   };
   git: {
     project(projectId: string): Promise<IpcResult<GitStatus>>;
+    /** Global `user.name` / `user.email` with their file (SDD-024 Task 03). */
+    globalIdentity(): Promise<IpcResult<GitIdentityValues>>;
+    setGlobalIdentity(input: SetGlobalGitIdentity): Promise<IpcResult<GitIdentityValues>>;
+    /** Effective identity of a project's repository, its overrides and shell variables. */
+    projectIdentity(projectId: string): Promise<IpcResult<ProjectGitIdentity>>;
+    /** A string sets the repository's own value; null removes it. */
+    setProjectIdentity(
+      projectId: string,
+      input: SetProjectGitIdentity,
+    ): Promise<IpcResult<ProjectGitIdentity>>;
     /** Stored Git state of every project; never runs Git (SDD-024). */
     projectStates(): Promise<IpcResult<ProjectGitState[]>>;
     /** Reads a project's Git status now, even when monitoring is off. */

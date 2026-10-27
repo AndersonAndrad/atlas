@@ -227,6 +227,11 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     'terminals.markReviewed': ([terminalId]: [string]) => engine.markTerminalReviewed(terminalId),
     'git.project': ([projectId]: [string]) => engine.projectGit(projectId),
     'git.projectStates': () => engine.projectGitMonitor.states(),
+    'git.globalIdentity': () => engine.gitIdentity.global(),
+    'git.setGlobalIdentity': ([input]: [unknown]) => engine.gitIdentity.setGlobal(input),
+    'git.projectIdentity': ([projectId]: [string]) => engine.projectGitIdentity(projectId),
+    'git.setProjectIdentity': ([projectId, input]: [string, unknown]) =>
+      engine.setProjectGitIdentity(projectId, input),
     'git.refreshProject': ([projectId]: [string]) => engine.projectGitMonitor.refresh(projectId),
     'git.pendingCommits': ([projectId, skip]: [string, number]) =>
       engine.projectGitMonitor.pendingCommitsPage(projectId, skip),

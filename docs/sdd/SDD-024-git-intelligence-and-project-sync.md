@@ -1,6 +1,6 @@
 # SDD-024 — Git Intelligence & Project Sync
 
-Status: Task 01 (PLAN-047 revision 1) and Task 02 (PLAN-048 revision 1) implemented. Later
+Status: Task 01 (PLAN-047), Task 02 (PLAN-048) and Task 03 (PLAN-051) implemented. Later
 tasks need their own plans.
 
 ## Task 01 — Per-project Git monitoring and status badges
@@ -270,3 +270,90 @@ An empty list is shown as "up to date" only in the `ok` state.
 - Only the first 50 commits are stored. More are read on request.
 - A refresh made outside the desktop app (CLI) reaches the window only on its next refresh.
 - Rolling back to 0.33.x needs a database copy taken before 0.34.0 first ran (schema v18).
+
+## Task 03 — Git identity management
+
+Approved 2026-10-27 by Anderson Andrade ("pode seguir, q1 a q3 pode seguir com o
+recomendavel"). R1–R5 were presented but not acknowledged by ID. Version 0.37.0. No schema
+change: the identity lives in Git's own configuration.
+
+### Decisions (Q1–Q3)
+
+- **Q1:** an email without "@" is accepted (Git accepts it); the window shows a warning.
+- **Q2:** environment overrides are detected in the shell environment new terminals get. This
+  is the same environment the commit flow reads.
+- **Q3:** the global identity is in Settings → Git. The project identity is in the project
+  details, **Commit checks** tab.
+
+### Behavior
+
+- `GitIdentityService` (`packages/git/src/identity.ts`) runs `git config` through the Git
+  executor: no shell, arguments only, no prompts.
+  - **Global:** read with `config -z --global --show-origin --get`, written with
+    `config --global user.name|user.email`. Only on Save.
+  - **Effective, per project:** `config -z --show-scope --show-origin --get` in the project's
+    repository, so Git applies its own precedence: local, worktree, includes and
+    `includeIf`, global, system and command line. The UI shows the value, its scope and the
+    file it came from, including an included file such as `~/.gitconfig-work`.
+  - **Local overrides:** read with `config -z --local --get`. Written with
+    `config --local …`, or removed with `--unset-all`, where exit code 5 (nothing to remove)
+    is not an error.
+- **Which repository is written:** the Engine resolves it from the project id. Its folder
+  must be available and be a Git repository; otherwise `GIT_REPOSITORY_UNAVAILABLE`. Clients
+  never pass a path. Local values apply to the whole repository and its worktrees, and the
+  UI names the repository.
+- **Environment:** `GIT_AUTHOR_*`, `GIT_COMMITTER_*`, `EMAIL` and `GIT_CONFIG_*` in the shell
+  environment of new terminals are reported, because they change commits made in terminals.
+  ATLAS's own commits never inherit `GIT_*` variables: the Git executor removes them. They
+  therefore use the configured identity.
+- **Validation:**
+  - Names: 1–200 characters after trimming; no control characters, `<` or `>`.
+  - Emails: 1–254 characters; no whitespace, control characters, `<` or `>`.
+- **Failures:** a broken or locked configuration file gives `GIT_CONFIG_FAILED` with a short
+  message; nothing is partially written by ATLAS. A broken repository configuration makes the
+  repository unreadable, so the project's identity reports `GIT_REPOSITORY_UNAVAILABLE`.
+- **Safety:** commits are never created, amended or rewritten. Opening a project or Settings
+  only reads.
+- **After a save:** the Engine drops cached Git status and tells clients, so the Git details
+  show the new identity.
+
+### Contracts
+
+- Engine methods:
+  - `git.globalIdentity`
+  - `git.setGlobalIdentity({ name, email })`
+  - `git.projectIdentity(projectId)`
+  - `git.setProjectIdentity(projectId, { name?, email? })`, where `null` removes an
+    override and an absent field leaves it.
+- Types: `GitConfigValue` (value, scope, origin), `ProjectGitIdentity` (effective, local,
+  environment, `environmentChecked`).
+- New error code `GIT_CONFIG_FAILED`.
+
+### Tests
+
+- `apps/engine/tests/git-identity.test.ts`, with real Git and an isolated HOME:
+  - global read and write with its file;
+  - inheritance, local override, removal, removing a missing override, and a commit
+    authored with the override while HEAD stays unchanged;
+  - `includeIf "gitdir:"` resolved to the included file;
+  - validation;
+  - projects without a repository, unknown projects;
+  - a broken global file (`GIT_CONFIG_FAILED`, file unchanged);
+  - a broken repository configuration;
+  - shell variables not checked without terminals;
+  - `identityOverrides`.
+- `tests/e2e/git-identity.spec.ts`:
+  - global save with the email warning;
+  - the project inherits, overrides and uses the inherited value again;
+  - values verified with `git config`.
+
+### Known limitations
+
+- Settings shows the plain global value. `includeIf` conditions that depend on a repository
+  apply only in the project view.
+- System-level configuration (`/etc/gitconfig`) is shown when it decides the effective value,
+  but ATLAS never writes it.
+- Reading the shell environment for the project view starts a login shell, which takes up to
+  about a second.
+- Removing the global identity is not offered; edit it or remove it with
+  `git config --global --unset`.

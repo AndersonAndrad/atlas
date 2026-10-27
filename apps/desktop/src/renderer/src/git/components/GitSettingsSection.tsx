@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { INVALID_PREFERENCES_MESSAGE } from '../format';
 import { createSaveQueue } from '../save-queue';
+import { GlobalGitIdentitySection } from './GitIdentitySection';
 
 const parseTypes = (value: string) =>
   value
@@ -258,6 +259,7 @@ export function GitSettingsSection() {
               </span>
             )}
           </div>
+          <GlobalGitIdentitySection />
         </>
       )}
     </section>

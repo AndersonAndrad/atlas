@@ -23,6 +23,7 @@ import {
   type Project,
   type ProjectConfigView,
   type TerminalGitContext,
+  type ProjectGitIdentity,
   type TerminalActivitySummary,
   type TerminalLlmUsage,
   type TerminalPreferences,
@@ -95,6 +96,7 @@ import {
   GitOperationLog,
   GitPreferencesStore,
   GitWorkspaceService,
+  GitIdentityService,
   ProjectGitMonitor,
   ProjectGitSettingsStore,
   RepositoryEvidence,
@@ -299,6 +301,12 @@ export interface Engine {
   updateProject(id: string, input: UpdateProjectInput): Promise<Project>;
   /** Per-project Git monitoring and stored snapshots (SDD-024). */
   readonly projectGitMonitor: ProjectGitMonitor;
+  /** Global Git author identity (SDD-024 Task 03). */
+  readonly gitIdentity: GitIdentityService;
+  /** The identity Git uses in a project's repository, its overrides and shell variables. */
+  projectGitIdentity(projectId: string): Promise<ProjectGitIdentity>;
+  /** Sets or removes the project repository's own `user.name` / `user.email`. */
+  setProjectGitIdentity(projectId: string, input: unknown): Promise<ProjectGitIdentity>;
   /** Git state following a terminal's current working directory. */
   terminalGit(terminalId: string): Promise<TerminalGitContext>;
   /** The LLM open in the terminal and its session window (PLAN-031); null when none. */
@@ -677,6 +685,36 @@ export function createEngine(options: EngineOptions = {}): Engine {
     },
   });
   const gitPreferences = new GitPreferencesStore(settings, logger);
+  // Author identity in Git's configuration (SDD-024 Task 03).
+  const gitIdentity = new GitIdentityService({
+    exec: gitExecutor,
+    homeDirectory,
+    ...(commitEnvironment === undefined
+      ? {}
+      : {
+          // The variables new terminals get: they decide the identity of commits made there.
+          shellEnvironment: async (directory: string) => {
+            const shell = await commitEnvironment(directory);
+            return shell.warning === null ? shell.env : null;
+          },
+        }),
+    onChanged: (repositoryRoot) => {
+      if (repositoryRoot === null) {
+        git.invalidate();
+        return;
+      }
+      git.invalidate(repositoryRoot);
+      repositoryChanged(repositoryRoot);
+    },
+  });
+  /** The repository of a project, resolved by the Engine (never a client path). */
+  const projectRepositoryRoot = async (projectId: string): Promise<string> => {
+    const { project, availability } = await projects.getDetails(projectId);
+    if (availability.status !== 'available') throw new AtlasError('GIT_REPOSITORY_UNAVAILABLE');
+    const status = await git.inspect(project.workspacePath, { fresh: true });
+    if (status.state !== 'repository') throw new AtlasError('GIT_REPOSITORY_UNAVAILABLE');
+    return status.snapshot.repositoryRoot;
+  };
   const skills = new SkillsHub({
     repository: new SqliteSkillRepository(db),
     fs: new NodeSkillFileSystem(env),
@@ -1374,6 +1412,11 @@ export function createEngine(options: EngineOptions = {}): Engine {
     quickCommands,
     gitPreferences,
     projectGitMonitor,
+    gitIdentity,
+    projectGitIdentity: async (projectId) =>
+      gitIdentity.project(projectId, await projectRepositoryRoot(projectId)),
+    setProjectGitIdentity: async (projectId, input) =>
+      gitIdentity.setProject(projectId, await projectRepositoryRoot(projectId), input),
     projectGitSettings,
     gitRepositories: discoverRepositories,
     gitCommitContext: async (repositoryRoot) => ({

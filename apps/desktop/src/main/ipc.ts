@@ -22,6 +22,8 @@ import {
   GitPathsInputSchema,
   GitPullInputSchema,
   PendingCommitsSkipSchema,
+  SetGlobalGitIdentitySchema,
+  SetProjectGitIdentitySchema,
   GitPushInputSchema,
   GitRenameBranchInputSchema,
   GitRepositoryRootSchema,
@@ -812,6 +814,18 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     );
   gitCall(IPC_CHANNELS.gitRepositories, NoArgs, 'git.repositories');
   gitCall(IPC_CHANNELS.projectGitStates, NoArgs, 'git.projectStates');
+  gitCall(IPC_CHANNELS.globalGitIdentity, NoArgs, 'git.globalIdentity');
+  gitCall(
+    IPC_CHANNELS.setGlobalGitIdentity,
+    z.tuple([SetGlobalGitIdentitySchema]),
+    'git.setGlobalIdentity',
+  );
+  gitCall(IPC_CHANNELS.projectGitIdentity, IdArgs, 'git.projectIdentity');
+  gitCall(
+    IPC_CHANNELS.setProjectGitIdentity,
+    z.tuple([ProjectIdSchema, SetProjectGitIdentitySchema]),
+    'git.setProjectIdentity',
+  );
   gitCall(IPC_CHANNELS.refreshProjectGit, IdArgs, 'git.refreshProject');
   gitCall(
     IPC_CHANNELS.pendingCommits,

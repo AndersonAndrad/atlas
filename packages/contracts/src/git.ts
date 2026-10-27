@@ -791,3 +791,86 @@ export const GitCommitFilesInputSchema = z.strictObject({
   hash: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, 'Invalid commit hash.'),
 });
 export type GitCommitFilesInput = z.infer<typeof GitCommitFilesInputSchema>;
+
+// ---------------------------------------------------------------------------
+// Git identity (SDD-024 Task 03)
+// ---------------------------------------------------------------------------
+
+/** Where Git found a value (`git config --show-scope`). */
+export type GitConfigScope = 'local' | 'worktree' | 'global' | 'system' | 'command' | 'unknown';
+
+export interface GitConfigValue {
+  value: string;
+  scope: GitConfigScope;
+  /** The file (or "command line") Git read it from, e.g. an included file. */
+  origin: string | null;
+}
+
+export interface GitIdentityValues {
+  name: GitConfigValue | null;
+  email: GitConfigValue | null;
+}
+
+/** An environment variable of new terminals that changes the identity of commits there. */
+export interface GitIdentityEnvironmentOverride {
+  variable: string;
+  /** Shown for author/committer names and emails; null for configuration variables. */
+  value: string | null;
+  affects: 'name' | 'email' | 'configuration';
+}
+
+export interface ProjectGitIdentity {
+  projectId: string;
+  /** Local values apply to this whole repository (and its worktrees). */
+  repositoryRoot: string;
+  /** As Git resolves it in the repository: local, includes, global, system, command line. */
+  effective: GitIdentityValues;
+  /** The repository's own overrides; null when inherited. */
+  local: { name: string | null; email: string | null };
+  /** Variables of the shell environment of new terminals (not of ATLAS's own commits). */
+  environment: GitIdentityEnvironmentOverride[];
+  /** False when the shell environment could not be read. */
+  environmentChecked: boolean;
+}
+
+/** Control characters (including line breaks) and angle brackets break Git's author line. */
+const hasForbiddenIdentityCharacter = (value: string) =>
+  [...value].some((character) => character < ' ' || character === '<' || character === '>');
+
+export const GitIdentityNameSchema = z
+  .string()
+  .trim()
+  .min(1, 'Enter a name.')
+  .max(200, 'Use at most 200 characters.')
+  .refine(
+    (value) => !hasForbiddenIdentityCharacter(value),
+    'Names cannot contain <, > or line breaks.',
+  );
+
+/** Permissive on purpose: Git accepts addresses without "@"; the UI warns about them. */
+export const GitIdentityEmailSchema = z
+  .string()
+  .trim()
+  .min(1, 'Enter an email.')
+  .max(254, 'Use at most 254 characters.')
+  .refine(
+    (value) => !hasForbiddenIdentityCharacter(value) && !/\s/.test(value),
+    'Emails cannot contain spaces, <, > or line breaks.',
+  );
+
+export const SetGlobalGitIdentitySchema = z.strictObject({
+  name: GitIdentityNameSchema,
+  email: GitIdentityEmailSchema,
+});
+export type SetGlobalGitIdentity = z.input<typeof SetGlobalGitIdentitySchema>;
+
+/** A string sets the local override; null removes it (inherit again); absent leaves it. */
+export const SetProjectGitIdentitySchema = z
+  .strictObject({
+    name: GitIdentityNameSchema.nullable().optional(),
+    email: GitIdentityEmailSchema.nullable().optional(),
+  })
+  .refine((input) => input.name !== undefined || input.email !== undefined, {
+    message: 'Change the name, the email or both.',
+  });
+export type SetProjectGitIdentity = z.input<typeof SetProjectGitIdentitySchema>;

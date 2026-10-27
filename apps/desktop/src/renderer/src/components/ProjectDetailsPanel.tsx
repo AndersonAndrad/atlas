@@ -16,6 +16,7 @@ import { api, errorMessage, unwrap } from '@/api';
 import { putProjectGitState, useProjectGitState } from '@/git/state/project-git-states';
 import { useProjectGit } from '@/terminal/hooks/useGitStatus';
 import { CommitSettingsForm } from '@/git/components/CommitSettingsForm';
+import { ProjectGitIdentitySection } from '@/git/components/GitIdentitySection';
 import { ProjectAiSettings } from '@/context/components/ProjectAiSettings';
 import { ProjectQuickCommands } from '@/quick-commands/components/ProjectQuickCommands';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -238,7 +239,7 @@ export function ProjectDetailsPanel({
             {overview}
           </TabsContent>
           {isRepository && (
-            <TabsContent value="commit-checks" className="pt-2">
+            <TabsContent value="commit-checks" className="flex flex-col gap-4 pt-2">
               <section
                 className="flex flex-col gap-3 rounded-lg border p-4"
                 aria-labelledby="commit-checks-title"
@@ -248,6 +249,7 @@ export function ProjectDetailsPanel({
                 </h3>
                 <CommitSettingsForm key={project.id} projectId={project.id} />
               </section>
+              <ProjectGitIdentitySection key={project.id} projectId={project.id} />
             </TabsContent>
           )}
           <TabsContent value="ai-context" className="pt-2">

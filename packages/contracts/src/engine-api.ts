@@ -72,6 +72,10 @@ import {
   type GitStatus,
   type GitWorkingTree,
   PendingCommitsSkipSchema,
+  SetGlobalGitIdentitySchema,
+  SetProjectGitIdentitySchema,
+  type GitIdentityValues,
+  type ProjectGitIdentity,
   type PendingCommitsPage,
   type ProjectGitRefreshResult,
   type ProjectGitSettings,
@@ -388,6 +392,10 @@ export const ENGINE_METHOD_PARAMS = {
   'terminals.markReviewed': z.tuple([TerminalIdSchema]),
   'git.project': z.tuple([Id]),
   'git.projectStates': z.tuple([]),
+  'git.globalIdentity': z.tuple([]),
+  'git.setGlobalIdentity': z.tuple([SetGlobalGitIdentitySchema]),
+  'git.projectIdentity': z.tuple([Id]),
+  'git.setProjectIdentity': z.tuple([Id, SetProjectGitIdentitySchema]),
   'git.refreshProject': z.tuple([Id]),
   'git.pendingCommits': z.tuple([Id, PendingCommitsSkipSchema]),
   'git.setProjectMonitoring': z.tuple([Id, z.boolean()]),
@@ -719,6 +727,10 @@ export interface EngineMethodResults {
   'terminals.markReviewed': TerminalActivitySummary;
   'git.project': GitStatus;
   'git.projectStates': ProjectGitState[];
+  'git.globalIdentity': GitIdentityValues;
+  'git.setGlobalIdentity': GitIdentityValues;
+  'git.projectIdentity': ProjectGitIdentity;
+  'git.setProjectIdentity': ProjectGitIdentity;
   'git.refreshProject': ProjectGitRefreshResult;
   'git.pendingCommits': PendingCommitsPage;
   'git.setProjectMonitoring': ProjectGitState;

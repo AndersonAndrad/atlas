@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-27 — PLAN-050 (SDD-023 Task A02: terminal tab status).
+Last updated: 2026-10-27 — PLAN-051 (SDD-024 Task 03: Git identity management).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -60,8 +60,20 @@ approval. PLAN-047 (SDD-024 Task 01: per-project Git monitoring, stored Git snap
 project badges) is implemented and awaits approval. PLAN-048 (SDD-024 Task 02: Pending Push
 sidebar) is implemented and awaits approval. PLAN-049 (SDD-025 Task 01: push, pull and fetch
 run as background jobs) is implemented and awaits approval. PLAN-050 (SDD-023 Task A02:
-terminal tab status with explicit review) is implemented and awaits approval. Version 0.36.0
-(schema v19).
+terminal tab status with explicit review) is implemented and awaits approval. PLAN-051
+(SDD-024 Task 03: global and per-project Git identity) is implemented and awaits approval.
+Version 0.37.0 (schema v19).
+
+## PLAN-051 — SDD-024 Task 03: Git identity management
+
+- Approved 2026-10-27 by Anderson Andrade ("pode seguir, q1 a q3 pode seguir com o
+  recomendavel"). R1–R5 were presented but not acknowledged by ID. Details: SDD-024, Task 03.
+- What was built:
+  - `GitIdentityService`: global and repository-local `user.name`/`user.email`. The effective
+    values come from Git itself (scope and origin, including `includeIf`).
+  - Shell variables that override the identity of terminal commits are reported.
+  - Settings → Git and the project's Commit checks tab show and edit the identity.
+- No schema change.
 
 ## PLAN-050 — SDD-023 Task A02: intelligent terminal tab status
 

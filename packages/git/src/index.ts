@@ -9,3 +9,4 @@ export * from './pre-commit.js';
 export * from './repository-evidence.js';
 export * from './operation-log.js';
 export * from './project-monitor.js';
+export * from './identity.js';

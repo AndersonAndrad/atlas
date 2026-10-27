@@ -18,6 +18,7 @@ export const ERROR_CODES = [
   'GIT_REPOSITORY_UNAVAILABLE',
   'GIT_INDEX_CHANGED',
   'GIT_NO_UPSTREAM',
+  'GIT_CONFIG_FAILED',
   'GIT_OPERATION_NOT_FOUND',
   'SKILL_NOT_FOUND',
   'SKILL_SOURCE_UNAUTHORIZED',
@@ -124,6 +125,7 @@ export const USER_MESSAGES: Record<ErrorCode, string> = {
   GIT_INDEX_CHANGED:
     'The staged changes or the current commit changed since you reviewed them. Review the changes again.',
   GIT_NO_UPSTREAM: 'This branch has no upstream branch. Choose where to push it.',
+  GIT_CONFIG_FAILED: 'Git could not read or write its configuration.',
   GIT_OPERATION_NOT_FOUND: 'The Git operation could not be found. It may have finished.',
   SKILL_NOT_FOUND: 'The skill could not be found. It may have been removed.',
   SKILL_SOURCE_UNAUTHORIZED:
