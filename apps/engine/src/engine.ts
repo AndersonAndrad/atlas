@@ -40,6 +40,7 @@ import {
   SqlitePreflightRepository,
   SqliteNotificationRepository,
   SqliteNoteRepository,
+  SqliteHttpWorkbenchRepository,
   SqliteJobRepository,
   SqliteTerminalGroupRepository,
   SqliteTerminalSessionRepository,
@@ -109,6 +110,10 @@ import { NotesService } from '@atlas/notes';
 import { JobService } from '@atlas/jobs';
 import { DockerService } from '@atlas/docker';
 import { DockerCliRunner } from './adapters/docker-cli.js';
+import { HttpWorkbenchService } from '@atlas/api-workbench';
+import { MemoryCookieJars } from './adapters/http-cookies.js';
+import { FileHttpResponses } from './adapters/http-response-files.js';
+import { NodeHttpTransport } from './adapters/http-transport.js';
 import { CommandJobExecutor } from './jobs/command-executor.js';
 import { PreflightJobExecutor } from './jobs/preflight-executor.js';
 import { EditorSettings, FileWatchHub, ProjectFiles } from '@atlas/editor';
@@ -189,6 +194,8 @@ export interface Engine {
   readonly jobs: JobService;
   /** Docker through the Docker CLI (SDD-013 Milestone A); optional, never required. */
   readonly docker: DockerService;
+  /** HTTP requests, collections and history (SDD-014 Milestone A); desktop only. */
+  readonly http: HttpWorkbenchService;
   /** Opens an ATLAS terminal with a shell in a running container (FR-1308). */
   openContainerTerminal(input: unknown): Promise<TerminalSession>;
   /** Files of registered projects for the code editor (SDD-011 Milestone A). */
@@ -875,6 +882,17 @@ export function createEngine(options: EngineOptions = {}): Engine {
     onChange: (context, containerId) =>
       terminals?.publish({ type: 'docker', context, containerId }),
   });
+  const http = new HttpWorkbenchService({
+    repository: new SqliteHttpWorkbenchRepository(db),
+    transport: new NodeHttpTransport(),
+    cookies: new MemoryCookieJars(),
+    responses: new FileHttpResponses(path.join(dataDir, 'http', 'responses')),
+    projectExists: async (projectId) => (await projects.findById(projectId)) !== null,
+    userAgent: `ATLAS/${engineVersion}`,
+    clock,
+    generateId: randomUUID,
+    logger,
+  });
   const projectGitSettings = new ProjectGitSettingsStore(settings, logger);
   const quickCommands = new QuickCommandStore({ store: settings, generateId: randomUUID, logger });
 
@@ -1169,6 +1187,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
     notes,
     jobs,
     docker,
+    http,
     openContainerTerminal: async (input) => {
       const service = requireTerminals();
       const prepared = await docker.terminalCommand(input);
@@ -1362,6 +1381,13 @@ export function createEngine(options: EngineOptions = {}): Engine {
           });
         }
         try {
+          await http.initialize();
+        } catch (error) {
+          logger.warn('Old HTTP response files could not be removed', {
+            error: describeError(error),
+          });
+        }
+        try {
           await jobs.recover();
         } catch (error) {
           logger.warn('Interrupted background jobs could not be closed', {
@@ -1489,6 +1515,8 @@ export function createEngine(options: EngineOptions = {}): Engine {
         await jobs.close();
         // Docker log and event streams stop; containers keep running.
         docker.close();
+        // Running HTTP requests are cancelled; kept response bodies are removed.
+        await http.close();
         // Running checks are cancelled and their process trees stopped.
         await preflight.close();
       }

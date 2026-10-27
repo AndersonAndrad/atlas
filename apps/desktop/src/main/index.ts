@@ -88,6 +88,7 @@ function detachCurrentRenderer(): void {
     ?.call('files.watch', previous, { projectId: null, directories: [] })
     .catch(() => undefined);
   void engine?.call('docker.detach', previous).catch(() => undefined);
+  void engine?.call('http.detach', previous).catch(() => undefined);
 }
 
 /** A new renderer starts without editor state: no unsaved buffers, terminal shortcuts on. */
@@ -257,6 +258,13 @@ async function bootstrap(): Promise<void> {
       if (result.canceled || result.filePath === undefined) return false;
       await writeFile(result.filePath, text, 'utf8');
       return true;
+    },
+    chooseSavePath: async (suggestedName) => {
+      const options = { defaultPath: path.join(app.getPath('downloads'), suggestedName) };
+      const result = mainWindow
+        ? await dialog.showSaveDialog(mainWindow, options)
+        : await dialog.showSaveDialog(options);
+      return result.canceled || result.filePath === undefined ? null : result.filePath;
     },
     revealPath: (absolutePath) => shell.showItemInFolder(absolutePath),
     openExternal: (url) => shell.openExternal(url),

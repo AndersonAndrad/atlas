@@ -109,6 +109,30 @@ import type {
   SelectDockerContextInput,
 } from './docker.js';
 import type {
+  CreateHttpCollectionInput,
+  CreateHttpFolderInput,
+  HttpBodyPage,
+  HttpCollection,
+  HttpCookie,
+  HttpExecutionResult,
+  HttpFileRef,
+  HttpFolder,
+  HttpHistoryPage,
+  HttpHistoryQuery,
+  HttpSavedRequest,
+  HttpSnapshot,
+  HttpSnapshotListInput,
+  HttpSnapshotSummary,
+  ListHttpCollectionsInput,
+  MoveHttpItemInput,
+  ReadHttpBodyInput,
+  RenameHttpItemInput,
+  SaveHttpRequestInput,
+  SaveHttpSnapshotInput,
+  SendHttpRequestInput,
+  UpdateHttpCollectionInput,
+} from './http.js';
+import type {
   CreateEntryInput,
   DirectoryListing,
   EditorLayout,
@@ -420,6 +444,34 @@ export const IPC_CHANNELS = {
   dockerLogsRead: 'atlas:docker:logs-read',
   dockerLogsClose: 'atlas:docker:logs-close',
   dockerOpenTerminal: 'atlas:docker:open-terminal',
+  httpCollections: 'atlas:http:collections',
+  httpCreateCollection: 'atlas:http:create-collection',
+  httpUpdateCollection: 'atlas:http:update-collection',
+  httpDuplicateCollection: 'atlas:http:duplicate-collection',
+  httpDeleteCollection: 'atlas:http:delete-collection',
+  httpCreateFolder: 'atlas:http:create-folder',
+  httpRenameFolder: 'atlas:http:rename-folder',
+  httpDeleteFolder: 'atlas:http:delete-folder',
+  httpRequest: 'atlas:http:request',
+  httpSaveRequest: 'atlas:http:save-request',
+  httpDuplicateRequest: 'atlas:http:duplicate-request',
+  httpDeleteRequest: 'atlas:http:delete-request',
+  httpMove: 'atlas:http:move',
+  httpSend: 'atlas:http:send',
+  httpCancel: 'atlas:http:cancel',
+  httpReadBody: 'atlas:http:read-body',
+  httpSaveResponse: 'atlas:http:save-response',
+  httpRelease: 'atlas:http:release',
+  httpChooseFile: 'atlas:http:choose-file',
+  httpCookies: 'atlas:http:cookies',
+  httpClearCookies: 'atlas:http:clear-cookies',
+  httpHistory: 'atlas:http:history',
+  httpClearHistory: 'atlas:http:clear-history',
+  httpRecentUrls: 'atlas:http:recent-urls',
+  httpSaveSnapshot: 'atlas:http:save-snapshot',
+  httpSnapshots: 'atlas:http:snapshots',
+  httpSnapshot: 'atlas:http:snapshot',
+  httpDeleteSnapshot: 'atlas:http:delete-snapshot',
   notesList: 'atlas:notes:list',
   notesGet: 'atlas:notes:get',
   notesCreate: 'atlas:notes:create',
@@ -889,6 +941,46 @@ export interface AtlasApi {
     logsClose(sessionId: string): Promise<IpcResult<null>>;
     /** A new ATLAS terminal running a shell in the container. */
     openTerminal(input: OpenContainerTerminalInput): Promise<IpcResult<TerminalSession>>;
+  };
+  /**
+   * API Workbench (SDD-014 Milestone A). Requests run in the Engine, never in the window;
+   * files to upload come only from the native picker.
+   */
+  http: {
+    collections(input: ListHttpCollectionsInput): Promise<IpcResult<HttpCollection[]>>;
+    createCollection(input: CreateHttpCollectionInput): Promise<IpcResult<HttpCollection>>;
+    updateCollection(input: UpdateHttpCollectionInput): Promise<IpcResult<HttpCollection>>;
+    duplicateCollection(id: string): Promise<IpcResult<HttpCollection>>;
+    deleteCollection(id: string): Promise<IpcResult<null>>;
+    createFolder(input: CreateHttpFolderInput): Promise<IpcResult<HttpFolder>>;
+    renameFolder(input: RenameHttpItemInput): Promise<IpcResult<null>>;
+    /** Removes the folder with its subfolders and requests. */
+    deleteFolder(id: string): Promise<IpcResult<null>>;
+    request(id: string): Promise<IpcResult<HttpSavedRequest>>;
+    /** Secret values are not saved; they come back empty. */
+    saveRequest(input: SaveHttpRequestInput): Promise<IpcResult<HttpSavedRequest>>;
+    duplicateRequest(id: string): Promise<IpcResult<HttpSavedRequest>>;
+    deleteRequest(id: string): Promise<IpcResult<null>>;
+    move(input: MoveHttpItemInput): Promise<IpcResult<null>>;
+    /** Settles when the response arrived; HTTP error statuses are responses. */
+    send(input: SendHttpRequestInput): Promise<IpcResult<HttpExecutionResult>>;
+    cancel(executionId: string): Promise<IpcResult<null>>;
+    readBody(input: ReadHttpBodyInput): Promise<IpcResult<HttpBodyPage>>;
+    /** Asks where to save the response body; false when cancelled. */
+    saveResponse(executionId: string): Promise<IpcResult<{ saved: boolean }>>;
+    /** The response is no longer shown; its body file is removed. */
+    release(executionId: string): Promise<IpcResult<null>>;
+    /** A file to upload, chosen in the native picker. */
+    chooseFile(): Promise<IpcResult<HttpFileRef | null>>;
+    cookies(collectionId: string): Promise<IpcResult<HttpCookie[]>>;
+    clearCookies(collectionId: string): Promise<IpcResult<null>>;
+    history(query: HttpHistoryQuery): Promise<IpcResult<HttpHistoryPage>>;
+    clearHistory(): Promise<IpcResult<null>>;
+    recentUrls(): Promise<IpcResult<string[]>>;
+    saveSnapshot(input: SaveHttpSnapshotInput): Promise<IpcResult<HttpSnapshotSummary>>;
+    snapshots(input: HttpSnapshotListInput): Promise<IpcResult<HttpSnapshotSummary[]>>;
+    snapshot(id: string): Promise<IpcResult<HttpSnapshot>>;
+    deleteSnapshot(id: string): Promise<IpcResult<null>>;
   };
   /** Project Hub notes (SDD-010 Milestone A); changes arrive as `notes` events. */
   notes: {

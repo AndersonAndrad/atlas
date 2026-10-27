@@ -731,4 +731,92 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX background_job_status_history_job ON background_job_status_history (job_id, id);
     `,
   },
+  {
+    version: 14,
+    name: 'http_workbench',
+    // API Workbench collections, requests, history and saved responses (SDD-014 Milestone A).
+    // Additive. Definitions never hold secret values (PLAN-042 Q1); history keeps no bodies.
+    sql: `
+      CREATE TABLE http_collections (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 120),
+        description TEXT NOT NULL DEFAULT '' CHECK (length(description) <= 2000),
+        scope TEXT NOT NULL CHECK (scope IN ('global', 'project', 'shared')),
+        -- A project collection whose project was removed keeps its scope and is listed
+        -- only among all collections, never in another project.
+        project_id TEXT REFERENCES projects (id) ON DELETE SET NULL,
+        cookie_jar INTEGER NOT NULL DEFAULT 1 CHECK (cookie_jar IN (0, 1)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (scope = 'project' OR project_id IS NULL)
+      ) STRICT;
+      CREATE INDEX http_collections_project ON http_collections (project_id);
+
+      -- Projects a shared collection is shown in.
+      CREATE TABLE http_collection_projects (
+        collection_id TEXT NOT NULL REFERENCES http_collections (id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+        PRIMARY KEY (collection_id, project_id)
+      ) STRICT;
+      CREATE INDEX http_collection_projects_project ON http_collection_projects (project_id);
+
+      CREATE TABLE http_folders (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        collection_id TEXT NOT NULL REFERENCES http_collections (id) ON DELETE CASCADE,
+        parent_id TEXT REFERENCES http_folders (id) ON DELETE CASCADE,
+        name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 120),
+        position INTEGER NOT NULL CHECK (position >= 0),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX http_folders_collection ON http_folders (collection_id, parent_id, position);
+
+      CREATE TABLE http_requests (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        collection_id TEXT NOT NULL REFERENCES http_collections (id) ON DELETE CASCADE,
+        folder_id TEXT REFERENCES http_folders (id) ON DELETE CASCADE,
+        name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 120),
+        position INTEGER NOT NULL CHECK (position >= 0),
+        method TEXT NOT NULL CHECK (length(method) BETWEEN 1 AND 32),
+        url TEXT NOT NULL CHECK (length(url) <= 16000),
+        definition TEXT NOT NULL CHECK (json_valid(definition)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX http_requests_collection ON http_requests (collection_id, folder_id, position);
+
+      CREATE TABLE http_history (
+        id INTEGER PRIMARY KEY,
+        request_id TEXT REFERENCES http_requests (id) ON DELETE SET NULL,
+        collection_id TEXT REFERENCES http_collections (id) ON DELETE SET NULL,
+        method TEXT NOT NULL,
+        url TEXT NOT NULL CHECK (length(url) <= 2000),
+        status INTEGER,
+        duration_ms INTEGER NOT NULL CHECK (duration_ms >= 0),
+        response_bytes INTEGER,
+        error_code TEXT,
+        error_summary TEXT CHECK (error_summary IS NULL OR length(error_summary) <= 500),
+        executed_at TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX http_history_request ON http_history (request_id, id);
+
+      -- Responses saved on request, without credentials or cookies.
+      CREATE TABLE http_snapshots (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        request_id TEXT REFERENCES http_requests (id) ON DELETE SET NULL,
+        name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 120),
+        method TEXT NOT NULL,
+        url TEXT NOT NULL,
+        status INTEGER NOT NULL,
+        status_text TEXT NOT NULL,
+        headers TEXT NOT NULL CHECK (json_valid(headers)),
+        content_type TEXT,
+        body_kind TEXT NOT NULL,
+        body TEXT CHECK (body IS NULL OR length(CAST(body AS BLOB)) <= 2097152),
+        body_truncated INTEGER NOT NULL CHECK (body_truncated IN (0, 1)),
+        created_at TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX http_snapshots_request ON http_snapshots (request_id, created_at);
+    `,
+  },
 ];

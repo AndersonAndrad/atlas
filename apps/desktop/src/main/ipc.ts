@@ -1,3 +1,4 @@
+import path from 'node:path';
 import {
   AtlasSessionIdSchema,
   CreateProjectInputSchema,
@@ -63,6 +64,11 @@ import {
   WatchFilesSchema,
   OpenContainerLogsSchema,
   type OpenContainerLogsInput,
+  HttpExecutionIdSchema,
+  SaveHttpRequestSchema,
+  SendHttpRequestSchema,
+  type SaveHttpRequestInput,
+  type SendHttpRequestInput,
   type FileRef,
   type WatchFilesInput,
 } from '@atlas/contracts';
@@ -101,6 +107,11 @@ export interface IpcDependencies {
    * cancelled. Only the user's choice in the dialog decides where the file goes.
    */
   saveTextFile: (suggestedName: string, text: string) => Promise<boolean>;
+  /**
+   * Shows the native save dialog and returns the chosen path, or null when cancelled.
+   * Used for files the Engine writes, such as a downloaded HTTP response.
+   */
+  chooseSavePath: (suggestedName: string) => Promise<string | null>;
   /** Shows a file in the system file manager without opening it (SDD-010 FR-1006). */
   revealPath: (absolutePath: string) => void;
   /** Opens an http(s) or mailto URL with the system handler. */
@@ -619,7 +630,63 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     [IPC_CHANNELS.jobsGetSettings, 'jobs.getSettings'],
     [IPC_CHANNELS.jobsSetSettings, 'jobs.setSettings'],
   ];
+  // API Workbench (SDD-014 Milestone A). Files to upload are trusted only when picked
+  // here; the Engine also accepts files already part of a saved request.
+  const pickedUploads = new Set<string>();
+  const httpChannels: [string, EngineMethod][] = [
+    [IPC_CHANNELS.httpCollections, 'http.collections'],
+    [IPC_CHANNELS.httpCreateCollection, 'http.createCollection'],
+    [IPC_CHANNELS.httpUpdateCollection, 'http.updateCollection'],
+    [IPC_CHANNELS.httpDuplicateCollection, 'http.duplicateCollection'],
+    [IPC_CHANNELS.httpDeleteCollection, 'http.deleteCollection'],
+    [IPC_CHANNELS.httpCreateFolder, 'http.createFolder'],
+    [IPC_CHANNELS.httpRenameFolder, 'http.renameFolder'],
+    [IPC_CHANNELS.httpDeleteFolder, 'http.deleteFolder'],
+    [IPC_CHANNELS.httpRequest, 'http.request'],
+    [IPC_CHANNELS.httpDuplicateRequest, 'http.duplicateRequest'],
+    [IPC_CHANNELS.httpDeleteRequest, 'http.deleteRequest'],
+    [IPC_CHANNELS.httpMove, 'http.move'],
+    [IPC_CHANNELS.httpCancel, 'http.cancel'],
+    [IPC_CHANNELS.httpReadBody, 'http.readBody'],
+    [IPC_CHANNELS.httpRelease, 'http.release'],
+    [IPC_CHANNELS.httpCookies, 'http.cookies'],
+    [IPC_CHANNELS.httpClearCookies, 'http.clearCookies'],
+    [IPC_CHANNELS.httpHistory, 'http.history'],
+    [IPC_CHANNELS.httpClearHistory, 'http.clearHistory'],
+    [IPC_CHANNELS.httpRecentUrls, 'http.recentUrls'],
+    [IPC_CHANNELS.httpSaveSnapshot, 'http.saveSnapshot'],
+    [IPC_CHANNELS.httpSnapshots, 'http.snapshots'],
+    [IPC_CHANNELS.httpSnapshot, 'http.snapshot'],
+    [IPC_CHANNELS.httpDeleteSnapshot, 'http.deleteSnapshot'],
+  ];
+  handle(IPC_CHANNELS.httpSend, z.tuple([SendHttpRequestSchema]), ([input]) =>
+    engine.call('http.send', deps.subscriberId(), input as SendHttpRequestInput, [
+      ...pickedUploads,
+    ]),
+  );
+  handle(IPC_CHANNELS.httpSaveRequest, z.tuple([SaveHttpRequestSchema]), ([input]) =>
+    engine.call('http.saveRequest', input as SaveHttpRequestInput, [...pickedUploads]),
+  );
+  handle(IPC_CHANNELS.httpChooseFile, NoArgs, async () => {
+    const result = await deps.showOpenDialog({
+      title: 'Choose a file to upload',
+      buttonLabel: 'Choose',
+      properties: ['openFile'],
+    });
+    const selected = result.filePaths[0];
+    if (result.canceled || selected === undefined) return null;
+    pickedUploads.add(selected);
+    return { path: selected, name: path.basename(selected).slice(0, 255) || 'file' };
+  });
+  handle(IPC_CHANNELS.httpSaveResponse, z.tuple([HttpExecutionIdSchema]), async ([id]) => {
+    const destination = await deps.chooseSavePath('response');
+    if (destination === null) return { saved: false };
+    await engine.call('http.saveResponse', id as string, destination);
+    return { saved: true };
+  });
+
   for (const [channel, method] of [
+    ...httpChannels,
     ...usageChannels,
     ...preflightChannels,
     ...notificationChannels,

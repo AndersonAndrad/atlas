@@ -34,6 +34,9 @@
 | M13a      | SDD-013 A     | Container Manager: Docker detection, contexts, containers, logs, usage, shell, creation         | Implemented — awaiting approval       |
 | M13b      | SDD-013 B     | Images (pull, build, update), networks and topology, volumes; background jobs and notifications | Not started (after A is validated)    |
 | M13c      | SDD-013 C     | Compose discovery and lifecycle, project integration, startup and shutdown, AI diagnostics      | Not started (after B)                 |
+| M14a      | SDD-014 A     | API Workbench: Engine HTTP client, request editor, responses, cookies, collections, history     | Implemented — awaiting approval       |
+| M14b      | SDD-014 B     | Environments and variables, secure secrets, authentication and OAuth, import/export, snippets   | Not started (after A is validated)    |
+| M14c      | SDD-014 C     | Assertions, collection runner, background runs, Docker and Project Hub links, optional AI       | Not started (after B)                 |
 | M4        | TBD           | Agents and multi-agent orchestration                                                            | Not started                           |
 | M5        | TBD           | Skills Hub and Context Engine                                                                   | Not started                           |
 | M6        | PLAN-024      | Packaging and CI release pipeline (done); signing, notarization, auto-update (not started)      | Partially implemented                 |

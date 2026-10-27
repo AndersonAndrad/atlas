@@ -39,6 +39,13 @@ const ContainersView = lazy(() =>
   })),
 );
 
+// Loaded on first use, with Monaco only when a body or response is shown (SDD-014).
+const ApiWorkbenchView = lazy(() =>
+  import('./api-workbench/components/ApiWorkbenchView').then((module) => ({
+    default: module.ApiWorkbenchView,
+  })),
+);
+
 export function App() {
   const [view, setView] = useState<AppView>('projects');
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -55,6 +62,10 @@ export function App() {
   // Mounted on first use and then kept, so unsaved editor buffers survive switching views.
   const [editorMounted, setEditorMounted] = useState(false);
   if (view === 'editor' && !editorMounted) setEditorMounted(true);
+  // Kept mounted like the editor: open requests and secret values typed in them survive
+  // switching views (PLAN-042 Q1).
+  const [apiMounted, setApiMounted] = useState(false);
+  if (view === 'api' && !apiMounted) setApiMounted(true);
   const projects = useProjects();
   const terminals = useTerminalSessions();
   const groups = useTerminalGroups();
@@ -299,6 +310,21 @@ export function App() {
                     void terminals.reload();
                     setView('terminals');
                   }}
+                />
+              </Suspense>
+            )}
+            {apiMounted && (
+              <Suspense
+                fallback={
+                  view === 'api' ? (
+                    <p className="text-muted-foreground p-4 text-sm">Loading…</p>
+                  ) : null
+                }
+              >
+                <ApiWorkbenchView
+                  visible={view === 'api'}
+                  projects={projects.items ?? []}
+                  projectId={projects.selectedId}
                 />
               </Suspense>
             )}

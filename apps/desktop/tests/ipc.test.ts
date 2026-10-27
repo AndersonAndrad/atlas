@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron';
@@ -54,6 +56,7 @@ describe('desktop IPC handlers', () => {
   let trashed: string[] = [];
   let shortcuts: boolean[] = [];
   let unsaved: number[] = [];
+  let savePath: string | null = null;
 
   const trustedEvent = {} as IpcMainInvokeEvent;
   const invoke = <T>(channel: string, ...args: unknown[]) =>
@@ -119,6 +122,7 @@ describe('desktop IPC handlers', () => {
         saved.push({ suggestedName, text });
         return true;
       },
+      chooseSavePath: async () => savePath,
       revealPath: (absolutePath: string) => revealed.push(absolutePath),
       openExternal: async (url: string) => {
         opened.push(url);
@@ -270,6 +274,109 @@ describe('desktop IPC handlers', () => {
       ok: false,
       error: { code: 'VALIDATION_FAILED' },
     });
+  });
+
+  it('runs HTTP requests only with picked files and the window as subscriber (SDD-014)', async () => {
+    const server = http.createServer((request, response) => {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ path: request.url }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/ping`;
+    try {
+      const collection = await invoke<{ id: string }>(IPC_CHANNELS.httpCreateCollection, {
+        name: 'API',
+        scope: { kind: 'global' },
+      });
+      const collectionId = (collection as { ok: true; data: { id: string } }).data.id;
+      const file = path.join(temp.dir, 'upload.bin');
+      writeFileSync(file, 'data');
+      const definition = {
+        method: 'POST',
+        url,
+        params: [],
+        headers: [],
+        body: { type: 'binary', file: { path: file, name: 'upload.bin' }, contentType: null },
+        settings: {
+          timeoutMs: 5000,
+          followRedirects: true,
+          maxRedirects: 5,
+          verifyTls: true,
+          maxResponseBytes: 1024 * 1024,
+        },
+      };
+      const save = { collectionId, folderId: null, name: 'Upload', definition };
+      // A path the window made up is refused; the same path chosen in the picker is not.
+      expect(await invoke(IPC_CHANNELS.httpSaveRequest, save)).toMatchObject({
+        ok: false,
+        error: { code: 'HTTP_FILE_UNAUTHORIZED' },
+      });
+      pickedPath = file;
+      expect(await invoke(IPC_CHANNELS.httpChooseFile)).toMatchObject({
+        ok: true,
+        data: { path: file, name: 'upload.bin' },
+      });
+      expect(await invoke(IPC_CHANNELS.httpSaveRequest, save)).toMatchObject({ ok: true });
+
+      const executionId = '00000000-0000-4000-8000-0000000000a1';
+      const sent = await invoke(IPC_CHANNELS.httpSend, {
+        executionId,
+        collectionId,
+        requestId: null,
+        definition,
+      });
+      expect(sent).toMatchObject({ ok: true, data: { status: 200 } });
+      // The destination comes from the save dialog, never from the window.
+      savePath = path.join(temp.dir, 'response.json');
+      expect(await invoke(IPC_CHANNELS.httpSaveResponse, executionId)).toMatchObject({
+        ok: true,
+        data: { saved: true },
+      });
+      expect(JSON.parse(readFileSync(savePath, 'utf8'))).toEqual({ path: '/ping' });
+      savePath = null;
+      expect(await invoke(IPC_CHANNELS.httpSaveResponse, executionId)).toMatchObject({
+        ok: true,
+        data: { saved: false },
+      });
+      expect(await invoke(IPC_CHANNELS.httpSaveResponse, executionId, '/etc/passwd')).toMatchObject(
+        {
+          ok: false,
+          error: { code: 'VALIDATION_FAILED' },
+        },
+      );
+
+      for (const [channel, input] of [
+        [
+          IPC_CHANNELS.httpSend,
+          {
+            executionId,
+            collectionId: null,
+            requestId: null,
+            definition: {
+              ...definition,
+              headers: [{ name: 'X', value: 'a\r\nHost: evil', enabled: true, secret: false }],
+            },
+          },
+        ],
+        [
+          IPC_CHANNELS.httpSend,
+          {
+            executionId,
+            collectionId: null,
+            requestId: null,
+            definition: { ...definition, method: 'CONNECT' },
+          },
+        ],
+        [IPC_CHANNELS.httpReadBody, { executionId: 'not-a-uuid', offset: 0 }],
+      ] as const) {
+        expect(await invoke(channel, input)).toMatchObject({
+          ok: false,
+          error: { code: 'VALIDATION_FAILED' },
+        });
+      }
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
   });
 
   it('edits project files only inside the project (SDD-011)', async () => {

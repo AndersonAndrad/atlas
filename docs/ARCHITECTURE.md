@@ -559,6 +559,28 @@ Docker is optional and the source of truth: nothing about containers is stored, 
 selected context (`docker.context`). Streams (events, logs) run only while a window shows
 them and stop with it. Mutations are audited in the Engine log without values.
 
+### API Workbench (SDD-014 Milestone A)
+
+Full description: `docs/sdd/SDD-014-api-workbench.md`.
+
+```text
+ API view (lazy, kept mounted) ─► atlas.http (preload) ─► main IPC (window id; files from
+        the open dialog; download paths from the save dialog)
+        ─► Engine `http.*` (not offered to the CLI)
+             HttpWorkbenchService (packages/api-workbench): validation, secret stripping,
+               redirects with credential removal across origins, cookie jars per
+               collection, history, saved responses
+             NodeHttpTransport (adapter): node:http/https, a connection per exchange,
+               measured phases, decompression, size limit, cancellation, per-request TLS
+             MemoryCookieJars (tough-cookie, in memory) · FileHttpResponses (private files)
+             SqliteHttpWorkbenchRepository (migration v14)
+```
+
+HTTP never runs in the window. Secret values (marked, or of credential names) are never
+stored: SQLite, history, logs and saved responses hold none. Response bodies live in
+private files while a window shows them and are removed with it, at shutdown and at
+start-up.
+
 ### Project context of a terminal
 
 `Engine.terminalProjectContext` reports the associated project and the deepest registered
@@ -696,7 +718,9 @@ terminals running as standalone terminals (SDD-003 §2).
   Project Hub notes with FTS5 search (additive; project removal keeps notes as workspace
   notes). SDD-011 Milestone A adds no schema: editor preferences and layouts are
   `application_settings` keys. Schema v13: background jobs, attempts and status history
-  (additive; job limits are the `jobs.settings` application setting).
+  (additive; job limits are the `jobs.settings` application setting). SDD-013 Milestone A
+  adds no schema (the Docker context is a setting). Schema v14: API Workbench collections,
+  folders, requests (without secret values), history and saved responses (additive).
 - Data dir: macOS `~/Library/Application Support/ATLAS`, Windows `%APPDATA%\ATLAS`, Linux
   `$XDG_DATA_HOME/atlas`; `ATLAS_DATA_DIR` overrides.
 

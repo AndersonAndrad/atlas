@@ -593,6 +593,73 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
       return null;
     },
     'docker.openTerminal': ([input]: [unknown]) => engine.openContainerTerminal(input),
+    // API Workbench (SDD-014 Milestone A); the service validates every input again.
+    'http.collections': ([input]: [unknown]) => engine.http.listCollections(input),
+    'http.createCollection': ([input]: [unknown]) => engine.http.createCollection(input),
+    'http.updateCollection': ([input]: [unknown]) => engine.http.updateCollection(input),
+    'http.duplicateCollection': ([id]: [string]) => engine.http.duplicateCollection(id),
+    'http.deleteCollection': async ([id]: [string]) => {
+      await engine.http.deleteCollection(id);
+      return null;
+    },
+    'http.createFolder': ([input]: [unknown]) => engine.http.createFolder(input),
+    'http.renameFolder': ([input]: [unknown]) => {
+      engine.http.renameFolder(input);
+      return null;
+    },
+    'http.deleteFolder': ([id]: [string]) => {
+      engine.http.deleteFolder(id);
+      return null;
+    },
+    'http.request': ([id]: [string]) => engine.http.getRequest(id),
+    'http.saveRequest': ([input, picked]: [unknown, string[]]) =>
+      engine.http.saveRequest(input, picked),
+    'http.duplicateRequest': ([id]: [string]) => engine.http.duplicateRequest(id),
+    'http.deleteRequest': ([id]: [string]) => {
+      engine.http.deleteRequest(id);
+      return null;
+    },
+    'http.move': ([input]: [unknown]) => {
+      engine.http.move(input);
+      return null;
+    },
+    'http.send': ([subscriber, input, picked]: [string, unknown, string[]]) =>
+      engine.http.send(subscriber, input, picked),
+    'http.cancel': ([id]: [string]) => {
+      engine.http.cancel(id);
+      return null;
+    },
+    'http.readBody': ([input]: [unknown]) => engine.http.readBody(input),
+    'http.saveResponse': async ([id, destination]: [string, string]) => {
+      await engine.http.saveResponse(id, destination);
+      return null;
+    },
+    'http.release': async ([id]: [string]) => {
+      await engine.http.release(id);
+      return null;
+    },
+    'http.detach': async ([subscriber]: [string]) => {
+      await engine.http.detach(subscriber);
+      return null;
+    },
+    'http.cookies': ([id]: [string]) => engine.http.cookies(id),
+    'http.clearCookies': async ([id]: [string]) => {
+      await engine.http.clearCookies(id);
+      return null;
+    },
+    'http.history': ([query]: [unknown]) => engine.http.history(query),
+    'http.clearHistory': () => {
+      engine.http.clearHistory();
+      return null;
+    },
+    'http.recentUrls': () => engine.http.recentUrls(),
+    'http.saveSnapshot': ([input]: [unknown]) => engine.http.saveSnapshot(input),
+    'http.snapshots': ([input]: [unknown]) => engine.http.snapshots(input),
+    'http.snapshot': ([id]: [string]) => engine.http.snapshot(id),
+    'http.deleteSnapshot': ([id]: [string]) => {
+      engine.http.deleteSnapshot(id);
+      return null;
+    },
     // Project files and the code editor (SDD-011 Milestone A); validated again by the service.
     'files.list': ([input]: [ListDirectoryInput]) => engine.files.list(input),
     'files.read': ([ref]: [FileRef]) => engine.files.read(ref),

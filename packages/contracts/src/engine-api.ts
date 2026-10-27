@@ -215,6 +215,35 @@ import {
   type DockerStatus,
 } from './docker.js';
 import {
+  CreateHttpCollectionSchema,
+  CreateHttpFolderSchema,
+  HttpCollectionIdSchema,
+  HttpExecutionIdSchema,
+  HttpFolderIdSchema,
+  HttpHistoryQuerySchema,
+  HttpRequestIdSchema,
+  HttpSnapshotIdSchema,
+  HttpSnapshotListSchema,
+  ListHttpCollectionsSchema,
+  MoveHttpItemSchema,
+  PickedFilesSchema,
+  ReadHttpBodySchema,
+  RenameHttpItemSchema,
+  SaveHttpRequestSchema,
+  SaveHttpSnapshotSchema,
+  SendHttpRequestSchema,
+  UpdateHttpCollectionSchema,
+  type HttpBodyPage,
+  type HttpCollection,
+  type HttpCookie,
+  type HttpExecutionResult,
+  type HttpFolder,
+  type HttpHistoryPage,
+  type HttpSavedRequest,
+  type HttpSnapshot,
+  type HttpSnapshotSummary,
+} from './http.js';
+import {
   CreateEntrySchema,
   EditorLayoutSchema,
   FileRefSchema,
@@ -511,6 +540,37 @@ export const ENGINE_METHOD_PARAMS = {
   /** Stops the watch and the log streams of a window that went away. */
   'docker.detach': z.tuple([SubscriberIdSchema]),
   'docker.openTerminal': z.tuple([OpenContainerTerminalSchema]),
+  // API Workbench (SDD-014 Milestone A): desktop only. The main process adds the window
+  // and the files picked in it; renderer-supplied paths are never trusted alone.
+  'http.collections': z.tuple([ListHttpCollectionsSchema]),
+  'http.createCollection': z.tuple([CreateHttpCollectionSchema]),
+  'http.updateCollection': z.tuple([UpdateHttpCollectionSchema]),
+  'http.duplicateCollection': z.tuple([HttpCollectionIdSchema]),
+  'http.deleteCollection': z.tuple([HttpCollectionIdSchema]),
+  'http.createFolder': z.tuple([CreateHttpFolderSchema]),
+  'http.renameFolder': z.tuple([RenameHttpItemSchema]),
+  'http.deleteFolder': z.tuple([HttpFolderIdSchema]),
+  'http.request': z.tuple([HttpRequestIdSchema]),
+  'http.saveRequest': z.tuple([SaveHttpRequestSchema, PickedFilesSchema]),
+  'http.duplicateRequest': z.tuple([HttpRequestIdSchema]),
+  'http.deleteRequest': z.tuple([HttpRequestIdSchema]),
+  'http.move': z.tuple([MoveHttpItemSchema]),
+  'http.send': z.tuple([SubscriberIdSchema, SendHttpRequestSchema, PickedFilesSchema]),
+  'http.cancel': z.tuple([HttpExecutionIdSchema]),
+  'http.readBody': z.tuple([ReadHttpBodySchema]),
+  /** The destination comes from the main process's save dialog. */
+  'http.saveResponse': z.tuple([HttpExecutionIdSchema, z.string().min(1).max(4096)]),
+  'http.release': z.tuple([HttpExecutionIdSchema]),
+  'http.detach': z.tuple([SubscriberIdSchema]),
+  'http.cookies': z.tuple([HttpCollectionIdSchema]),
+  'http.clearCookies': z.tuple([HttpCollectionIdSchema]),
+  'http.history': z.tuple([HttpHistoryQuerySchema]),
+  'http.clearHistory': z.tuple([]),
+  'http.recentUrls': z.tuple([]),
+  'http.saveSnapshot': z.tuple([SaveHttpSnapshotSchema]),
+  'http.snapshots': z.tuple([HttpSnapshotListSchema]),
+  'http.snapshot': z.tuple([HttpSnapshotIdSchema]),
+  'http.deleteSnapshot': z.tuple([HttpSnapshotIdSchema]),
   // Project files and the code editor (SDD-011 Milestone A); not offered to the CLI.
   'files.list': z.tuple([ListDirectorySchema]),
   'files.read': z.tuple([FileRefSchema]),
@@ -769,6 +829,34 @@ export interface EngineMethodResults {
   'docker.logsClose': null;
   'docker.detach': null;
   'docker.openTerminal': TerminalSession;
+  'http.collections': HttpCollection[];
+  'http.createCollection': HttpCollection;
+  'http.updateCollection': HttpCollection;
+  'http.duplicateCollection': HttpCollection;
+  'http.deleteCollection': null;
+  'http.createFolder': HttpFolder;
+  'http.renameFolder': null;
+  'http.deleteFolder': null;
+  'http.request': HttpSavedRequest;
+  'http.saveRequest': HttpSavedRequest;
+  'http.duplicateRequest': HttpSavedRequest;
+  'http.deleteRequest': null;
+  'http.move': null;
+  'http.send': HttpExecutionResult;
+  'http.cancel': null;
+  'http.readBody': HttpBodyPage;
+  'http.saveResponse': null;
+  'http.release': null;
+  'http.detach': null;
+  'http.cookies': HttpCookie[];
+  'http.clearCookies': null;
+  'http.history': HttpHistoryPage;
+  'http.clearHistory': null;
+  'http.recentUrls': string[];
+  'http.saveSnapshot': HttpSnapshotSummary;
+  'http.snapshots': HttpSnapshotSummary[];
+  'http.snapshot': HttpSnapshot;
+  'http.deleteSnapshot': null;
   'files.list': DirectoryListing;
   'files.read': FileContent;
   'files.write': WrittenFile;

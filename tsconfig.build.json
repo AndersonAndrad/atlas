@@ -16,6 +16,7 @@
     { "path": "packages/notes" },
     { "path": "packages/jobs" },
     { "path": "packages/docker" },
+    { "path": "packages/api-workbench" },
     { "path": "packages/editor" },
     { "path": "packages/persistence" },
     { "path": "apps/engine" },

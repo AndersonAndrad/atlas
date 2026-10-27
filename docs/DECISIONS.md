@@ -746,3 +746,33 @@ superseded decisions are marked, not deleted.
   Output formats are parsed defensively against CLI changes. Container shells stay in the
   host shell's history. Images, networks, volumes and Compose remain for Milestones B and
   C.
+
+## ADR-066 — HTTP runs in the Engine over Node's client; secrets are not stored yet (PLAN-042)
+
+- **Decision**: The API Workbench executes requests in the Engine with `node:http` and
+  `node:https`, one connection per exchange, and follows redirects itself so it can remove
+  credentials when a redirect leaves the origin or downgrades to HTTP. TLS verification is
+  on unless one request turns it off. Response bodies go to private files read by the window
+  in pages. Collections, folders, requests, history and saved responses live in SQLite
+  (migration v14). Without a secure credential store, values of rows marked secret or
+  named like credentials are never stored and must be entered again after a restart. Cookie
+  jars are per collection and in memory, using `tough-cookie` 6.0.2. Upload files come only
+  from the native picker (or a saved request) and download paths only from the save
+  dialog. `{{variables}}` block sending until environments exist.
+- **Alternatives**:
+  - Renderer `fetch`: rejected; it brings CORS and gives the window network access.
+  - Node's `fetch` (undici): rejected; it hides connection phases and per-request TLS,
+    and its automatic redirects cannot remove credentials selectively.
+  - A new HTTP client dependency: rejected; Node's client suffices.
+  - Building the secure store now with Electron `safeStorage`: deferred to Milestone B.
+    It works only in the main process and needs a brokered design for the Engine.
+  - Storing secrets in plaintext: rejected (§2.3).
+  - A hand-written cookie jar: rejected; without the public suffix list it would accept
+    supercookies.
+  - Connection reuse: rejected; reused connections hide DNS, connect and TLS phases.
+- **Consequences**:
+  - Secret values do not survive a restart, and raw text bodies are stored as written.
+  - There is no proxy support yet, and HTTP/1.1 only.
+  - One new runtime dependency (plus `tldts`), pinned exactly.
+  - Rolling back to 0.28.x needs a database copy taken before 0.29.0 first ran (older
+    versions refuse schema v14).

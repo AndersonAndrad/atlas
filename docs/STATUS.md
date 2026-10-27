@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-26 — PLAN-041 (SDD-013 Milestone A: Container Manager).
+Last updated: 2026-10-26 — PLAN-042 (SDD-014 Milestone A: API Workbench).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -48,7 +48,55 @@ Preview instead of relying on Split) is implemented and awaits approval. PLAN-04
 Milestone A: background jobs, Operations Center and header indicator) is implemented and
 awaits approval; SDD-012 Milestones B and C are not started. PLAN-041 (SDD-013 Milestone
 A: Container Manager over the Docker CLI) is implemented and awaits approval; SDD-013
-Milestones B and C are not started. Version 0.28.0 (schema v13).
+Milestones B and C are not started. PLAN-042 (SDD-014 Milestone A: API Workbench, HTTP in
+the Engine) is implemented and awaits approval; SDD-014 Milestones B and C are not
+started. Version 0.29.0 (schema v14).
+
+## PLAN-042 — SDD-014 Milestone A: API Workbench
+
+- Approved 2026-10-26 by Anderson Andrade ("pode seguir, q1 recomendado, q2 recomendado, q3
+  recomendado, q4 recomendado, q5 feito o commit pode seguir"). R1–R12 were presented but
+  not acknowledged by ID. Details: `docs/sdd/SDD-014-api-workbench.md`, ADR-066.
+  - Q1: secret values are never stored; the secure store comes in Milestone B.
+  - Q2: `tough-cookie` 6.0.2 for the cookie jar.
+  - Q3: `{{variables}}` block sending.
+  - Q4: the view is named "API".
+  - Q5: PLAN-041 was committed first.
+- New `packages/api-workbench` (`HttpWorkbenchService`, request preparation, secret
+  stripping, the redirect plan).
+  - Engine adapters: `NodeHttpTransport` (node:http/https), `MemoryCookieJars` and
+    `FileHttpResponses`.
+  - Migration v14 with `SqliteHttpWorkbenchRepository`.
+  - `http.*` methods, desktop only. The main process adds the window, the picked upload
+    files and the save-dialog path.
+  - The API view is lazy-loaded and stays mounted. It has collections and history, request
+    tabs, an editor for method, URL, parameters, headers, body and settings, and a response
+    viewer with body, headers, cookies, timing and what was sent, plus download, saved
+    responses and comparison.
+- One runtime dependency: `tough-cookie` 6.0.2 (exact), which brings `tldts` 7.4.19.
+  `pnpm audit --prod` is clean.
+- Rolling back to 0.28.x needs a database copy taken before 0.29.0 first ran: older versions
+  refuse schema v14.
+- Staff review found no Critical or High findings. Fixed during the review:
+  - the response body was reformatted on every keystroke in the request editor;
+  - the unsaved-changes mark serialized every tab on every render;
+  - "Load more" could bring a whole large body into the window (now capped at 16 MB, with
+    download for the rest);
+  - a transport failure logged the error message (now only its name and code);
+  - the saved state took edits made during a save, and a download message stayed when
+    switching tabs.
+- Validation (2026-10-26):
+  - format, lint, typecheck and `pnpm audit --prod` are clean.
+  - `pnpm test`: 967 passed, 2 skipped (the opt-in real Docker tests).
+  - New tests:
+    - 19 unit tests;
+    - 11 persistence tests, including the v13 → v14 migration;
+    - 14 integration tests against real local HTTP and HTTPS servers; the credential-removal
+      test was checked to fail when removal is turned off;
+    - 1 IPC test.
+  - E2E in Linux Docker with Xvfb: the API Workbench and security specs passed 9/9. The
+    full suite had 106 passed, 1 skipped and 1 failed: the workspace spec still expected
+    schema 13. After updating it to 14, the workspace spec passed 5/5.
 
 ## PLAN-041 — SDD-013 Milestone A: Container Manager
 
