@@ -1,6 +1,6 @@
 {
   "name": "@atlas/engine",
-  "version": "0.29.0",
+  "version": "0.30.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -22,6 +22,7 @@
     "@atlas/conventional-commits": "workspace:*",
     "@atlas/docker": "workspace:*",
     "@atlas/editor": "workspace:*",
+    "@atlas/extensions": "workspace:*",
     "@atlas/git": "workspace:*",
     "@atlas/jobs": "workspace:*",
     "@atlas/notes": "workspace:*",
@@ -37,6 +38,11 @@
     "@xterm/addon-serialize": "0.14.0",
     "@xterm/headless": "6.0.0",
     "node-pty": "1.1.0",
-    "tough-cookie": "6.0.2"
+    "tough-cookie": "6.0.2",
+    "yauzl": "3.4.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/yauzl": "3.4.0"
   }
 }

@@ -819,4 +819,50 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX http_snapshots_request ON http_snapshots (request_id, created_at);
     `,
   },
+  {
+    version: 15,
+    name: 'extensions',
+    // Installed VS Code-compatible extensions, project overrides and diagnostics
+    // (SDD-015 Milestone A). Additive. Package files live under <data>/extensions.
+    sql: `
+      CREATE TABLE extensions (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) BETWEEN 3 AND 257 AND id = lower(id)),
+        namespace TEXT NOT NULL CHECK (length(namespace) BETWEEN 1 AND 128),
+        name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 128),
+        display_name TEXT NOT NULL CHECK (length(display_name) <= 200),
+        description TEXT NOT NULL CHECK (length(description) <= 2000),
+        version TEXT NOT NULL CHECK (length(version) BETWEEN 5 AND 64),
+        platform TEXT NOT NULL CHECK (length(platform) BETWEEN 1 AND 32),
+        license TEXT CHECK (license IS NULL OR length(license) <= 200),
+        -- The checked manifest subset ATLAS reads (supported contributions only).
+        manifest TEXT NOT NULL CHECK (json_valid(manifest) AND length(manifest) <= 4194304),
+        compatibility TEXT NOT NULL CHECK (json_valid(compatibility)),
+        enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+        sha256 TEXT CHECK (sha256 IS NULL OR length(sha256) = 64),
+        installed_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) STRICT;
+
+      -- Enabled or disabled in one project, overriding the global switch.
+      CREATE TABLE extension_project_states (
+        extension_id TEXT NOT NULL REFERENCES extensions (id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+        enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+        PRIMARY KEY (extension_id, project_id)
+      ) STRICT;
+      CREATE INDEX extension_project_states_project ON extension_project_states (project_id);
+
+      -- Installation errors and contributions the editor could not apply; not linked to
+      -- extensions so a failed first install keeps its error.
+      CREATE TABLE extension_diagnostics (
+        id INTEGER PRIMARY KEY,
+        extension_id TEXT NOT NULL CHECK (length(extension_id) BETWEEN 3 AND 257),
+        level TEXT NOT NULL CHECK (level IN ('error', 'warning', 'info')),
+        code TEXT NOT NULL CHECK (length(code) BETWEEN 1 AND 64),
+        message TEXT NOT NULL CHECK (length(message) <= 1000),
+        created_at TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX extension_diagnostics_extension ON extension_diagnostics (extension_id, id);
+    `,
+  },
 ];

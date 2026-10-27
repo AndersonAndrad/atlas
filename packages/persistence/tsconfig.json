@@ -47,6 +47,9 @@
     },
     {
       "path": "../api-workbench"
+    },
+    {
+      "path": "../extensions"
     }
   ]
 }

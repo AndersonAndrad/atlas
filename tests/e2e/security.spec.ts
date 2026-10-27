@@ -24,6 +24,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       jobKeys: Object.keys((w.atlas as { jobs: object }).jobs).sort(),
       dockerKeys: Object.keys((w.atlas as { docker: object }).docker).sort(),
       httpKeys: Object.keys((w.atlas as { http: object }).http).sort(),
+      extensionKeys: Object.keys((w.atlas as { extensions: object }).extensions).sort(),
       projectFileKeys: Object.keys((w.atlas as { projectFiles: object }).projectFiles).sort(),
       editorKeys: Object.keys((w.atlas as { editor: object }).editor).sort(),
     };
@@ -40,6 +41,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'dialog',
       'docker',
       'editor',
+      'extensions',
       'files',
       'git',
       'groups',
@@ -137,6 +139,28 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'snapshot',
       'snapshots',
       'updateCollection',
+    ],
+    // Extensions are named by id; package files never cross the bridge as paths, and only
+    // https homepage links can be opened. No extension code runs (SDD-015 Milestone A).
+    extensionKeys: [
+      'checkUpdates',
+      'clearDiagnostics',
+      'contributions',
+      'details',
+      'diagnostics',
+      'grammar',
+      'icon',
+      'iconTheme',
+      'install',
+      'languageConfiguration',
+      'list',
+      'openLink',
+      'reportProblem',
+      'search',
+      'setEnabled',
+      'snippets',
+      'theme',
+      'uninstall',
     ],
     // Background jobs run only in registered projects (or Preflight workspaces) the Engine
     // resolves; commands that look destructive need an explicit confirmation.
@@ -266,9 +290,10 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
   const csp = await page
     .locator('meta[http-equiv="Content-Security-Policy"]')
     .getAttribute('content');
-  expect(csp).toContain("script-src 'self';");
-  // Inline styles are needed by xterm.js and Radix (ADR-011); scripts stay strict.
-  expect(csp).not.toMatch(/script-src[^;]*unsafe/);
+  // Scripts stay 'self'; WebAssembly may be compiled for extension grammars (ADR-067), which
+  // does not allow eval() of JavaScript. Inline styles are needed by xterm.js and Radix.
+  expect(csp).toContain("script-src 'self' 'wasm-unsafe-eval';");
+  expect(csp).not.toMatch(/script-src[^;]*'unsafe-(inline|eval)'/);
   expect(csp).toContain("connect-src 'none'");
 });
 

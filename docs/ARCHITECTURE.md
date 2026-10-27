@@ -581,6 +581,29 @@ stored: SQLite, history, logs and saved responses hold none. Response bodies liv
 private files while a window shows them and are removed with it, at shutdown and at
 start-up.
 
+### Extensions Hub (SDD-015 Milestone A)
+
+Full description: `docs/sdd/SDD-015-vscode-extension-compatibility.md`.
+
+```text
+ Extensions view (lazy) ─► atlas.extensions (preload) ─► main IPC (forwards; https links
+        only) ─► Engine `extensions.*` (not offered to the CLI)
+             ExtensionsService (packages/extensions): manifest checks, compatibility
+               levels, lifecycle, project overrides, contribution resolution, diagnostics
+             OpenVsxRegistry (adapter): node:http(s), checked JSON, 5-minute cache
+             FileExtensionPackages (adapter): yauzl, staging + atomic rename
+               (<data>/extensions/<id>/<version>)
+             SqliteExtensionRepository (migration v15)
+ Monaco ◄─ renderer extension runtime: languages, language configuration, snippets,
+        TextMate grammars (vscode-textmate + Oniguruma WASM, lazy) and color themes
+ File explorer ◄─ file icon theme (SVG/PNG as data: URIs)
+```
+
+No extension code runs in Milestone A: packages are extracted and their declarative
+contributions read as data. Files are named by extension id and contribution key, never
+by path across the bridge. Compatibility is SUPPORTED only for versions in the tested
+matrix.
+
 ### Project context of a terminal
 
 `Engine.terminalProjectContext` reports the associated project and the deepest registered
@@ -721,6 +744,8 @@ terminals running as standalone terminals (SDD-003 §2).
   (additive; job limits are the `jobs.settings` application setting). SDD-013 Milestone A
   adds no schema (the Docker context is a setting). Schema v14: API Workbench collections,
   folders, requests (without secret values), history and saved responses (additive).
+  Schema v15: installed extensions, per-project overrides and extension diagnostics
+  (additive; package files live under `<data>/extensions`).
 - Data dir: macOS `~/Library/Application Support/ATLAS`, Windows `%APPDATA%\ATLAS`, Linux
   `$XDG_DATA_HOME/atlas`; `ATLAS_DATA_DIR` overrides.
 
@@ -734,8 +759,10 @@ terminals running as standalone terminals (SDD-003 §2).
 - Renderer-supplied paths (projects, standalone terminal directories, the default working
   directory) must come from the native picker; registering a terminal's directory uses the
   Engine's own record of it; shells are selected by id.
-- Production CSP: `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline';
-connect-src 'none'; …` — inline styles are required by xterm.js and Radix (ADR-011).
+- Production CSP: `default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'
+'unsafe-inline'; connect-src 'none'; …` — inline styles are required by xterm.js and Radix
+  (ADR-011); `'wasm-unsafe-eval'` lets the bundled Oniguruma engine compile WebAssembly for
+  extension grammars and does not allow `eval()` (ADR-067).
 - New windows denied, navigation blocked, permission requests denied, single-instance
   lock per data directory.
 - Logs record terminal lifecycle (ids, pid, shell id, exit code) — never input, output,

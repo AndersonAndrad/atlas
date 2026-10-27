@@ -215,6 +215,31 @@ import {
   type DockerStatus,
 } from './docker.js';
 import {
+  ContributionsQuerySchema,
+  ExtensionDetailsSchema,
+  ExtensionIdSchema,
+  ExtensionSearchSchema,
+  ExtensionThemeKeySchema,
+  GrammarRefSchema,
+  IconRefSchema,
+  InstallExtensionSchema,
+  LanguageConfigurationRefSchema,
+  ListExtensionsSchema,
+  ReportExtensionProblemSchema,
+  SetExtensionEnabledSchema,
+  SnippetsRefSchema,
+  type ExtensionContributions,
+  type ExtensionDiagnostic,
+  type ExtensionSearchResult,
+  type ExtensionUpdateCheck,
+  type GrammarSource,
+  type InstalledExtension,
+  type RegistryExtensionDetails,
+  type ResolvedColorTheme,
+  type ResolvedIconTheme,
+  type ResolvedSnippets,
+} from './extensions.js';
+import {
   CreateHttpCollectionSchema,
   CreateHttpFolderSchema,
   HttpCollectionIdSchema,
@@ -589,6 +614,24 @@ export const ENGINE_METHOD_PARAMS = {
   'editor.setLayout': z.tuple([Id, EditorLayoutSchema]),
   'editor.getLastProject': z.tuple([]),
   'editor.setLastProject': z.tuple([Id.nullable()]),
+  // Extensions Hub and declarative contributions (SDD-015 Milestone A); not offered to the CLI.
+  'extensions.search': z.tuple([ExtensionSearchSchema]),
+  'extensions.details': z.tuple([ExtensionDetailsSchema]),
+  'extensions.list': z.tuple([ListExtensionsSchema]),
+  'extensions.install': z.tuple([InstallExtensionSchema]),
+  'extensions.uninstall': z.tuple([ExtensionIdSchema]),
+  'extensions.setEnabled': z.tuple([SetExtensionEnabledSchema]),
+  'extensions.checkUpdates': z.tuple([]),
+  'extensions.contributions': z.tuple([ContributionsQuerySchema]),
+  'extensions.grammar': z.tuple([GrammarRefSchema]),
+  'extensions.theme': z.tuple([ExtensionThemeKeySchema]),
+  'extensions.snippets': z.tuple([SnippetsRefSchema]),
+  'extensions.languageConfiguration': z.tuple([LanguageConfigurationRefSchema]),
+  'extensions.iconTheme': z.tuple([ExtensionThemeKeySchema]),
+  'extensions.icon': z.tuple([IconRefSchema]),
+  'extensions.diagnostics': z.tuple([ExtensionIdSchema]),
+  'extensions.clearDiagnostics': z.tuple([ExtensionIdSchema]),
+  'extensions.reportProblem': z.tuple([ReportExtensionProblemSchema]),
 } as const;
 
 export type EngineMethod = keyof typeof ENGINE_METHOD_PARAMS;
@@ -872,6 +915,25 @@ export interface EngineMethodResults {
   'editor.setLayout': null;
   'editor.getLastProject': string | null;
   'editor.setLastProject': null;
+  'extensions.search': ExtensionSearchResult;
+  'extensions.details': RegistryExtensionDetails;
+  'extensions.list': InstalledExtension[];
+  'extensions.install': InstalledExtension;
+  'extensions.uninstall': null;
+  'extensions.setEnabled': InstalledExtension;
+  'extensions.checkUpdates': ExtensionUpdateCheck;
+  'extensions.contributions': ExtensionContributions;
+  'extensions.grammar': GrammarSource;
+  'extensions.theme': ResolvedColorTheme;
+  'extensions.snippets': ResolvedSnippets;
+  /** The parsed `language-configuration.json`; the editor maps what it supports. */
+  'extensions.languageConfiguration': Record<string, unknown>;
+  'extensions.iconTheme': ResolvedIconTheme;
+  /** A `data:` URI of an SVG or PNG icon. */
+  'extensions.icon': string;
+  'extensions.diagnostics': ExtensionDiagnostic[];
+  'extensions.clearDiagnostics': null;
+  'extensions.reportProblem': null;
 }
 
 export type EngineMethodParams<M extends EngineMethod> = z.input<(typeof ENGINE_METHOD_PARAMS)[M]>;

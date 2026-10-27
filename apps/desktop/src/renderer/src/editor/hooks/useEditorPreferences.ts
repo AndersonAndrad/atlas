@@ -18,6 +18,17 @@ function publish(next: EditorPreferences) {
   for (const listener of listeners) listener(next);
 }
 
+/** Follows preference changes outside React (the extension runtime, SDD-015). */
+export function subscribeEditorPreferences(
+  listener: (preferences: EditorPreferences) => void,
+): () => void {
+  listeners.add(listener);
+  if (current !== null) listener(current);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
 /** Editor preferences (FR-1108), stored by the Engine with the other application settings. */
 export function useEditorPreferences() {
   const [preferences, setPreferences] = useState<EditorPreferences>(current ?? DEFAULTS);

@@ -28,6 +28,7 @@ const workspaceSources: Record<string, string> = {
   '@atlas/jobs': 'packages/jobs/src/index.ts',
   '@atlas/docker': 'packages/docker/src/index.ts',
   '@atlas/api-workbench': 'packages/api-workbench/src/index.ts',
+  '@atlas/extensions': 'packages/extensions/src/index.ts',
   '@atlas/editor': 'packages/editor/src/index.ts',
   '@atlas/persistence': 'packages/persistence/src/index.ts',
   '@atlas/engine': 'apps/engine/src/index.ts',
@@ -56,10 +57,29 @@ function buildId(): string {
 }
 
 /**
+ * `import data from 'file?base64'` exports a file's bytes as base64 text. The TextMate regex
+ * engine (WebAssembly) ships inside the bundle this way, because the CSP blocks fetching
+ * it (SDD-015, PLAN-043 Q1).
+ */
+function base64Imports(): Plugin {
+  const suffix = '?base64';
+  return {
+    name: 'atlas-base64',
+    load(id) {
+      if (!id.endsWith(suffix)) return null;
+      const bytes = readFileSync(id.slice(0, -suffix.length));
+      return `export default ${JSON.stringify(bytes.toString('base64'))};`;
+    },
+  };
+}
+
+/**
  * Injects the Content-Security-Policy. The dev server needs inline scripts for
  * React Fast Refresh and a websocket for HMR; production builds do not.
  * `style-src 'unsafe-inline'` is required in production because xterm.js and
- * Radix UI inject <style> elements at runtime; scripts stay strictly 'self'.
+ * Radix UI inject <style> elements at runtime. Scripts stay 'self';
+ * `'wasm-unsafe-eval'` lets the bundled Oniguruma regex engine compile WebAssembly for
+ * extension grammars (SDD-015, PLAN-043 Q1) and does not allow eval() of JavaScript.
  */
 function contentSecurityPolicy(): Plugin {
   let isDev = false;
@@ -70,8 +90,8 @@ function contentSecurityPolicy(): Plugin {
     },
     transformIndexHtml() {
       const policy = isDev
-        ? "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws:; img-src 'self' data:"
-        : "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+        ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws:; img-src 'self' data:"
+        : "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
       return [
         {
           tag: 'meta',
@@ -120,7 +140,7 @@ export default defineConfig({
         { find: /^@\//, replacement: `${resolve(__dirname, 'src/renderer/src')}/` },
       ],
     },
-    plugins: [react(), tailwindcss(), contentSecurityPolicy()],
+    plugins: [react(), tailwindcss(), contentSecurityPolicy(), base64Imports()],
     build: {
       // electron-vite does not minify by default; the renderer is the largest bundle.
       minify: true,

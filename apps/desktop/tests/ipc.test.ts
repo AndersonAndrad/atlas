@@ -276,6 +276,44 @@ describe('desktop IPC handlers', () => {
     });
   });
 
+  it('forwards the Extensions Hub without network or paths, and opens https links only (SDD-015)', async () => {
+    expect(await invoke(IPC_CHANNELS.extensionsList, { projectId: null })).toEqual({
+      ok: true,
+      data: [],
+    });
+    expect(await invoke(IPC_CHANNELS.extensionsContributions, { projectId: null })).toMatchObject({
+      ok: true,
+      data: { languages: [], grammars: [], themes: [], iconThemes: [], snippets: [] },
+    });
+    // Extensions are named by id; anything that looks like a path is refused.
+    for (const id of ['../evil', 'acme', 'acme.theme/../../x']) {
+      expect(await invoke(IPC_CHANNELS.extensionsUninstall, id)).toMatchObject({
+        ok: false,
+        error: { code: 'VALIDATION_FAILED' },
+      });
+    }
+    expect(await invoke(IPC_CHANNELS.extensionsUninstall, 'acme.theme')).toMatchObject({
+      ok: false,
+      error: { code: 'EXTENSION_NOT_INSTALLED' },
+    });
+    expect(await invoke(IPC_CHANNELS.extensionsOpenLink, 'https://open-vsx.org/x')).toEqual({
+      ok: true,
+      data: null,
+    });
+    for (const url of ['http://example.com', 'javascript:alert(1)', 'file:///etc/passwd']) {
+      expect(await invoke(IPC_CHANNELS.extensionsOpenLink, url)).toMatchObject({
+        ok: false,
+        error: { code: 'VALIDATION_FAILED' },
+      });
+    }
+    expect(opened).toEqual(['https://open-vsx.org/x']);
+    // The CLI cannot reach extensions at all.
+    const dispatcher = createEngineDispatcher(engine);
+    await expect(
+      dispatcher.call('extensions.list', [{ projectId: null }], 'cli'),
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+  });
+
   it('runs HTTP requests only with picked files and the window as subscriber (SDD-014)', async () => {
     const server = http.createServer((request, response) => {
       response.writeHead(200, { 'Content-Type': 'application/json' });

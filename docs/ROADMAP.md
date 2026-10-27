@@ -37,6 +37,9 @@
 | M14a      | SDD-014 A     | API Workbench: Engine HTTP client, request editor, responses, cookies, collections, history     | Implemented — awaiting approval       |
 | M14b      | SDD-014 B     | Environments and variables, secure secrets, authentication and OAuth, import/export, snippets   | Not started (after A is validated)    |
 | M14c      | SDD-014 C     | Assertions, collection runner, background runs, Docker and Project Hub links, optional AI       | Not started (after B)                 |
+| M15a      | SDD-015 A     | Extensions Hub: Open VSX, safe installs, themes, icons, grammars, snippets, language settings   | Implemented — awaiting approval       |
+| M15b      | SDD-015 B     | Extension Host, VS Code API subset, commands, language providers, permissions and trust         | Not started (after A is validated)    |
+| M15c      | SDD-015 C     | Updates and rollback, project profiles, language servers, formatters, jobs and notifications    | Not started (after B)                 |
 | M4        | TBD           | Agents and multi-agent orchestration                                                            | Not started                           |
 | M5        | TBD           | Skills Hub and Context Engine                                                                   | Not started                           |
 | M6        | PLAN-024      | Packaging and CI release pipeline (done); signing, notarization, auto-update (not started)      | Partially implemented                 |

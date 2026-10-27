@@ -150,6 +150,29 @@ import type {
   WriteFileInput,
   WrittenFile,
 } from './files.js';
+import type {
+  ContributionsQuery,
+  ExtensionContributions,
+  ExtensionDetailsInput,
+  ExtensionDiagnostic,
+  ExtensionSearchInput,
+  ExtensionSearchResult,
+  ExtensionUpdateCheck,
+  GrammarRef,
+  GrammarSource,
+  IconRef,
+  InstallExtensionInput,
+  InstalledExtension,
+  LanguageConfigurationRef,
+  ListExtensionsInput,
+  RegistryExtensionDetails,
+  ReportExtensionProblemInput,
+  ResolvedColorTheme,
+  ResolvedIconTheme,
+  ResolvedSnippets,
+  SetExtensionEnabledInput,
+  SnippetsRef,
+} from './extensions.js';
 
 import type {
   AiProvider,
@@ -496,6 +519,24 @@ export const IPC_CHANNELS = {
   editorSetLayout: 'atlas:editor:set-layout',
   editorGetLastProject: 'atlas:editor:get-last-project',
   editorSetLastProject: 'atlas:editor:set-last-project',
+  extensionsSearch: 'atlas:extensions:search',
+  extensionsDetails: 'atlas:extensions:details',
+  extensionsList: 'atlas:extensions:list',
+  extensionsInstall: 'atlas:extensions:install',
+  extensionsUninstall: 'atlas:extensions:uninstall',
+  extensionsSetEnabled: 'atlas:extensions:set-enabled',
+  extensionsCheckUpdates: 'atlas:extensions:check-updates',
+  extensionsContributions: 'atlas:extensions:contributions',
+  extensionsGrammar: 'atlas:extensions:grammar',
+  extensionsTheme: 'atlas:extensions:theme',
+  extensionsSnippets: 'atlas:extensions:snippets',
+  extensionsLanguageConfiguration: 'atlas:extensions:language-configuration',
+  extensionsIconTheme: 'atlas:extensions:icon-theme',
+  extensionsIcon: 'atlas:extensions:icon',
+  extensionsDiagnostics: 'atlas:extensions:diagnostics',
+  extensionsClearDiagnostics: 'atlas:extensions:clear-diagnostics',
+  extensionsReportProblem: 'atlas:extensions:report-problem',
+  extensionsOpenLink: 'atlas:extensions:open-link',
   appSetTerminalShortcuts: 'atlas:app:set-terminal-shortcuts',
   appSetUnsavedFiles: 'atlas:app:set-unsaved-files',
   aiStart: 'atlas:ai:start',
@@ -1025,6 +1066,35 @@ export interface AtlasApi {
     setLayout(projectId: string, layout: EditorLayout): Promise<IpcResult<null>>;
     getLastProject(): Promise<IpcResult<string | null>>;
     setLastProject(projectId: string | null): Promise<IpcResult<null>>;
+  };
+  /**
+   * Extensions Hub (SDD-015 Milestone A): Open VSX discovery, installation and the
+   * declarative contributions (themes, icon themes, grammars, snippets, language
+   * configuration) of enabled extensions. No extension code runs.
+   */
+  extensions: {
+    search(input: ExtensionSearchInput): Promise<IpcResult<ExtensionSearchResult>>;
+    details(input: ExtensionDetailsInput): Promise<IpcResult<RegistryExtensionDetails>>;
+    list(input: ListExtensionsInput): Promise<IpcResult<InstalledExtension[]>>;
+    /** Installs, or updates when another version is installed. */
+    install(input: InstallExtensionInput): Promise<IpcResult<InstalledExtension>>;
+    uninstall(id: string): Promise<IpcResult<null>>;
+    setEnabled(input: SetExtensionEnabledInput): Promise<IpcResult<InstalledExtension>>;
+    checkUpdates(): Promise<IpcResult<ExtensionUpdateCheck>>;
+    contributions(query: ContributionsQuery): Promise<IpcResult<ExtensionContributions>>;
+    grammar(ref: GrammarRef): Promise<IpcResult<GrammarSource>>;
+    theme(key: string): Promise<IpcResult<ResolvedColorTheme>>;
+    snippets(ref: SnippetsRef): Promise<IpcResult<ResolvedSnippets>>;
+    languageConfiguration(
+      ref: LanguageConfigurationRef,
+    ): Promise<IpcResult<Record<string, unknown>>>;
+    iconTheme(key: string): Promise<IpcResult<ResolvedIconTheme>>;
+    icon(ref: IconRef): Promise<IpcResult<string>>;
+    diagnostics(id: string): Promise<IpcResult<ExtensionDiagnostic[]>>;
+    clearDiagnostics(id: string): Promise<IpcResult<null>>;
+    reportProblem(input: ReportExtensionProblemInput): Promise<IpcResult<null>>;
+    /** Opens an extension's https homepage or repository in the system browser. */
+    openLink(url: string): Promise<IpcResult<null>>;
   };
   /** Individual AI CLI sessions started or tracked by ATLAS. */
   /** Named shell commands run in a new project terminal (PLAN-023). */

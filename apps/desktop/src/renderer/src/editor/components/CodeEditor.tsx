@@ -1,14 +1,9 @@
 import type { EditorPreferences } from '@atlas/contracts';
 import type * as MonacoApi from 'monaco-editor';
+import { extensionRuntime } from '@/extensions/runtime/runtime';
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { Monaco } from '../monaco/monaco';
 import type { ViewState } from '../state/tabs';
-
-const THEMES: Record<EditorPreferences['theme'], string> = {
-  dark: 'atlas-dark',
-  light: 'vs',
-  'high-contrast': 'hc-black',
-};
 
 export interface CodeEditorHandle {
   focus(): void;
@@ -119,7 +114,8 @@ export function CodeEditor(props: CodeEditorProps) {
   }, [model, path]);
 
   useEffect(() => {
-    monaco.editor.setTheme(THEMES[preferences.theme]);
+    extensionRuntime.attach(monaco);
+    extensionRuntime.setPreferences(preferences);
     editorRef.current?.updateOptions({
       fontSize: preferences.fontSize,
       wordWrap: preferences.wordWrap ? 'on' : 'off',

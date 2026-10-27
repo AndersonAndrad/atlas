@@ -14,6 +14,7 @@ import {
   FolderOpen,
   type LucideIcon,
 } from 'lucide-react';
+import { iconIdFor, useIconImage, useIconTheme } from '@/extensions/runtime/icons';
 import { cn } from '@/lib/utils';
 
 const BY_EXTENSION: Record<string, [LucideIcon, string]> = {
@@ -68,8 +69,37 @@ const BY_NAME: Record<string, [LucideIcon, string]> = {
   Makefile: [FileTerminal, 'text-lime-400'],
 };
 
-/** A generic icon per kind of file (no third-party icon theme). */
-export function FileIcon({
+/**
+ * The icon of the file icon theme in use (SDD-015 FR-1508), or a generic icon per kind of
+ * file when there is none or it has no image for this entry.
+ */
+export function FileIcon(props: {
+  name: string;
+  kind: FileEntryKind;
+  open?: boolean;
+  symlink?: boolean;
+  className?: string;
+}) {
+  const { theme, revision } = useIconTheme();
+  const iconId =
+    theme === null ? null : iconIdFor(theme, props.name, props.kind, props.open ?? false);
+  const image = useIconImage(theme?.key ?? null, revision, iconId);
+  if (image !== null) {
+    return (
+      <img
+        src={image}
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        className={cn('size-4 shrink-0', props.className)}
+      />
+    );
+  }
+  return <GenericFileIcon {...props} />;
+}
+
+/** A generic icon per kind of file. */
+function GenericFileIcon({
   name,
   kind,
   open = false,

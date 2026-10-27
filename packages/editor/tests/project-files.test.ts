@@ -528,6 +528,19 @@ describe('editor settings (FR-1108, FR-1110)', () => {
     });
   });
 
+  it('changes only the fields sent, keeping earlier choices', async () => {
+    const settings = new EditorSettings(store());
+    await settings.updatePreferences({ theme: 'light', wordWrap: true, colorTheme: 'a.b/night' });
+    const next = await settings.updatePreferences({ iconTheme: 'a.b/icons' });
+    expect(next).toMatchObject({
+      theme: 'light',
+      wordWrap: true,
+      colorTheme: 'a.b/night',
+      iconTheme: 'a.b/icons',
+    });
+    expect((await settings.updatePreferences({ colorTheme: null })).colorTheme).toBeNull();
+  });
+
   it('stores file references only and drops invalid stored layouts', async () => {
     const backing = store();
     const settings = new EditorSettings(backing);

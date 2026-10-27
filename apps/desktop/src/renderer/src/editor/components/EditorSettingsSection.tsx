@@ -1,5 +1,6 @@
-import type { EditorPreferences } from '@atlas/contracts';
-import { useId } from 'react';
+import type { EditorPreferences, ExtensionContributions } from '@atlas/contracts';
+import { useEffect, useId, useState } from 'react';
+import { api, unwrap } from '@/api';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -30,6 +31,31 @@ const DELAYS = [500, 1000, 2000, 5000];
 export function EditorSettingsSection() {
   const { preferences, loaded, error, update } = useEditorPreferences();
   const id = useId();
+  // Themes of extensions enabled globally (SDD-015 FR-1507, FR-1508).
+  const [contributed, setContributed] = useState<ExtensionContributions | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const result = await unwrap(api().extensions.contributions({ projectId: null })).catch(
+        () => null,
+      );
+      if (!cancelled) setContributed(result);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const themeOptions = (
+    current: string | null,
+    themes: { key: string; label: string }[],
+    none: string,
+  ): [string | null, string][] => [
+    [null, none],
+    ...themes.map((theme): [string, string] => [theme.key, theme.label]),
+    ...(current !== null && !themes.some((theme) => theme.key === current)
+      ? [[current, 'Unavailable (extension disabled or removed)'] as [string, string]]
+      : []),
+  ];
 
   const choice = <K extends keyof EditorPreferences>(
     key: K,
@@ -104,6 +130,20 @@ export function EditorSettingsSection() {
               'theme',
               'Theme',
               Object.entries(THEMES) as [EditorPreferences['theme'], string][],
+            )}
+            {choice(
+              'colorTheme',
+              'Extension color theme',
+              themeOptions(
+                preferences.colorTheme,
+                contributed?.themes ?? [],
+                'None (use the theme above)',
+              ),
+            )}
+            {choice(
+              'iconTheme',
+              'File icon theme',
+              themeOptions(preferences.iconTheme, contributed?.iconThemes ?? [], 'ATLAS icons'),
             )}
             {choice(
               'fontSize',

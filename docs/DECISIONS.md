@@ -776,3 +776,37 @@ superseded decisions are marked, not deleted.
   - One new runtime dependency (plus `tldts`), pinned exactly.
   - Rolling back to 0.28.x needs a database copy taken before 0.29.0 first ran (older
     versions refuse schema v14).
+
+## ADR-067 — Extensions are declarative-only in Milestone A, from Open VSX, with a tested matrix (PLAN-043)
+
+- **Decision**:
+  - ATLAS discovers and installs VS Code extensions from Open VSX in the Engine. Each
+    package is checked (SHA-256 against the registry, safe paths, no links, size and ratio
+    limits, identity) and moved into `<data>/extensions/<id>/<version>` only after
+    extraction succeeded.
+  - It applies only declarative contributions: languages, language configuration,
+    snippets, TextMate grammars, color themes for the editor, and SVG/PNG file icon themes.
+    No extension code runs.
+  - Grammars use `vscode-textmate` 9.3.2 with `vscode-oniguruma` 2.0.1. The WASM is bundled
+    as base64 and loaded on first use, and the renderer CSP gains `'wasm-unsafe-eval'`.
+  - The Engine adds `yauzl` 3.4.0 and `zod` 4.6.7 (already used elsewhere);
+    `packages/extensions` adds `jsonc-parser` 3.3.1. All pinned exactly.
+  - Compatibility is SUPPORTED only for versions in a matrix filled by an opt-in test
+    against the real registry. Everything else is UNTESTED, PARTIALLY_SUPPORTED or
+    UNSUPPORTED (not installable).
+  - Installed extensions, project overrides and diagnostics live in SQLite (migration v15).
+- **Alternatives**:
+  - A JavaScript regex engine (`@shikijs/engine-javascript`): rejected. It needs no CSP
+    change, but it has ranged dependencies and some grammars do not convert.
+  - Tokenizing in the Engine: rejected; it adds per-line IPC latency.
+  - Running extension code now: out of scope. It needs the Extension Host, permission and
+    trust design of Milestone B.
+  - The Microsoft Marketplace: rejected (§3.2, licensing).
+  - Labeling extensions SUPPORTED from their manifest: rejected (§3.4).
+- **Consequences**:
+  - Formatters, linters and language servers from extensions do not work yet.
+  - Color themes change only the editor.
+  - Regexes in language configurations run without a time limit.
+  - The registry checksum shows integrity, not authorship (signatures: Milestone C).
+  - Rolling back to 0.29.x needs a database copy taken before 0.30.0 first ran (older
+    versions refuse schema v15). The `<data>/extensions` folder can be deleted.

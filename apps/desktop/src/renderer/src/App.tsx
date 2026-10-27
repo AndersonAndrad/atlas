@@ -46,6 +46,13 @@ const ApiWorkbenchView = lazy(() =>
   })),
 );
 
+// Loaded on first use (SDD-015 §18): ATLAS works the same without extensions.
+const ExtensionsView = lazy(() =>
+  import('./extensions/components/ExtensionsView').then((module) => ({
+    default: module.ExtensionsView,
+  })),
+);
+
 export function App() {
   const [view, setView] = useState<AppView>('projects');
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -326,6 +333,11 @@ export function App() {
                   projects={projects.items ?? []}
                   projectId={projects.selectedId}
                 />
+              </Suspense>
+            )}
+            {view === 'extensions' && (
+              <Suspense fallback={<p className="text-muted-foreground p-4 text-sm">Loading…</p>}>
+                <ExtensionsView projects={projects.items ?? []} projectId={projects.selectedId} />
               </Suspense>
             )}
             {view === 'context' && (

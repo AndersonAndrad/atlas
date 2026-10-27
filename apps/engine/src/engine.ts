@@ -41,6 +41,7 @@ import {
   SqliteNotificationRepository,
   SqliteNoteRepository,
   SqliteHttpWorkbenchRepository,
+  SqliteExtensionRepository,
   SqliteJobRepository,
   SqliteTerminalGroupRepository,
   SqliteTerminalSessionRepository,
@@ -111,6 +112,9 @@ import { JobService } from '@atlas/jobs';
 import { DockerService } from '@atlas/docker';
 import { DockerCliRunner } from './adapters/docker-cli.js';
 import { HttpWorkbenchService } from '@atlas/api-workbench';
+import { ExtensionsService, TESTED_EXTENSIONS } from '@atlas/extensions';
+import { FileExtensionPackages } from './adapters/extension-packages.js';
+import { OPEN_VSX_URL, OpenVsxRegistry } from './adapters/open-vsx-registry.js';
 import { MemoryCookieJars } from './adapters/http-cookies.js';
 import { FileHttpResponses } from './adapters/http-response-files.js';
 import { NodeHttpTransport } from './adapters/http-transport.js';
@@ -196,6 +200,8 @@ export interface Engine {
   readonly docker: DockerService;
   /** HTTP requests, collections and history (SDD-014 Milestone A); desktop only. */
   readonly http: HttpWorkbenchService;
+  /** Extensions Hub and declarative contributions (SDD-015 Milestone A); desktop only. */
+  readonly extensions: ExtensionsService;
   /** Opens an ATLAS terminal with a shell in a running container (FR-1308). */
   openContainerTerminal(input: unknown): Promise<TerminalSession>;
   /** Files of registered projects for the code editor (SDD-011 Milestone A). */
@@ -308,6 +314,35 @@ function packageVersion(): string {
   } catch {
     return '0.0.0';
   }
+}
+
+/** The Open VSX name of this machine's platform, e.g. `darwin-arm64` (FR-1503). */
+export function openVsxPlatform(platform: string, arch: string): string {
+  const system = platform === 'win32' || platform === 'darwin' ? platform : 'linux';
+  const cpu = arch === 'arm' ? 'armhf' : arch;
+  return `${system}-${cpu}`;
+}
+
+/**
+ * Open VSX, or the registry named by ATLAS_EXTENSIONS_REGISTRY_URL (used by the tests). An
+ * invalid value falls back to Open VSX.
+ */
+function extensionRegistry(
+  override: string | undefined,
+  engineVersion: string,
+  logger: Logger,
+): OpenVsxRegistry {
+  const userAgent = `ATLAS/${engineVersion}`;
+  if (override) {
+    try {
+      const registry = new OpenVsxRegistry(override, userAgent);
+      logger.warn('Extensions use the registry from ATLAS_EXTENSIONS_REGISTRY_URL');
+      return registry;
+    } catch {
+      logger.warn('Ignoring an invalid ATLAS_EXTENSIONS_REGISTRY_URL');
+    }
+  }
+  return new OpenVsxRegistry(OPEN_VSX_URL, userAgent);
 }
 
 /**
@@ -893,6 +928,16 @@ export function createEngine(options: EngineOptions = {}): Engine {
     generateId: randomUUID,
     logger,
   });
+  const extensions = new ExtensionsService({
+    repository: new SqliteExtensionRepository(db),
+    registry: extensionRegistry(env.ATLAS_EXTENSIONS_REGISTRY_URL, engineVersion, logger),
+    packages: new FileExtensionPackages(path.join(dataDir, 'extensions')),
+    projectExists: async (projectId) => (await projects.findById(projectId)) !== null,
+    platform: openVsxPlatform(platform, process.arch),
+    tested: TESTED_EXTENSIONS,
+    clock,
+    logger,
+  });
   const projectGitSettings = new ProjectGitSettingsStore(settings, logger);
   const quickCommands = new QuickCommandStore({ store: settings, generateId: randomUUID, logger });
 
@@ -1188,6 +1233,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
     jobs,
     docker,
     http,
+    extensions,
     openContainerTerminal: async (input) => {
       const service = requireTerminals();
       const prepared = await docker.terminalCommand(input);
@@ -1384,6 +1430,13 @@ export function createEngine(options: EngineOptions = {}): Engine {
           await http.initialize();
         } catch (error) {
           logger.warn('Old HTTP response files could not be removed', {
+            error: describeError(error),
+          });
+        }
+        try {
+          await extensions.initialize();
+        } catch (error) {
+          logger.warn('Leftover extension files could not be removed', {
             error: describeError(error),
           });
         }

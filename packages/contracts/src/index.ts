@@ -18,3 +18,4 @@ export * from './files.js';
 export * from './jobs.js';
 export * from './docker.js';
 export * from './http.js';
+export * from './extensions.js';

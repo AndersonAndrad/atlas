@@ -136,6 +136,17 @@ export const ExternalUrlSchema = z
       return false;
     }
   }, 'Only web and e-mail links can be opened.');
+/** Links shown for an extension (homepage, repository): https web pages only. */
+export const ExtensionLinkSchema = z
+  .string()
+  .max(2048)
+  .refine((value) => {
+    try {
+      return new URL(value).protocol === 'https:';
+    } catch {
+      return false;
+    }
+  }, 'Only https links can be opened.');
 const IdArgs = z.tuple([ProjectIdSchema]);
 const PositionSchema = z.number().int().min(0).max(10_000);
 const DIRECTORY_PURPOSES = [
@@ -630,6 +641,31 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     [IPC_CHANNELS.jobsGetSettings, 'jobs.getSettings'],
     [IPC_CHANNELS.jobsSetSettings, 'jobs.setSettings'],
   ];
+  // Extensions Hub (SDD-015 Milestone A): forwarded as they are; the Engine validates.
+  const extensionChannels: [string, EngineMethod][] = [
+    [IPC_CHANNELS.extensionsSearch, 'extensions.search'],
+    [IPC_CHANNELS.extensionsDetails, 'extensions.details'],
+    [IPC_CHANNELS.extensionsList, 'extensions.list'],
+    [IPC_CHANNELS.extensionsInstall, 'extensions.install'],
+    [IPC_CHANNELS.extensionsUninstall, 'extensions.uninstall'],
+    [IPC_CHANNELS.extensionsSetEnabled, 'extensions.setEnabled'],
+    [IPC_CHANNELS.extensionsCheckUpdates, 'extensions.checkUpdates'],
+    [IPC_CHANNELS.extensionsContributions, 'extensions.contributions'],
+    [IPC_CHANNELS.extensionsGrammar, 'extensions.grammar'],
+    [IPC_CHANNELS.extensionsTheme, 'extensions.theme'],
+    [IPC_CHANNELS.extensionsSnippets, 'extensions.snippets'],
+    [IPC_CHANNELS.extensionsLanguageConfiguration, 'extensions.languageConfiguration'],
+    [IPC_CHANNELS.extensionsIconTheme, 'extensions.iconTheme'],
+    [IPC_CHANNELS.extensionsIcon, 'extensions.icon'],
+    [IPC_CHANNELS.extensionsDiagnostics, 'extensions.diagnostics'],
+    [IPC_CHANNELS.extensionsClearDiagnostics, 'extensions.clearDiagnostics'],
+    [IPC_CHANNELS.extensionsReportProblem, 'extensions.reportProblem'],
+  ];
+  // Extension homepages and repositories: https web pages only.
+  handle(IPC_CHANNELS.extensionsOpenLink, z.tuple([ExtensionLinkSchema]), async ([url]) => {
+    await deps.openExternal(url as string);
+    return null;
+  });
   // API Workbench (SDD-014 Milestone A). Files to upload are trusted only when picked
   // here; the Engine also accepts files already part of a saved request.
   const pickedUploads = new Set<string>();
@@ -686,6 +722,7 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
   });
 
   for (const [channel, method] of [
+    ...extensionChannels,
     ...httpChannels,
     ...usageChannels,
     ...preflightChannels,

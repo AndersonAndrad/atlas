@@ -660,6 +660,34 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
       engine.http.deleteSnapshot(id);
       return null;
     },
+    // Extensions Hub (SDD-015 Milestone A); validated again by the service.
+    'extensions.search': ([input]: [unknown]) => engine.extensions.search(input),
+    'extensions.details': ([input]: [unknown]) => engine.extensions.details(input),
+    'extensions.list': ([input]: [unknown]) => engine.extensions.list(input),
+    'extensions.install': ([input]: [unknown]) => engine.extensions.install(input),
+    'extensions.uninstall': async ([id]: [string]) => {
+      await engine.extensions.uninstall(id);
+      return null;
+    },
+    'extensions.setEnabled': ([input]: [unknown]) => engine.extensions.setEnabled(input),
+    'extensions.checkUpdates': () => engine.extensions.checkUpdates(),
+    'extensions.contributions': ([input]: [unknown]) => engine.extensions.contributions(input),
+    'extensions.grammar': ([ref]: [unknown]) => engine.extensions.grammar(ref),
+    'extensions.theme': ([key]: [string]) => engine.extensions.theme(key),
+    'extensions.snippets': ([ref]: [unknown]) => engine.extensions.snippets(ref),
+    'extensions.languageConfiguration': ([ref]: [unknown]) =>
+      engine.extensions.languageConfiguration(ref),
+    'extensions.iconTheme': ([key]: [string]) => engine.extensions.iconTheme(key),
+    'extensions.icon': ([ref]: [unknown]) => engine.extensions.icon(ref),
+    'extensions.diagnostics': ([id]: [string]) => engine.extensions.diagnostics(id),
+    'extensions.clearDiagnostics': ([id]: [string]) => {
+      engine.extensions.clearDiagnostics(id);
+      return null;
+    },
+    'extensions.reportProblem': ([input]: [unknown]) => {
+      engine.extensions.reportProblem(input);
+      return null;
+    },
     // Project files and the code editor (SDD-011 Milestone A); validated again by the service.
     'files.list': ([input]: [ListDirectoryInput]) => engine.files.list(input),
     'files.read': ([ref]: [FileRef]) => engine.files.read(ref),

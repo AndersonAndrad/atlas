@@ -1,15 +1,10 @@
 import type { EditorPreferences } from '@atlas/contracts';
 import type * as MonacoApi from 'monaco-editor';
+import { extensionRuntime } from '@/extensions/runtime/runtime';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useEditorPreferences } from '@/editor/hooks/useEditorPreferences';
 import { loadMonaco, type Monaco } from '@/editor/monaco/monaco';
 import { cn } from '@/lib/utils';
-
-const THEMES: Record<EditorPreferences['theme'], string> = {
-  dark: 'atlas-dark',
-  light: 'vs',
-  'high-contrast': 'hc-black',
-};
 
 /** The editor's own Monaco, loaded on first use (SDD-014 FR-1405, FR-1411). */
 function useMonaco(): { monaco: Monaco | null; error: boolean } {
@@ -86,7 +81,7 @@ export function MonacoText({
       model,
       readOnly,
       ariaLabel,
-      theme: THEMES[preferences.theme],
+      theme: extensionRuntime.currentThemeName(),
     });
     editorRef.current = editor;
     const subscription = editor.onDidChangeModelContent(() => {
@@ -113,7 +108,8 @@ export function MonacoText({
     }
     monaco.editor.setModelLanguage(model, language);
     editor.updateOptions({ ...baseOptions(preferences), readOnly, ariaLabel });
-    monaco.editor.setTheme(THEMES[preferences.theme]);
+    extensionRuntime.attach(monaco);
+    extensionRuntime.setPreferences(preferences);
   }, [monaco, value, language, readOnly, ariaLabel, preferences]);
 
   useEffect(() => {
@@ -158,7 +154,7 @@ export function MonacoDiff({ original, modified, language, className, testId }: 
       readOnly: true,
       originalEditable: false,
       renderSideBySide: host.clientWidth > 700,
-      theme: THEMES[preferences.theme],
+      theme: extensionRuntime.currentThemeName(),
     });
     diff.setModel({ original: left, modified: right });
     return () => {

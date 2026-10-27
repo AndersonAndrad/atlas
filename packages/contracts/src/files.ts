@@ -189,23 +189,50 @@ export type WatchFilesInput = z.infer<typeof WatchFilesSchema>;
 export const EDITOR_THEMES = ['dark', 'light', 'high-contrast'] as const;
 export const EDITOR_AUTO_SAVE = ['off', 'after-delay', 'on-focus-change'] as const;
 
-export const EditorPreferencesSchema = z.strictObject({
-  theme: z.enum(EDITOR_THEMES).default('dark'),
-  fontSize: z.int().min(8).max(32).default(13),
-  tabSize: z.int().min(1).max(8).default(2),
-  insertSpaces: z.boolean().default(true),
-  wordWrap: z.boolean().default(false),
-  minimap: z.boolean().default(true),
-  autoSave: z.enum(EDITOR_AUTO_SAVE).default('off'),
-  autoSaveDelayMs: z.int().min(200).max(60_000).default(1000),
+const EditorPreferenceFields = {
+  theme: z.enum(EDITOR_THEMES),
+  /**
+   * A color theme contributed by an extension (`<extension id>/<theme id>`, SDD-015
+   * FR-1507). Used while that extension is enabled; otherwise `theme` applies.
+   */
+  colorTheme: z.string().min(3).max(400).nullable(),
+  /** A file icon theme contributed by an extension (FR-1508); null keeps ATLAS icons. */
+  iconTheme: z.string().min(3).max(400).nullable(),
+  fontSize: z.int().min(8).max(32),
+  tabSize: z.int().min(1).max(8),
+  insertSpaces: z.boolean(),
+  wordWrap: z.boolean(),
+  minimap: z.boolean(),
+  autoSave: z.enum(EDITOR_AUTO_SAVE),
+  autoSaveDelayMs: z.int().min(200).max(60_000),
   /** Reload unmodified tabs when their file changes on disk (PLAN-033 Q5). */
-  autoReload: z.boolean().default(true),
-  showHiddenFiles: z.boolean().default(true),
-  showIgnoredFiles: z.boolean().default(false),
+  autoReload: z.boolean(),
+  showHiddenFiles: z.boolean(),
+  showIgnoredFiles: z.boolean(),
+};
+
+export const EditorPreferencesSchema = z.strictObject({
+  theme: EditorPreferenceFields.theme.default('dark'),
+  colorTheme: EditorPreferenceFields.colorTheme.default(null),
+  iconTheme: EditorPreferenceFields.iconTheme.default(null),
+  fontSize: EditorPreferenceFields.fontSize.default(13),
+  tabSize: EditorPreferenceFields.tabSize.default(2),
+  insertSpaces: EditorPreferenceFields.insertSpaces.default(true),
+  wordWrap: EditorPreferenceFields.wordWrap.default(false),
+  minimap: EditorPreferenceFields.minimap.default(true),
+  autoSave: EditorPreferenceFields.autoSave.default('off'),
+  autoSaveDelayMs: EditorPreferenceFields.autoSaveDelayMs.default(1000),
+  autoReload: EditorPreferenceFields.autoReload.default(true),
+  showHiddenFiles: EditorPreferenceFields.showHiddenFiles.default(true),
+  showIgnoredFiles: EditorPreferenceFields.showIgnoredFiles.default(false),
 });
 export type EditorPreferences = z.output<typeof EditorPreferencesSchema>;
 
-export const UpdateEditorPreferencesSchema = EditorPreferencesSchema.partial();
+/**
+ * Only the fields being changed. Built without defaults: with Zod 4, `.partial()` of the
+ * schema above would fill every missing field with its default and reset it.
+ */
+export const UpdateEditorPreferencesSchema = z.strictObject(EditorPreferenceFields).partial();
 export type UpdateEditorPreferencesInput = z.input<typeof UpdateEditorPreferencesSchema>;
 
 const Percent = z.number().min(5).max(95);

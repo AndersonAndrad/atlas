@@ -23,6 +23,7 @@
     { "path": "../../packages/jobs" },
     { "path": "../../packages/docker" },
     { "path": "../../packages/api-workbench" },
+    { "path": "../../packages/extensions" },
     { "path": "../../packages/editor" }
   ]
 }

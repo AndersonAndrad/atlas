@@ -33,6 +33,7 @@ import { onTerminalLifecycle } from '@/terminal/state/terminal-events';
 import { useEditorPreferences } from '../hooks/useEditorPreferences';
 import { useFileTree } from '../hooks/useFileTree';
 import { loadMonaco, type Monaco } from '../monaco/monaco';
+import { extensionRuntime } from '@/extensions/runtime/runtime';
 import { EditorBuffers } from '../state/buffers';
 import {
   EMPTY_TABS,
@@ -218,6 +219,13 @@ export function EditorView(props: EditorViewProps) {
       cancelled = true;
     };
   }, [visible, monaco]);
+
+  // Extensions enabled for the project shown add languages, themes and snippets (SDD-015).
+  useEffect(() => {
+    if (monaco === null || !visible) return;
+    extensionRuntime.attach(monaco);
+    void extensionRuntime.setProject(projectId);
+  }, [monaco, projectId, visible]);
 
   // The first project: the last one edited, else the selected one, else the first.
   useEffect(() => {

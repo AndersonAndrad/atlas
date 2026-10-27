@@ -13,3 +13,4 @@ export * from './sqlite-notification-repository.js';
 export * from './sqlite-note-repository.js';
 export * from './sqlite-job-repository.js';
 export * from './sqlite-http-workbench-repository.js';
+export * from './sqlite-extension-repository.js';

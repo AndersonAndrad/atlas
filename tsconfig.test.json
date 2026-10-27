@@ -27,6 +27,7 @@
       "@atlas/jobs": ["./packages/jobs/src/index.ts"],
       "@atlas/docker": ["./packages/docker/src/index.ts"],
       "@atlas/api-workbench": ["./packages/api-workbench/src/index.ts"],
+      "@atlas/extensions": ["./packages/extensions/src/index.ts"],
       "@atlas/editor": ["./packages/editor/src/index.ts"],
       "@atlas/persistence": ["./packages/persistence/src/index.ts"],
       "@atlas/engine": ["./apps/engine/src/index.ts"]

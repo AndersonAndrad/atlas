@@ -14,6 +14,7 @@ const projects = [
   'packages/jobs',
   'packages/docker',
   'packages/api-workbench',
+  'packages/extensions',
   'packages/editor',
   'apps/engine',
   'apps/cli',

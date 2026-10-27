@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-26 — PLAN-042 (SDD-014 Milestone A: API Workbench).
+Last updated: 2026-10-27 — PLAN-043 (SDD-015 Milestone A: Extensions Hub).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -50,7 +50,60 @@ awaits approval; SDD-012 Milestones B and C are not started. PLAN-041 (SDD-013 M
 A: Container Manager over the Docker CLI) is implemented and awaits approval; SDD-013
 Milestones B and C are not started. PLAN-042 (SDD-014 Milestone A: API Workbench, HTTP in
 the Engine) is implemented and awaits approval; SDD-014 Milestones B and C are not
-started. Version 0.29.0 (schema v14).
+started. PLAN-043 (SDD-015 Milestone A: Extensions Hub with Open VSX and declarative
+contributions) is implemented and awaits approval; SDD-015 Milestones B and C are not
+started. Version 0.30.0 (schema v15).
+
+## PLAN-043 — SDD-015 Milestone A: Extensions Hub
+
+- Approved 2026-10-27 by Anderson Andrade ("pode seguir com o plan, e q1 a q6 pode seguir
+  com o recomendado sem problema"). The plan had Q1–Q5; all take the recommended option.
+  R1–R12 were presented but not acknowledged by ID. Details:
+  `docs/sdd/SDD-015-vscode-extension-compatibility.md`, ADR-067.
+  - Q1: TextMate grammars with `vscode-textmate` and the Oniguruma WASM; the CSP adds
+    `'wasm-unsafe-eval'`.
+  - Q2: color themes change the editor only.
+  - Q3: icon themes with SVG and PNG icons only.
+  - Q4: SUPPORTED only from the tested matrix (opt-in live Open VSX test).
+  - Q5: dependencies install only after the user confirms the list.
+- New `packages/extensions`: manifest checks, declarations, compatibility levels,
+  resolvers for themes, grammars, snippets, language configuration and icon themes, and
+  `ExtensionsService`.
+  - Engine adapters: `OpenVsxRegistry` and `FileExtensionPackages` (yauzl, staging,
+    atomic commit). Migration v15 with `SqliteExtensionRepository`.
+  - `extensions.*` methods, desktop only. Only https homepage links can be opened.
+  - The Extensions view (lazy): Open VSX search with category and publisher, Installed,
+    Updates on demand, details with the compatibility report, versions, enablement per
+    project, dependencies and diagnostics.
+  - A renderer runtime applies the contributions to Monaco (Editor and API Workbench) and
+    to the file explorer. Settings can pick extension themes.
+- Dependencies, all exact: `yauzl` 3.4.0 (with `@types/yauzl` 3.4.0) and `zod` 4.6.7 in
+  the Engine; `jsonc-parser` 3.3.1; `vscode-textmate` 9.3.2 and `vscode-oniguruma` 2.0.1
+  in the desktop bundle.
+- Rolling back to 0.29.x needs a database copy taken before 0.30.0 first ran: older
+  versions refuse schema v15.
+- Fixed on the way: with Zod 4, `.partial()` of the editor preferences applied every
+  default, so changing one editor preference reset the others (since SDD-011). The update
+  schema is now built without defaults, with a regression test.
+- Staff review found no Critical or High findings. Fixed during the review:
+  - registry metadata was cached for 5 minutes, so update checks and installing "latest"
+    could use stale data (they now ask the registry again);
+  - a transfer that broke midway surfaced as an internal error instead of "registry
+    unavailable";
+  - cached file icons stayed old after the icon extension was updated;
+  - using a registry from `ATLAS_EXTENSIONS_REGISTRY_URL` was not logged;
+  - extension themes could be chosen only in the Extensions view; Settings now offers them
+    too.
+- Validation (2026-10-27):
+  - format, lint, typecheck and `pnpm audit --prod` are clean.
+  - `pnpm test`: 1057 passed, 6 skipped (opt-in real Docker and live Open VSX tests).
+  - New tests: 43 + 14 unit, 6 persistence (v14 → v15), 25 integration with a local
+    registry and hostile packages, 1 IPC, 1 preferences regression. Mutation checks: the
+    symbolic link test fails without the check; the preferences test fails with the old
+    schema.
+  - Live Open VSX (opt-in): 4/4. Dracula 2.25.1, JavaScriptSnippets 1.8.0 and vscode-apache
+    1.2.0 are SUPPORTED; Material Icon Theme 5.40.0 is PARTIALLY_SUPPORTED.
+  - E2E in Linux Docker with Xvfb: full suite 111 passed, 1 skipped.
 
 ## PLAN-042 — SDD-014 Milestone A: API Workbench
 

@@ -9,6 +9,7 @@ import {
   KeyRound,
   ListChecks,
   NotebookTabs,
+  Puzzle,
   Send,
   Settings,
   ShieldCheck,
@@ -32,6 +33,7 @@ export type AppView =
   | 'operations'
   | 'containers'
   | 'api'
+  | 'extensions'
   | 'context'
   | 'sessions'
   | 'skills'
@@ -56,6 +58,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'operations', label: 'Operations', icon: Activity, view: 'operations' },
   { id: 'containers', label: 'Containers', icon: Boxes, view: 'containers' },
   { id: 'api', label: 'API', icon: Send, view: 'api' },
+  { id: 'extensions', label: 'Extensions', icon: Puzzle, view: 'extensions' },
   { id: 'context', label: 'Context', icon: Database, view: 'context' },
   { id: 'sessions', label: 'Sessions', icon: ListChecks, view: 'sessions' },
   { id: 'agents', label: 'Agents', icon: Bot },
