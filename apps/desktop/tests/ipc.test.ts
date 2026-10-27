@@ -314,6 +314,21 @@ describe('desktop IPC handlers', () => {
     ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
   });
 
+  it('keeps the debugger Engine-only: no window channel and no CLI access (SDD-016)', async () => {
+    expect(Object.keys(IPC_CHANNELS).some((name) => name.startsWith('debug'))).toBe(false);
+    const dispatcher = createEngineDispatcher(engine);
+    expect(await dispatcher.call('debug.adapters', [], 'desktop')).toEqual([]);
+    for (const [method, params] of [
+      ['debug.adapters', []],
+      ['debug.sessions', ['desktop-1']],
+      ['debug.detach', ['desktop-1']],
+    ] as const) {
+      await expect(dispatcher.call(method, [...params], 'cli')).rejects.toMatchObject({
+        code: 'VALIDATION_FAILED',
+      });
+    }
+  });
+
   it('runs HTTP requests only with picked files and the window as subscriber (SDD-014)', async () => {
     const server = http.createServer((request, response) => {
       response.writeHead(200, { 'Content-Type': 'application/json' });

@@ -810,3 +810,26 @@ superseded decisions are marked, not deleted.
   - The registry checksum shows integrity, not authorship (signatures: Milestone C).
   - Rolling back to 0.29.x needs a database copy taken before 0.30.0 first ran (older
     versions refuse schema v15). The `<data>/extensions` folder can be deleted.
+
+## ADR-068 — Debug adapters run as Engine process trees over our own DAP framing (PLAN-044)
+
+- **Decision**:
+  - Debug Adapter Protocol sessions are owned by the Engine (`packages/debugger`).
+  - Adapters start from an Engine-only registry: absolute executable, no shell, a working
+    folder inside the project. They run as process trees (stdin and stdout piped), so a
+    stop or failure ends every process they started.
+  - Framing and request correlation are ATLAS code, typed with `@vscode/debugprotocol`
+    1.68.0 (types only, pinned).
+  - Sessions are in memory, one active at a time, owned by the creating client. Nothing is
+    exposed to the window until the debugger UI exists.
+- **Alternatives**:
+  - `vscode-jsonrpc`: rejected; its message layer is JSON-RPC, not DAP.
+  - `@vscode/debugadapter`: rejected; it is for writing adapters, not clients.
+  - Running adapters in main or the renderer: rejected (§5).
+  - Reading `launch.json` automatically: rejected; repository files must not start
+    programs.
+  - Persisting sessions now: deferred; there is nothing to resume yet.
+- **Consequences**:
+  - A hard Engine crash can leave adapter process groups behind.
+  - The UI tasks must add the user action, adapter registration and IPC.
+  - No database change; rolling back to 0.30.x needs nothing special.

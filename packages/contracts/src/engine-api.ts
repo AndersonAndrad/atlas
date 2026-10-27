@@ -240,6 +240,12 @@ import {
   type ResolvedSnippets,
 } from './extensions.js';
 import {
+  DebugConfigurationSchema,
+  DebugSessionIdSchema,
+  type DebugAdapter,
+  type DebugSession,
+} from './debug.js';
+import {
   CreateHttpCollectionSchema,
   CreateHttpFolderSchema,
   HttpCollectionIdSchema,
@@ -632,6 +638,15 @@ export const ENGINE_METHOD_PARAMS = {
   'extensions.diagnostics': z.tuple([ExtensionIdSchema]),
   'extensions.clearDiagnostics': z.tuple([ExtensionIdSchema]),
   'extensions.reportProblem': z.tuple([ReportExtensionProblemSchema]),
+  // Debugger foundation (SDD-016 Task 01); desktop only. The subscriber is the owner, set
+  // by the main process. A session runs only when `debug.start` is called for it.
+  'debug.adapters': z.tuple([]),
+  'debug.create': z.tuple([SubscriberIdSchema, DebugConfigurationSchema]),
+  'debug.start': z.tuple([SubscriberIdSchema, DebugSessionIdSchema]),
+  'debug.stop': z.tuple([SubscriberIdSchema, DebugSessionIdSchema]),
+  'debug.session': z.tuple([SubscriberIdSchema, DebugSessionIdSchema]),
+  'debug.sessions': z.tuple([SubscriberIdSchema]),
+  'debug.detach': z.tuple([SubscriberIdSchema]),
 } as const;
 
 export type EngineMethod = keyof typeof ENGINE_METHOD_PARAMS;
@@ -934,6 +949,14 @@ export interface EngineMethodResults {
   'extensions.diagnostics': ExtensionDiagnostic[];
   'extensions.clearDiagnostics': null;
   'extensions.reportProblem': null;
+  'debug.adapters': DebugAdapter[];
+  'debug.create': DebugSession;
+  /** Settles once the session runs (or failed to start). */
+  'debug.start': DebugSession;
+  'debug.stop': DebugSession;
+  'debug.session': DebugSession;
+  'debug.sessions': DebugSession[];
+  'debug.detach': null;
 }
 
 export type EngineMethodParams<M extends EngineMethod> = z.input<(typeof ENGINE_METHOD_PARAMS)[M]>;

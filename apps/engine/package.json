@@ -1,6 +1,6 @@
 {
   "name": "@atlas/engine",
-  "version": "0.30.0",
+  "version": "0.31.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -22,6 +22,7 @@
     "@atlas/conventional-commits": "workspace:*",
     "@atlas/docker": "workspace:*",
     "@atlas/editor": "workspace:*",
+    "@atlas/debugger": "workspace:*",
     "@atlas/extensions": "workspace:*",
     "@atlas/git": "workspace:*",
     "@atlas/jobs": "workspace:*",

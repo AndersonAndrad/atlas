@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import type { Writable } from 'node:stream';
 
 /** Default grace period between SIGTERM and SIGKILL. */
 export const DEFAULT_KILL_GRACE_MS = 5000;
@@ -15,6 +16,8 @@ export interface ProcessTreeOptions {
   killGraceMs?: number;
   /** Arguments are passed to cmd.exe as written (Windows shell commands only). */
   windowsVerbatimArguments?: boolean;
+  /** `pipe` gives the process a standard input to write to (debug adapters); default `ignore`. */
+  stdin?: 'ignore' | 'pipe';
   /** Replaces `child_process.spawn`, e.g. to test the Windows branch on any platform. */
   spawn?: typeof spawn;
 }
@@ -34,6 +37,10 @@ export interface ProcessTree {
    */
   stop(): void;
   readonly finished: Promise<void>;
+  /** The process's standard input when started with `stdin: 'pipe'`, else null. */
+  readonly input: Writable | null;
+  /** The root process id, once started. */
+  readonly pid: number | undefined;
 }
 
 /**
@@ -54,7 +61,7 @@ export function startProcessTree(
     cwd: options.cwd,
     env: options.env,
     detached: !windows,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: [options.stdin ?? 'ignore', 'pipe', 'pipe'],
     windowsHide: true,
     windowsVerbatimArguments: options.windowsVerbatimArguments ?? false,
   });
@@ -113,8 +120,13 @@ export function startProcessTree(
     finish();
   });
 
+  // A write to a process that already exited must not crash the Engine.
+  child.stdin?.on('error', () => undefined);
+
   return {
     finished,
+    input: child.stdin ?? null,
+    pid: child.pid,
     stop: () => {
       if (stopping || settled) return;
       stopping = true;

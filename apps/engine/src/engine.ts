@@ -113,6 +113,11 @@ import { DockerService } from '@atlas/docker';
 import { DockerCliRunner } from './adapters/docker-cli.js';
 import { HttpWorkbenchService } from '@atlas/api-workbench';
 import { ExtensionsService, TESTED_EXTENSIONS } from '@atlas/extensions';
+import { DebugSessionManager } from '@atlas/debugger';
+import {
+  NodeDebugFileSystem,
+  ProcessTreeAdapterLauncher,
+} from './adapters/debug-adapter-process.js';
 import { FileExtensionPackages } from './adapters/extension-packages.js';
 import { OPEN_VSX_URL, OpenVsxRegistry } from './adapters/open-vsx-registry.js';
 import { MemoryCookieJars } from './adapters/http-cookies.js';
@@ -202,6 +207,8 @@ export interface Engine {
   readonly http: HttpWorkbenchService;
   /** Extensions Hub and declarative contributions (SDD-015 Milestone A); desktop only. */
   readonly extensions: ExtensionsService;
+  /** Debug Adapter Protocol sessions (SDD-016 Task 01); desktop only, no adapters yet. */
+  readonly debug: DebugSessionManager;
   /** Opens an ATLAS terminal with a shell in a running container (FR-1308). */
   openContainerTerminal(input: unknown): Promise<TerminalSession>;
   /** Files of registered projects for the code editor (SDD-011 Milestone A). */
@@ -938,6 +945,15 @@ export function createEngine(options: EngineOptions = {}): Engine {
     clock,
     logger,
   });
+  const debug = new DebugSessionManager({
+    launcher: new ProcessTreeAdapterLauncher(env, platform),
+    fileSystem: new NodeDebugFileSystem(),
+    projectPath: async (projectId) => (await projects.findById(projectId))?.workspacePath ?? null,
+    clock,
+    generateId: randomUUID,
+    logger,
+  });
+  debug.onEvent((ownerId, event) => terminals?.publish({ type: 'debug', ownerId, event }));
   const projectGitSettings = new ProjectGitSettingsStore(settings, logger);
   const quickCommands = new QuickCommandStore({ store: settings, generateId: randomUUID, logger });
 
@@ -1234,6 +1250,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
     docker,
     http,
     extensions,
+    debug,
     openContainerTerminal: async (input) => {
       const service = requireTerminals();
       const prepared = await docker.terminalCommand(input);
@@ -1570,6 +1587,8 @@ export function createEngine(options: EngineOptions = {}): Engine {
         docker.close();
         // Running HTTP requests are cancelled; kept response bodies are removed.
         await http.close();
+        // Debug adapters and their process trees stop; nothing is left running.
+        await debug.close();
         // Running checks are cancelled and their process trees stopped.
         await preflight.close();
       }

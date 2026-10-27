@@ -40,6 +40,8 @@
 | M15a      | SDD-015 A     | Extensions Hub: Open VSX, safe installs, themes, icons, grammars, snippets, language settings   | Implemented — awaiting approval       |
 | M15b      | SDD-015 B     | Extension Host, VS Code API subset, commands, language providers, permissions and trust         | Not started (after A is validated)    |
 | M15c      | SDD-015 C     | Updates and rollback, project profiles, language servers, formatters, jobs and notifications    | Not started (after B)                 |
+| M16a      | SDD-016 T01   | Debugger foundation: DAP contracts, transport, Engine session manager, fixture adapter tests    | Implemented — awaiting approval       |
+| M16b      | SDD-016 next  | Adapters, launch configurations, breakpoints, call stack, variables, console in Monaco          | Not started (needs its own plan)      |
 | M4        | TBD           | Agents and multi-agent orchestration                                                            | Not started                           |
 | M5        | TBD           | Skills Hub and Context Engine                                                                   | Not started                           |
 | M6        | PLAN-024      | Packaging and CI release pipeline (done); signing, notarization, auto-update (not started)      | Partially implemented                 |

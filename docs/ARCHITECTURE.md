@@ -604,6 +604,23 @@ contributions read as data. Files are named by extension id and contribution key
 by path across the bridge. Compatibility is SUPPORTED only for versions in the tested
 matrix.
 
+### Debugger foundation (SDD-016 Task 01)
+
+Full description: `docs/sdd/SDD-016-debugger.md`.
+
+```text
+ Engine `debug.*` (desktop only; owner set by main; no window API yet)
+   DebugSessionManager (packages/debugger): adapter registry, sessions per owner, status
+     machine, DAP handshake, DapConnection (seq/request_seq, timeouts, events),
+     DapMessageReader (Content-Length framing, limits)
+   ProcessTreeAdapterLauncher (adapter): process-tree with stdin piped, no shell
+ Events ─► Engine event bus `{ type: 'debug', ownerId, event }`
+```
+
+Adapters come only from the Engine's registry (empty for now) and start only on an
+explicit `start`, in a folder inside the project. Failures, detach and shutdown stop the
+adapter's whole process tree.
+
 ### Project context of a terminal
 
 `Engine.terminalProjectContext` reports the associated project and the deepest registered

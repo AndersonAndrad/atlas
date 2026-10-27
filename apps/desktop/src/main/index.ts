@@ -89,6 +89,7 @@ function detachCurrentRenderer(): void {
     .catch(() => undefined);
   void engine?.call('docker.detach', previous).catch(() => undefined);
   void engine?.call('http.detach', previous).catch(() => undefined);
+  void engine?.call('debug.detach', previous).catch(() => undefined);
 }
 
 /** A new renderer starts without editor state: no unsaved buffers, terminal shortcuts on. */

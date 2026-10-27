@@ -688,6 +688,17 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
       engine.extensions.reportProblem(input);
       return null;
     },
+    // Debugger foundation (SDD-016 Task 01): the owner is the subscriber set by main.
+    'debug.adapters': () => engine.debug.adapters(),
+    'debug.create': ([owner, input]: [string, unknown]) => engine.debug.create(owner, input),
+    'debug.start': ([owner, id]: [string, string]) => engine.debug.start(owner, id),
+    'debug.stop': ([owner, id]: [string, string]) => engine.debug.stop(owner, id),
+    'debug.session': ([owner, id]: [string, string]) => engine.debug.session(owner, id),
+    'debug.sessions': ([owner]: [string]) => engine.debug.sessions(owner),
+    'debug.detach': async ([owner]: [string]) => {
+      await engine.debug.detach(owner);
+      return null;
+    },
     // Project files and the code editor (SDD-011 Milestone A); validated again by the service.
     'files.list': ([input]: [ListDirectoryInput]) => engine.files.list(input),
     'files.read': ([ref]: [FileRef]) => engine.files.read(ref),

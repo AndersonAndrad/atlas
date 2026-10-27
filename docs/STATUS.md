@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-27 — PLAN-043 (SDD-015 Milestone A: Extensions Hub).
+Last updated: 2026-10-27 — PLAN-044 (SDD-016 Task 01: debugger foundation).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -52,7 +52,38 @@ Milestones B and C are not started. PLAN-042 (SDD-014 Milestone A: API Workbench
 the Engine) is implemented and awaits approval; SDD-014 Milestones B and C are not
 started. PLAN-043 (SDD-015 Milestone A: Extensions Hub with Open VSX and declarative
 contributions) is implemented and awaits approval; SDD-015 Milestones B and C are not
-started. Version 0.30.0 (schema v15).
+started. PLAN-044 (SDD-016 Task 01: Debug Adapter Protocol foundation, no UI) is
+implemented and awaits approval. Version 0.31.0 (schema v15).
+
+## PLAN-044 — SDD-016 Task 01: debugger foundation
+
+- Approved 2026-10-27 by Anderson Andrade ("pode seguir, q1 a q4 recomendado"). R1–R5 were
+  presented but not acknowledged by ID. Details: `docs/sdd/SDD-016-debugger.md`, ADR-068.
+  - Q1: no window API yet; the `debug.*` Engine methods are desktop only.
+  - Q2: `@vscode/debugprotocol` 1.68.0 types, with ATLAS's own framing.
+  - Q3: sessions in memory only.
+  - Q4: one active session at a time.
+- New `packages/debugger`:
+  - `DapMessageReader` and `encodeDapMessage`;
+  - `DapConnection`;
+  - the status machine;
+  - `DebugSessionManager`: adapter registry, create, start, stop, status, events, detach,
+    close.
+- Contracts: `packages/contracts/src/debug.ts`, a `debug` engine event, and `DEBUG_*`
+  error codes.
+- Engine adapter `ProcessTreeAdapterLauncher`; `process-tree` can now pipe stdin. The main
+  process detaches a reloaded window's sessions, and Engine shutdown stops them all.
+- One dependency: `@vscode/debugprotocol` 1.68.0 (exact, types only). No schema change.
+- Staff review found one High finding, fixed before validation: an `initialized` event sent
+  in the same chunk as the `initialize` response was missed, so such adapters would time
+  out. The waiter now exists before `initialize` is sent, with a test that fails without
+  the fix.
+- Validation (2026-10-27):
+  - format, lint and typecheck are clean.
+  - `pnpm test`: 1105 passed, 6 skipped.
+  - New tests: 26 unit, 21 integration with a real fake adapter process (every adapter PID
+    checked to be gone), 1 IPC. Mutation checks: two.
+  - E2E in Linux Docker (workspace, security, terminals): 22 passed, 1 skipped.
 
 ## PLAN-043 — SDD-015 Milestone A: Extensions Hub
 

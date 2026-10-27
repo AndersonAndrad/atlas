@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ProjectIdSchema, WorkspacePathSchema } from './project.js';
 import type { GitOperation } from './git.js';
 import type { BackgroundJob } from './jobs.js';
+import type { DebugEvent } from './debug.js';
 import type { AtlasNotification } from './notification.js';
 
 export const TERMINAL_STATUSES = [
@@ -240,7 +241,9 @@ export type TerminalEvent =
    * Containers of a Docker context may have changed (SDD-013); `containerId` is null when
    * the connection itself changed. Clients reload; events are hints, not state.
    */
-  | { type: 'docker'; context: string; containerId: string | null };
+  | { type: 'docker'; context: string; containerId: string | null }
+  /** A debug session changed or its adapter sent an event; only `ownerId` acts on it (SDD-016). */
+  | { type: 'debug'; ownerId: string; event: DebugEvent };
 
 export const TERMINAL_FONT_FAMILIES = ['system', 'menlo', 'sf-mono', 'monaco', 'courier'] as const;
 export type TerminalFontFamily = (typeof TERMINAL_FONT_FAMILIES)[number];
