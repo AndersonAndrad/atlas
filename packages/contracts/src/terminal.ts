@@ -4,6 +4,7 @@ import type { GitOperation, ProjectGitState } from './git.js';
 import type { BackgroundJob } from './jobs.js';
 import type { DebugEvent } from './debug.js';
 import type { AtlasNotification } from './notification.js';
+import type { TerminalActivitySummary } from './terminal-activity.js';
 
 export const TERMINAL_STATUSES = [
   'CREATED',
@@ -264,7 +265,9 @@ export type TerminalEvent =
    */
   | { type: 'docker'; context: string; containerId: string | null }
   /** A debug session changed or its adapter sent an event; only `ownerId` acts on it (SDD-016). */
-  | { type: 'debug'; ownerId: string; event: DebugEvent };
+  | { type: 'debug'; ownerId: string; event: DebugEvent }
+  /** Tracked activity of a terminal changed (SDD-023 Task A02); carries the new summary. */
+  | { type: 'terminal-activity'; summary: TerminalActivitySummary };
 
 export const TERMINAL_FONT_FAMILIES = ['system', 'menlo', 'sf-mono', 'monaco', 'courier'] as const;
 export type TerminalFontFamily = (typeof TERMINAL_FONT_FAMILIES)[number];

@@ -1,5 +1,6 @@
 import {
   UNGROUPED_WORKSPACE,
+  hasPendingReview,
   isFinalTerminalStatus,
   type TerminalGroup,
   type TerminalSession,
@@ -34,6 +35,7 @@ import {
 import { cn } from '@/lib/utils';
 import type { ProjectDetails } from '@/types';
 import { TerminalStatusDot } from './TerminalStatusDot';
+import { markTerminalReviewed, useTerminalActivity } from '../state/terminal-activity';
 
 const DRAG_TYPE = 'application/x-atlas-terminal';
 /** Position meaning "at the end"; the Engine clamps it to the group size. */
@@ -409,7 +411,7 @@ function TerminalRow({
         onClick={() => actions.onSelectTerminal(session)}
         title={projectName ? `${session.title} · ${projectName}` : session.title}
       >
-        <TerminalStatusDot status={session.status} />
+        <TerminalStatusDot session={session} />
         <span className="truncate">{session.title}</span>
         {projectName && (
           <span className="text-muted-foreground hidden truncate xl:inline">{projectName}</span>
@@ -430,6 +432,7 @@ function TerminalRow({
           <DropdownMenuItem onSelect={() => actions.onRenameTerminal(session)}>
             Rename…
           </DropdownMenuItem>
+          <MarkReviewedItem sessionId={session.id} />
           <DropdownMenuItem
             disabled={session.customTitle === null}
             onSelect={() => actions.onRestoreName(session)}
@@ -506,5 +509,18 @@ function TerminalRow({
         </DropdownMenuContent>
       </DropdownMenu>
     </li>
+  );
+}
+
+/** "Mark as reviewed" for the terminal's finished results (SDD-023 Task A02). */
+function MarkReviewedItem({ sessionId }: { sessionId: string }) {
+  const pending = hasPendingReview(useTerminalActivity(sessionId));
+  return (
+    <DropdownMenuItem
+      disabled={!pending}
+      onSelect={() => void markTerminalReviewed(sessionId).catch(() => undefined)}
+    >
+      Mark as reviewed
+    </DropdownMenuItem>
   );
 }

@@ -223,6 +223,8 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
       return null;
     },
 
+    'terminals.activities': () => engine.terminalActivities(),
+    'terminals.markReviewed': ([terminalId]: [string]) => engine.markTerminalReviewed(terminalId),
     'git.project': ([projectId]: [string]) => engine.projectGit(projectId),
     'git.projectStates': () => engine.projectGitMonitor.states(),
     'git.refreshProject': ([projectId]: [string]) => engine.projectGitMonitor.refresh(projectId),

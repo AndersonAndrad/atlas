@@ -200,7 +200,7 @@ describe('migration v13 from a v12 database', () => {
       insertProject(db, PROJECT, '/work/app');
       db.close();
       db = openDatabase({ filePath: file });
-      expect(getSchemaVersion(db)).toBe(18);
+      expect(getSchemaVersion(db)).toBe(19);
       expect(db.prepare('SELECT COUNT(*) AS n FROM projects').get()).toEqual({ n: 1 });
       expect(db.prepare('SELECT COUNT(*) AS n FROM background_jobs').get()).toEqual({ n: 0 });
       db.close();

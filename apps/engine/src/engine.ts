@@ -23,6 +23,7 @@ import {
   type Project,
   type ProjectConfigView,
   type TerminalGitContext,
+  type TerminalActivitySummary,
   type TerminalLlmUsage,
   type TerminalPreferences,
   type TerminalProjectContext,
@@ -46,6 +47,7 @@ import {
   SqliteExtensionRepository,
   SqliteJobRepository,
   SqliteProjectGitRepository,
+  SqliteTerminalActivityRepository,
   SqliteTerminalGroupRepository,
   SqliteTerminalSessionRepository,
   getSchemaVersion,
@@ -67,6 +69,7 @@ import {
 } from '@atlas/context';
 import { AtlasError, describeError, type Logger } from '@atlas/shared';
 import {
+  TerminalActivityService,
   TerminalGroups,
   TerminalService,
   TerminalSettings,
@@ -300,6 +303,10 @@ export interface Engine {
   terminalGit(terminalId: string): Promise<TerminalGitContext>;
   /** The LLM open in the terminal and its session window (PLAN-031); null when none. */
   terminalLlmUsage(terminalId: string): Promise<TerminalLlmUsage | null>;
+  /** Tracked activity of every terminal that has some (SDD-023 Task A02). */
+  terminalActivities(): Promise<TerminalActivitySummary[]>;
+  /** Explicit "Mark as reviewed": acknowledges the terminal's finished results. */
+  markTerminalReviewed(terminalId: string): Promise<TerminalActivitySummary>;
   /** Associated and matching registered projects of a terminal. */
   terminalProjectContext(terminalId: string): Promise<TerminalProjectContext>;
   /** Registers the terminal's current directory as a project and associates it. */
@@ -1192,6 +1199,13 @@ export function createEngine(options: EngineOptions = {}): Engine {
   };
 
   // LLM sessions in ATLAS terminals are recorded automatically (PLAN-021).
+  // Tab status from explicit lifecycle events (SDD-023 Task A02).
+  const terminalActivity = new TerminalActivityService({
+    store: new SqliteTerminalActivityRepository(db),
+    now: () => clock.now(),
+    onChange: (summary) => terminals?.publish({ type: 'terminal-activity', summary }),
+    logger,
+  });
   const llmSessions = new LlmSessionTracker({
     eventsDir: projectConfig.eventsDir,
     projectDir: (projectId) => projectConfig.paths(projectId).dir,
@@ -1199,6 +1213,20 @@ export function createEngine(options: EngineOptions = {}): Engine {
     resolveProject: (projectId) => resolveContextTarget({ projectId }),
     context,
     changed: (target) => contextChanged(target),
+    onEvent: async (event) => {
+      // Wrappers started outside ATLAS terminals have no tab to show it on.
+      if (event.terminalId === '' || terminals === undefined) return;
+      const contextSessionId =
+        (await context.sessionForTerminal(event.terminalId).catch(() => null))?.id ?? null;
+      const lifecycle = {
+        terminalId: event.terminalId,
+        provider: event.provider,
+        run: event.run,
+        contextSessionId,
+      };
+      if (event.event === 'start') await terminalActivity.aiStarted(lifecycle);
+      else await terminalActivity.aiEnded({ ...lifecycle, exitCode: event.exitCode });
+    },
     logger,
   });
   /**
@@ -1540,6 +1568,12 @@ export function createEngine(options: EngineOptions = {}): Engine {
         } catch (error) {
           logger.warn('Failed to install the LLM wrappers', { error: describeError(error) });
         }
+        // Tab status: activities still running when ATLAS quit become INTERRUPTED.
+        await terminalActivity
+          .load()
+          .catch((error: unknown) =>
+            logger.warn('Terminal activity could not be loaded', { error: describeError(error) }),
+          );
         // Recording LLM sessions is a convenience: it never keeps the Engine from starting.
         try {
           await closeOrphanedLlmSessions().catch((error: unknown) =>
@@ -1556,7 +1590,9 @@ export function createEngine(options: EngineOptions = {}): Engine {
         terminals?.onEvent((event) => {
           if (event.type === 'session' && isFinalTerminalStatus(event.session.status)) {
             llmSessions.terminalClosed(event.session.id);
+            void terminalActivity.terminalEnded(event.session.id);
           }
+          if (event.type === 'removed') terminalActivity.terminalRemoved(event.sessionId);
         });
         // Usage is informative: failures are logged and never stop the Engine.
         try {
@@ -1637,6 +1673,14 @@ export function createEngine(options: EngineOptions = {}): Engine {
         cwdSource: session.cwdSource,
         git: await inspectAndWatch(session.currentCwd),
       };
+    },
+    terminalActivities: async () => {
+      await terminalActivity.load();
+      return terminalActivity.summaries();
+    },
+    markTerminalReviewed: async (terminalId) => {
+      requireTerminals().getById(terminalId);
+      return terminalActivity.markReviewed(terminalId);
     },
     terminalLlmUsage: async (terminalId) => {
       requireTerminals().getById(terminalId);

@@ -53,6 +53,8 @@ const api: AtlasApi = {
     projectContext: (id) => ipcRenderer.invoke(IPC_CHANNELS.terminalProjectContext, id),
     git: (id) => ipcRenderer.invoke(IPC_CHANNELS.terminalGit, id),
     llmUsage: (id) => ipcRenderer.invoke(IPC_CHANNELS.terminalLlmUsage, id),
+    activities: () => ipcRenderer.invoke(IPC_CHANNELS.terminalActivities),
+    markReviewed: (id) => ipcRenderer.invoke(IPC_CHANNELS.markTerminalReviewed, id),
     registerProject: (id, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.registerTerminalProject, id, input),
     terminate: (id) => ipcRenderer.invoke(IPC_CHANNELS.terminateTerminal, id),

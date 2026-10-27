@@ -1,3 +1,4 @@
+import type { TerminalActivitySummary } from './terminal-activity.js';
 import type { SerializedError } from '@atlas/shared';
 import type {
   CreateProjectInput,
@@ -319,6 +320,8 @@ export const IPC_CHANNELS = {
   moveGroup: 'atlas:groups:move',
   deleteGroup: 'atlas:groups:delete',
 
+  terminalActivities: 'atlas:terminals:activities',
+  markTerminalReviewed: 'atlas:terminals:mark-reviewed',
   projectGit: 'atlas:git:project',
   projectGitStates: 'atlas:git:project-states',
   refreshProjectGit: 'atlas:git:refresh-project',
@@ -685,6 +688,10 @@ export interface AtlasApi {
     git(id: string): Promise<IpcResult<TerminalGitContext>>;
     /** The LLM open in the terminal and its session window; null when none is open. */
     llmUsage(id: string): Promise<IpcResult<TerminalLlmUsage | null>>;
+    /** Tracked activity (tab status) of every terminal that has some (SDD-023 A02). */
+    activities(): Promise<IpcResult<TerminalActivitySummary[]>>;
+    /** "Mark as reviewed": acknowledges the terminal's finished results. */
+    markReviewed(id: string): Promise<IpcResult<TerminalActivitySummary>>;
     /** Registers the terminal's current directory (known by the Engine) as a project. */
     registerProject(
       id: string,

@@ -1,3 +1,4 @@
+import type { TerminalActivitySummary } from './terminal-activity.js';
 import { z } from 'zod';
 import {
   ProjectQuickCommandSettingsSchema,
@@ -383,6 +384,8 @@ export const ENGINE_METHOD_PARAMS = {
   'groups.move': z.tuple([GroupId, Position]),
   'groups.delete': z.tuple([GroupId, z.strictObject({ terminateTerminals: z.boolean() })]),
 
+  'terminals.activities': z.tuple([]),
+  'terminals.markReviewed': z.tuple([TerminalIdSchema]),
   'git.project': z.tuple([Id]),
   'git.projectStates': z.tuple([]),
   'git.refreshProject': z.tuple([Id]),
@@ -712,6 +715,8 @@ export interface EngineMethodResults {
   'groups.setCollapsed': TerminalGroup;
   'groups.move': TerminalGroup[];
   'groups.delete': null;
+  'terminals.activities': TerminalActivitySummary[];
+  'terminals.markReviewed': TerminalActivitySummary;
   'git.project': GitStatus;
   'git.projectStates': ProjectGitState[];
   'git.refreshProject': ProjectGitRefreshResult;

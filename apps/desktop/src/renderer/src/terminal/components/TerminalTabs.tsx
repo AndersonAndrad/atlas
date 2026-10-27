@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import { useRef, useState, type KeyboardEvent } from 'react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { STATUS_LABELS } from '../format';
+import { ReviewContextMenu } from './ReviewContextMenu';
 import { TerminalStatusDot } from './TerminalStatusDot';
 
 interface TerminalTabsProps {
@@ -64,45 +64,46 @@ export function TerminalTabs({
           );
         }
         return (
-          <div
-            key={session.id}
-            className={cn(
-              'group flex h-8 max-w-56 shrink-0 items-center rounded-md border border-transparent',
-              active ? 'bg-accent border-border' : 'hover:bg-accent/50',
-            )}
-            data-testid="terminal-tab"
-            data-session-id={session.id}
-            data-visible={visible ? 'true' : 'false'}
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={active}
-              tabIndex={active ? 0 : -1}
-              className="focus-visible:ring-ring/50 flex h-full min-w-0 items-center gap-2 rounded-md pr-1 pl-2.5 text-xs outline-none focus-visible:ring-[3px]"
-              title={`${session.title} — ${STATUS_LABELS[session.status]}. Double-click to rename.`}
-              onClick={() => onSelect(session.id)}
-              onDoubleClick={() => onStartRename(session.id)}
-              onKeyDown={(event) => {
-                if (event.key === 'F2') onStartRename(session.id);
-                moveFocus(event, index);
-              }}
+          <ReviewContextMenu key={session.id} sessionId={session.id} title={session.title}>
+            <div
+              className={cn(
+                'group flex h-8 max-w-56 shrink-0 items-center rounded-md border border-transparent',
+                active ? 'bg-accent border-border' : 'hover:bg-accent/50',
+              )}
+              data-testid="terminal-tab"
+              data-session-id={session.id}
+              data-visible={visible ? 'true' : 'false'}
             >
-              <TerminalStatusDot status={session.status} />
-              <span className={cn('truncate', !visible && 'text-muted-foreground')}>
-                {session.title}
-              </span>
-            </button>
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-foreground hover:bg-background/60 focus-visible:ring-ring/50 mr-1 flex size-5 shrink-0 items-center justify-center rounded-sm outline-none focus-visible:ring-[3px]"
-              aria-label={`Close ${session.title}`}
-              title="Close terminal"
-              onClick={() => onClose(session.id)}
-            >
-              <X className="size-3" />
-            </button>
-          </div>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={active}
+                tabIndex={active ? 0 : -1}
+                className="focus-visible:ring-ring/50 flex h-full min-w-0 items-center gap-2 rounded-md pr-1 pl-2.5 text-xs outline-none focus-visible:ring-[3px]"
+                title={`${session.title}. Double-click to rename; right-click for more.`}
+                onClick={() => onSelect(session.id)}
+                onDoubleClick={() => onStartRename(session.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'F2') onStartRename(session.id);
+                  moveFocus(event, index);
+                }}
+              >
+                <TerminalStatusDot session={session} />
+                <span className={cn('truncate', !visible && 'text-muted-foreground')}>
+                  {session.title}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground hover:bg-background/60 focus-visible:ring-ring/50 mr-1 flex size-5 shrink-0 items-center justify-center rounded-sm outline-none focus-visible:ring-[3px]"
+                aria-label={`Close ${session.title}`}
+                title="Close terminal"
+                onClick={() => onClose(session.id)}
+              >
+                <X className="size-3" />
+              </button>
+            </div>
+          </ReviewContextMenu>
         );
       })}
     </div>

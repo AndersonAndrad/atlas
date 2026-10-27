@@ -5,7 +5,7 @@ import type { ResolvedTarget, SharedContextService } from '@atlas/context';
 import { describeError, noopLogger, type Logger } from '@atlas/shared';
 
 /** What a wrapper writes when an LLM session starts or ends (PLAN-021). */
-interface WrapperEvent {
+export interface WrapperEvent {
   event: 'start' | 'end';
   provider: 'claude' | 'codex';
   run: string;
@@ -62,6 +62,11 @@ export interface LlmSessionTrackerOptions {
   context: SharedContextService;
   /** Called after context changed, e.g. to refresh the project's context.md. */
   changed: (target: ResolvedTarget) => Promise<void>;
+  /**
+   * Every valid wrapper event, whether or not the project keeps context, after it was
+   * handled (e.g. terminal tab status, SDD-023 Task A02).
+   */
+  onEvent?: (event: WrapperEvent) => Promise<void>;
   logger?: Logger;
 }
 
@@ -163,8 +168,13 @@ export class LlmSessionTracker {
       }
       try {
         const parsed = parseWrapperEvent(JSON.parse(await readFile(taken, 'utf8')));
-        if (parsed !== null) await this.handle(parsed);
-        else this.logger.warn('Ignored an invalid LLM session event');
+        if (parsed !== null) {
+          try {
+            await this.handle(parsed);
+          } finally {
+            await this.options.onEvent?.(parsed);
+          }
+        } else this.logger.warn('Ignored an invalid LLM session event');
       } catch (error) {
         this.logger.warn('LLM session event could not be processed', {
           error: describeError(error),

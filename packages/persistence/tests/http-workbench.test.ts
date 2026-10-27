@@ -357,7 +357,7 @@ describe('migration v14 from a v13 database', () => {
       insertProject(db, PROJECT, '/work/app');
       db.close();
       db = openDatabase({ filePath: file });
-      expect(getSchemaVersion(db)).toBe(18);
+      expect(getSchemaVersion(db)).toBe(19);
       expect(db.prepare('SELECT COUNT(*) AS n FROM projects').get()).toEqual({ n: 1 });
       expect(db.prepare('SELECT COUNT(*) AS n FROM http_collections').get()).toEqual({ n: 0 });
       db.close();

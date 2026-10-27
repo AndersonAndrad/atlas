@@ -877,3 +877,22 @@ superseded decisions are marked, not deleted.
   - No schema change. After a rollback to 0.34.x, stored GIT jobs remain in the database.
     That version has no GIT executor, so it cannot run or retry them (not verified beyond
     reading the code).
+
+## ADR-071 — Terminal tab status comes from lifecycle events, and green means reviewed (PLAN-050)
+
+- **Decision**:
+  - Tabs show one indicator: the PTY connection plus tracked activities, by a fixed
+    precedence.
+  - Activities come only from explicit lifecycle events: AI wrapper start and end, and the
+    terminal's exit. They are kept per operation in `terminal_activities`.
+  - Finished results stay pending until the user marks them as reviewed; only then is the
+    tab green. A live shell is neutral.
+- **Alternatives**:
+  - Matching terminal output (prompts, "error", exit lines): rejected (FR-003).
+  - Claude Code hooks for permission prompts: deferred (Q1).
+  - An OSC marker appended to quick commands for their exit code: rejected (Q2). It changes
+    the typed command and is fragile.
+- **Consequences**:
+  - Green no longer marks a running shell.
+  - Shell commands have no execution status.
+  - Rolling back to 0.35.x needs a database copy taken before 0.36.0 first ran (schema v19).

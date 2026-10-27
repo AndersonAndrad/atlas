@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { AtlasSession, Project, TerminalSession } from '@atlas/contracts';
+import type { AtlasSession, Project, TerminalActivity, TerminalSession } from '@atlas/contracts';
 import type { StoredSessionTask } from '@atlas/sessions';
 import { AtlasError } from '@atlas/shared';
 import { createTempDir } from '../../../tests/support/temp.js';
@@ -11,6 +11,7 @@ import {
   SqliteSessionRepository,
   SqliteSettingsRepository,
   SqliteTerminalGroupRepository,
+  SqliteTerminalActivityRepository,
   SqliteTerminalSessionRepository,
   getSchemaVersion,
   openDatabase,
@@ -269,6 +270,49 @@ describe('SQLite persistence', () => {
     expect(await new SqliteSettingsRepository(db).get('selected')).toBe(project().id);
   });
 
+  describe('SqliteTerminalActivityRepository (SDD-023 A02)', () => {
+    const activity = (ref: string, extra: Partial<TerminalActivity> = {}): TerminalActivity => ({
+      terminalId: terminalSession().id,
+      kind: 'ai',
+      provider: 'claude',
+      ref,
+      state: 'ATTENTION_REQUIRED',
+      startedAt: '2026-10-27T10:00:00.000Z',
+      finishedAt: '2026-10-27T10:05:00.000Z',
+      exitCode: 0,
+      acknowledgedAt: null,
+      contextSessionId: null,
+      ...extra,
+    });
+
+    it('stores activities of known terminals only and removes them with their terminal', async () => {
+      await new SqliteProjectRepository(db).insert({ project: project(), pathKey: '/work/atlas' });
+      const sessions = new SqliteTerminalSessionRepository(db);
+      await sessions.save(terminalSession());
+      const activities = new SqliteTerminalActivityRepository(db);
+      expect(await activities.upsert(activity('run-1'))).toBe(true);
+      expect(await activities.upsert(activity('run-1', { state: 'FAILED', exitCode: 3 }))).toBe(
+        true,
+      );
+      expect(
+        await activities.upsert(
+          activity('x', { terminalId: '00000000-0000-4000-8000-0000000000ff' }),
+        ),
+      ).toBe(false);
+      expect(await activities.list()).toEqual([
+        activity('run-1', { state: 'FAILED', exitCode: 3 }),
+      ]);
+
+      await activities.upsert(activity('a', { acknowledgedAt: '2026-10-27T11:00:00.000Z' }));
+      await activities.upsert(activity('b', { acknowledgedAt: '2026-10-27T11:00:00.000Z' }));
+      await activities.pruneAcknowledged(terminalSession().id, 'b');
+      expect((await activities.list()).map((item) => item.ref).sort()).toEqual(['b', 'run-1']);
+
+      await sessions.delete(terminalSession().id);
+      expect(await activities.list()).toEqual([]);
+    });
+  });
+
   describe('SqliteTerminalSessionRepository', () => {
     let sessions: SqliteTerminalSessionRepository;
 
@@ -417,7 +461,7 @@ describe('SQLite persistence', () => {
       db.close();
 
       db = openDatabase({ filePath: v5Path });
-      expect(getSchemaVersion(db)).toBe(18);
+      expect(getSchemaVersion(db)).toBe(19);
       expect(db.prepare('SELECT title, required FROM context_entries').all()).toEqual([
         { title: 'Kept', required: 0 },
       ]);
@@ -455,7 +499,7 @@ describe('SQLite persistence', () => {
       db.close();
 
       db = openDatabase({ filePath: v2Path });
-      expect(getSchemaVersion(db)).toBe(18);
+      expect(getSchemaVersion(db)).toBe(19);
       const rows = db
         .prepare(
           'SELECT auto_title, custom_title, group_position, current_cwd FROM terminal_sessions ORDER BY created_at',

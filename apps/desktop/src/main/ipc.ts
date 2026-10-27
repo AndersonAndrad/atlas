@@ -325,6 +325,10 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
   handle(IPC_CHANNELS.terminalGit, TerminalArgs, ([id]) =>
     engine.call('terminals.git', id as string),
   );
+  handle(IPC_CHANNELS.terminalActivities, NoArgs, () => engine.call('terminals.activities'));
+  handle(IPC_CHANNELS.markTerminalReviewed, TerminalArgs, ([id]) =>
+    engine.call('terminals.markReviewed', id as string),
+  );
   handle(IPC_CHANNELS.terminalLlmUsage, TerminalArgs, ([id]) =>
     engine.call('terminals.llmUsage', id as string),
   );

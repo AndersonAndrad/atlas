@@ -247,6 +247,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
     // come from the native picker.
     terminalKeys: [
       'acknowledge',
+      'activities',
       'associate',
       'attach',
       'clear',
@@ -259,6 +260,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'git',
       'list',
       'llmUsage',
+      'markReviewed',
       'move',
       'onEvent',
       'projectContext',

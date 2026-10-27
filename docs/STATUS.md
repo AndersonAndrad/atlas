@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-27 — PLAN-049 (SDD-025 Task 01: non-blocking background operations).
+Last updated: 2026-10-27 — PLAN-050 (SDD-023 Task A02: terminal tab status).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -59,7 +59,22 @@ E01.1: estimated cost per Claude Code session in the Usage view) is implemented 
 approval. PLAN-047 (SDD-024 Task 01: per-project Git monitoring, stored Git snapshots and
 project badges) is implemented and awaits approval. PLAN-048 (SDD-024 Task 02: Pending Push
 sidebar) is implemented and awaits approval. PLAN-049 (SDD-025 Task 01: push, pull and fetch
-run as background jobs) is implemented and awaits approval. Version 0.35.0 (schema v18).
+run as background jobs) is implemented and awaits approval. PLAN-050 (SDD-023 Task A02:
+terminal tab status with explicit review) is implemented and awaits approval. Version 0.36.0
+(schema v19).
+
+## PLAN-050 — SDD-023 Task A02: intelligent terminal tab status
+
+- Approved 2026-10-27 by Anderson Andrade ("aprovo PLAN-050 rev 1, q1–q3 recomendado,
+  ciente R1–R5"). Details: SDD-023.
+- What was built:
+  - Migration v19 (`terminal_activities`).
+  - `TerminalActivityService`, fed by AI wrapper start and end events and by the terminal
+    lifecycle.
+  - A precedence-based tab indicator, with icons and labels. A live shell is now neutral,
+    not green.
+  - Mark as reviewed in the tab context menu, the sidebar menu and the pane header.
+- Rolling back to 0.35.x needs a database copy taken before 0.36.0 first ran.
 
 ## PLAN-049 — SDD-025 Task 01: non-blocking background operations
 

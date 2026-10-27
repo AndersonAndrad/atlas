@@ -767,7 +767,8 @@ terminals running as standalone terminals (SDD-003 §2).
   per-project Git monitoring flag (existing projects stay monitored) and the last known
   Git status per project, without identity or file names (additive, SDD-024). Schema v18:
   HEAD commit and up to 50 pending (unpushed) commits per project, stored in the same row
-  as the status (additive, SDD-024 Task 02).
+  as the status (additive, SDD-024 Task 02). Schema v19: tracked terminal activities (AI
+  runs) and whether their result was reviewed (additive, SDD-023 Task A02).
 - Data dir: macOS `~/Library/Application Support/ATLAS`, Windows `%APPDATA%\ATLAS`, Linux
   `$XDG_DATA_HOME/atlas`; `ATLAS_DATA_DIR` overrides.
 

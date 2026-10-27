@@ -930,4 +930,27 @@ export const MIGRATIONS: readonly Migration[] = [
         CHECK (pending IS NULL OR (json_valid(pending) AND length(pending) <= 262144));
     `,
   },
+  {
+    version: 19,
+    name: 'terminal_activities',
+    // Tracked operations of terminals and whether their result was reviewed (SDD-023 Task
+    // A02). Additive. Removed with their terminal. RUNNING rows are never trusted after a
+    // restart: the Engine records them as INTERRUPTED when it loads them.
+    sql: `
+      CREATE TABLE terminal_activities (
+        terminal_id TEXT NOT NULL REFERENCES terminal_sessions (id) ON DELETE CASCADE,
+        ref TEXT NOT NULL CHECK (length(ref) BETWEEN 1 AND 200),
+        kind TEXT NOT NULL CHECK (kind IN ('ai')),
+        provider TEXT NOT NULL CHECK (provider IN ('claude', 'codex')),
+        state TEXT NOT NULL
+          CHECK (state IN ('RUNNING', 'ATTENTION_REQUIRED', 'FAILED', 'INTERRUPTED')),
+        started_at TEXT,
+        finished_at TEXT,
+        exit_code INTEGER,
+        acknowledged_at TEXT,
+        context_session_id TEXT CHECK (context_session_id IS NULL OR length(context_session_id) <= 64),
+        PRIMARY KEY (terminal_id, ref)
+      ) STRICT;
+    `,
+  },
 ];

@@ -1,10 +1,12 @@
 import {
+  hasPendingReview,
   isFinalTerminalStatus,
   type TerminalPreferences,
   type TerminalSession,
 } from '@atlas/contracts';
 import {
   Activity,
+  CheckCheck,
   Database,
   NotebookPen,
   Radio,
@@ -51,6 +53,7 @@ import { useTerminalLlmUsage } from '../hooks/useTerminalLlmUsage';
 import { TerminalView } from '../state/terminal-view';
 import { endedSummary } from '../format';
 import { TerminalStatusDot } from './TerminalStatusDot';
+import { markTerminalReviewed, useTerminalActivity } from '../state/terminal-activity';
 import { LlmUsageBadge } from './LlmUsageBadge';
 
 const isMac = navigator.userAgent.includes('Mac');
@@ -205,7 +208,7 @@ export function TerminalPane({
       onFocus={onFocus}
     >
       <header className="text-muted-foreground flex h-8 shrink-0 items-center gap-2 border-b px-2 text-xs">
-        <TerminalStatusDot status={session.status} />
+        <TerminalStatusDot session={session} />
         <span className="text-foreground/90 truncate" data-testid="pane-title" title={directoryTip}>
           {session.title}
         </span>
@@ -217,6 +220,10 @@ export function TerminalPane({
         {snapshot && <GitBadges snapshot={snapshot} />}
         {llmUsage && <LlmUsageBadge usage={llmUsage} />}
         <span className="ml-auto flex items-center gap-0.5">
+          <ReviewActions
+            sessionId={session.id}
+            onOpenSession={() => onContextAction({ action: 'view' })}
+          />
           {snapshot && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -492,5 +499,40 @@ export function TerminalPane({
         />
       )}
     </section>
+  );
+}
+
+/**
+ * Shown while the terminal has a finished result to review (SDD-023 Task A02): "Mark as
+ * reviewed", and the AI session that recorded it when the project keeps shared context.
+ */
+function ReviewActions({
+  sessionId,
+  onOpenSession,
+}: {
+  sessionId: string;
+  onOpenSession: () => void;
+}) {
+  const summary = useTerminalActivity(sessionId);
+  if (!hasPendingReview(summary)) return null;
+  const recorded = summary!.activities.some((item) => item.contextSessionId !== null);
+  return (
+    <>
+      {recorded && (
+        <Button variant="ghost" size="xs" onClick={onOpenSession}>
+          Open AI session
+        </Button>
+      )}
+      <Button
+        variant="outline"
+        size="xs"
+        className="h-6 px-1.5 text-xs"
+        onClick={() => void markTerminalReviewed(sessionId).catch(() => undefined)}
+        data-testid="mark-reviewed"
+      >
+        <CheckCheck />
+        Mark as reviewed
+      </Button>
+    </>
   );
 }
