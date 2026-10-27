@@ -5,7 +5,7 @@ import type {
   UpdateTerminalPreferencesInput,
 } from '@atlas/contracts';
 import type { AppCommand } from '@atlas/contracts/ipc';
-import { SquareTerminal, TriangleAlert } from 'lucide-react';
+import { Info, SquareTerminal, TriangleAlert, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage, unwrap } from '@/api';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -83,6 +83,8 @@ export function TerminalWorkspace({
 }: TerminalWorkspaceProps) {
   const { layout, update } = useWorkspaceLayout(workspace.key, sessions);
   const [error, setError] = useState<string | null>(null);
+  /** Where a split opened when it could not use the source terminal's folder (Task A01). */
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const handles = useRef(new Map<string, TerminalPaneHandle>());
@@ -124,6 +126,9 @@ export function TerminalWorkspace({
   const createTerminal = useCallback(
     async (options: NewTerminalOptions & { split?: SplitDirection } = {}) => {
       if (busy) return;
+      setNotice(null);
+      // A split continues the active terminal: same project, folder, group and shell.
+      const fromSessionId = options.split ? current?.sessionId : undefined;
       let cwd: string | undefined;
       if (options.chooseFolder) {
         const choice = await run(() => unwrap(api().dialog.chooseDirectory('terminal')));
@@ -133,16 +138,25 @@ export function TerminalWorkspace({
       setBusy(true);
       const session = await run(() =>
         unwrap(
-          api().terminals.create({
-            ...(options.projectId !== undefined ? { projectId: options.projectId } : {}),
-            ...(cwd !== undefined ? { cwd } : {}),
-            ...(options.shellId !== undefined ? { shellId: options.shellId } : {}),
-            ...(workspace.groupId !== null ? { groupId: workspace.groupId } : {}),
-          }),
+          api().terminals.create(
+            fromSessionId !== undefined
+              ? { fromSessionId }
+              : {
+                  ...(options.projectId !== undefined ? { projectId: options.projectId } : {}),
+                  ...(cwd !== undefined ? { cwd } : {}),
+                  ...(options.shellId !== undefined ? { shellId: options.shellId } : {}),
+                  ...(workspace.groupId !== null ? { groupId: workspace.groupId } : {}),
+                },
+          ),
         ),
       );
       setBusy(false);
       if (session === undefined) return;
+      if (session.splitFallbackFrom !== undefined) {
+        setNotice(
+          `${session.splitFallbackFrom} is not available here, so the new terminal opened in ${session.cwd}.`,
+        );
+      }
       onSessionChanged(session);
       update((value) =>
         options.split
@@ -150,7 +164,7 @@ export function TerminalWorkspace({
           : showSession(value, session.id, newLayoutId),
       );
     },
-    [busy, onSessionChanged, run, update, workspace.groupId],
+    [busy, current?.sessionId, onSessionChanged, run, update, workspace.groupId],
   );
 
   const restart = useCallback(
@@ -278,6 +292,23 @@ export function TerminalWorkspace({
         >
           <TriangleAlert />
           <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {notice && (
+        <Alert className="m-2 w-auto" role="status" data-testid="terminal-split-notice">
+          <Info />
+          <AlertDescription className="flex items-center gap-2">
+            <span className="min-w-0 flex-1">{notice}</span>
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              aria-label="Dismiss"
+              onClick={() => setNotice(null)}
+            >
+              <X />
+            </Button>
+          </AlertDescription>
         </Alert>
       )}
 

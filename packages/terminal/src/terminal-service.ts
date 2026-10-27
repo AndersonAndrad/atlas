@@ -1,3 +1,4 @@
+import { sep } from 'node:path';
 import {
   CreateTerminalInputSchema,
   TerminalIdSchema,
@@ -178,15 +179,20 @@ export class TerminalService {
       });
     }
 
-    const cwd = await this.resolveStartDirectory(parsed.projectId, parsed.cwd);
+    const inherited =
+      parsed.fromSessionId === undefined ? null : await this.splitContext(parsed.fromSessionId);
+    const projectId = inherited?.projectId ?? parsed.projectId ?? null;
+    const cwd = inherited?.cwd ?? (await this.resolveStartDirectory(parsed.projectId, parsed.cwd));
     if (parsed.groupId !== undefined) await this.assertGroup(parsed.groupId);
-    const shell = await this.chooseShell(parsed.shellId);
-    const groupId = parsed.groupId ?? null;
+    const shell = await this.chooseShell(parsed.shellId ?? inherited?.shellId);
+    const groupId = parsed.groupId ?? inherited?.groupId ?? null;
     const autoTitle = this.autoTitle(cwd);
     const customTitle = parsed.title ?? null;
+    const columns = parsed.columns ?? inherited?.columns ?? TERMINAL_LIMITS.defaultColumns;
+    const rows = parsed.rows ?? inherited?.rows ?? TERMINAL_LIMITS.defaultRows;
     const session: TerminalSession = {
       id: this.deps.generateId(),
-      projectId: parsed.projectId ?? null,
+      projectId,
       title: customTitle ?? autoTitle,
       customTitle,
       autoTitle,
@@ -197,8 +203,8 @@ export class TerminalService {
       currentCwd: cwd,
       cwdSource: 'initial',
       status: 'CREATED',
-      columns: parsed.columns ?? TERMINAL_LIMITS.defaultColumns,
-      rows: parsed.rows ?? TERMINAL_LIMITS.defaultRows,
+      columns,
+      rows,
       createdAt: this.now(),
     };
     const runtime = this.newRuntime(
@@ -210,7 +216,10 @@ export class TerminalService {
     this.emit({ type: 'session', session: copySession(session) });
 
     await this.start(runtime, shell);
-    return copySession(runtime.session);
+    const created = copySession(runtime.session);
+    return inherited?.fallbackFrom
+      ? { ...created, splitFallbackFrom: inherited.fallbackFrom }
+      : created;
   }
 
   write(id: string, data: string): void {
@@ -682,6 +691,59 @@ export class TerminalService {
         .filter((part) => part !== '')
         .pop() ?? directory;
     return name.slice(0, 60) || '/';
+  }
+
+  /**
+   * What a terminal split from `sourceId` inherits (Task A01), from the Engine's own record:
+   * the source is only read, never changed. Its directory is read again from the shell
+   * when it runs, since the recorded one is refreshed only after commands. A project
+   * terminal keeps that directory only while it is inside the project (PLAN-045 Q1); a
+   * directory that no longer exists falls back like a new terminal would.
+   */
+  private async splitContext(sourceId: string): Promise<{
+    projectId: string | null;
+    cwd: string;
+    /** The source directory that could not be used, if any. */
+    fallbackFrom: string | null;
+    groupId: string | null;
+    shellId: string | undefined;
+    columns: number;
+    rows: number;
+  }> {
+    const source = this.getRuntime(sourceId).session;
+    let current: string | null = null;
+    if (source.status === 'RUNNING' && source.pid !== undefined) {
+      current = await this.deps.cwdResolver.currentDirectory(source.pid).catch(() => null);
+    }
+    const wanted = current ?? source.currentCwd;
+    const available = await this.deps.workspaces.resolveDirectory(wanted).catch(() => null);
+    let cwd: string;
+    if (source.projectId !== null) {
+      const root = await this.deps.workspaces.resolveProjectDirectory(source.projectId);
+      const inside =
+        available !== null &&
+        (available === root || available.startsWith(root.endsWith(sep) ? root : root + sep));
+      cwd = inside ? available : root;
+    } else {
+      cwd = available ?? (await this.resolveStartDirectory(undefined, undefined));
+    }
+    const groupId =
+      source.groupId !== null && (await this.deps.groupExists(source.groupId))
+        ? source.groupId
+        : null;
+    const catalog = await this.shellCatalog();
+    const shellId = catalog.shells.some((shell) => shell.id === source.shell.id)
+      ? source.shell.id
+      : undefined;
+    return {
+      projectId: source.projectId,
+      cwd,
+      fallbackFrom: cwd === available ? null : wanted,
+      groupId,
+      shellId,
+      columns: source.columns,
+      rows: source.rows,
+    };
   }
 
   private async resolveStartDirectory(

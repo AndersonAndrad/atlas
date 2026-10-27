@@ -145,6 +145,97 @@ describe('TerminalService', () => {
     vi.useRealTimers();
   });
 
+  describe('split (Task A01)', () => {
+    it('inherits project, current directory inside the project, group, shell and size', async () => {
+      const source = await service.create({
+        projectId: PROJECT_A,
+        groupId: GROUP_X,
+        shellId: 'bash',
+        columns: 120,
+        rows: 40,
+      });
+      cwds.set(source.pid!, '/work/1/src');
+      const before = service.getById(source.id);
+
+      const split = await service.create({ fromSessionId: source.id });
+
+      expect(split).toMatchObject({
+        projectId: PROJECT_A,
+        cwd: '/work/1/src',
+        currentCwd: '/work/1/src',
+        groupId: GROUP_X,
+        shell: { id: 'bash' },
+        columns: 120,
+        rows: 40,
+        customTitle: null,
+        status: 'RUNNING',
+      });
+      expect(spawner.last().options.cwd).toBe('/work/1/src');
+      expect(split.splitFallbackFrom).toBeUndefined();
+      // The source is only read.
+      expect(service.getById(source.id)).toEqual(before);
+    });
+
+    it('opens a project split at the project root when the source left the project', async () => {
+      const source = await service.create({ projectId: PROJECT_A });
+      cwds.set(source.pid!, '/tmp');
+      const split = await service.create({ fromSessionId: source.id });
+      expect(split).toMatchObject({
+        projectId: PROJECT_A,
+        cwd: '/work/1',
+        splitFallbackFrom: '/tmp',
+      });
+    });
+
+    it('does not take a sibling folder sharing the project prefix for the project', async () => {
+      const source = await service.create({ projectId: PROJECT_A });
+      cwds.set(source.pid!, '/work/10');
+      expect((await service.create({ fromSessionId: source.id })).cwd).toBe('/work/1');
+    });
+
+    it('keeps an unassociated terminal unassociated, in its directory', async () => {
+      const source = await service.create({ cwd: '/srv/web' });
+      cwds.set(source.pid!, '/srv/web/api');
+      const split = await service.create({ fromSessionId: source.id });
+      expect(split).toMatchObject({ projectId: null, cwd: '/srv/web/api', groupId: null });
+    });
+
+    it('falls back safely when the source directory is gone', async () => {
+      const loose = await service.create({ cwd: '/srv/web' });
+      cwds.set(loose.pid!, '/missing/dir');
+      expect(await service.create({ fromSessionId: loose.id })).toMatchObject({
+        cwd: '/home/me',
+        splitFallbackFrom: '/missing/dir',
+      });
+
+      const project = await service.create({ projectId: PROJECT_B });
+      cwds.set(project.pid!, '/missing/dir');
+      expect((await service.create({ fromSessionId: project.id })).cwd).toBe('/work/2');
+    });
+
+    it('uses the recorded directory of an ended terminal and drops a removed group', async () => {
+      const source = await service.create({ cwd: '/srv/web', groupId: GROUP_Y });
+      spawner.last().exit({ exitCode: 0, signal: 0 });
+      await vi.waitFor(() => expect(service.getById(source.id).status).not.toBe('RUNNING'));
+      existingGroups.delete(GROUP_Y);
+      const split = await service.create({ fromSessionId: source.id });
+      expect(split).toMatchObject({ cwd: '/srv/web', groupId: null });
+    });
+
+    it('refuses an unknown source and a source combined with a project or directory', async () => {
+      await expect(
+        service.create({ fromSessionId: '99999999-9999-4999-8999-999999999999' }),
+      ).rejects.toMatchObject({ code: 'TERMINAL_NOT_FOUND' });
+      const source = await service.create({ cwd: '/srv/web' });
+      await expect(
+        service.create({ fromSessionId: source.id, projectId: PROJECT_A }),
+      ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+      await expect(service.create({ fromSessionId: source.id, cwd: '/srv' })).rejects.toMatchObject(
+        { code: 'VALIDATION_FAILED' },
+      );
+    });
+  });
+
   describe('create', () => {
     it('starts the default shell in the registered project directory', async () => {
       const session = await service.create({ projectId: PROJECT_A, columns: 100, rows: 30 });

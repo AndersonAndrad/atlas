@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-27 — PLAN-044 (SDD-016 Task 01: debugger foundation).
+Last updated: 2026-10-27 — PLAN-045 (Task A01: a split terminal keeps its context).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -53,7 +53,36 @@ the Engine) is implemented and awaits approval; SDD-014 Milestones B and C are n
 started. PLAN-043 (SDD-015 Milestone A: Extensions Hub with Open VSX and declarative
 contributions) is implemented and awaits approval; SDD-015 Milestones B and C are not
 started. PLAN-044 (SDD-016 Task 01: Debug Adapter Protocol foundation, no UI) is
-implemented and awaits approval. Version 0.31.0 (schema v15).
+implemented and awaits approval. PLAN-045 (Task A01: splitting a terminal keeps its
+project, folder, group and shell) is implemented and awaits approval. Version 0.31.1
+(schema v15).
+
+## PLAN-045 — Task A01: a split terminal keeps its context
+
+- Approved 2026-10-27 by Anderson Andrade ("pode seguir, q1 recomendado"). R1–R3 were
+  presented but not acknowledged by ID.
+- **Root cause:** the split action created a terminal with no project and no folder, so it
+  opened in the default folder.
+- **Fix:** `terminals.create` accepts `fromSessionId`, which cannot be combined with
+  `projectId` or `cwd`. The Engine takes the source's project, group, shell and size from
+  its own record, and its current folder read again from the shell. The source is not
+  changed.
+  - A project terminal keeps its folder only inside the project; otherwise the split opens
+    at the project root (Q1).
+  - A terminal without a project stays without one.
+  - A folder that no longer exists falls back as for a new terminal. The answer's
+    `splitFallbackFrom` makes the window show a notice.
+  - Both split directions (button and menu) send the active pane's session.
+- Staff review found no Critical or High findings.
+- Validation (2026-10-27):
+  - format, lint and typecheck are clean.
+  - The terminal, contracts, Engine and IPC tests: 449 passed, 2 skipped. This includes 7
+    new unit tests: project subfolder, outside the project, a sibling folder with the same
+    prefix, no project, a missing folder, an ended source with a removed group, and invalid
+    combinations.
+  - Terminal E2E in Linux Docker: 15 passed, 1 skipped. This includes 2 new tests: project
+    split right and down with folder and group, the fallback notice, and a split without a
+    project.
 
 ## PLAN-044 — SDD-016 Task 01: debugger foundation
 

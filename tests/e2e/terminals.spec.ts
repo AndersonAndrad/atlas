@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import type { TerminalSession } from '@atlas/contracts';
@@ -169,6 +169,63 @@ test('manages tabs: create, rename, select and close safely', async ({ atlas }) 
   await atlas.menu(app, 'terminal.close');
   await expect(tabs(page)).toHaveCount(0);
   await expect(page.getByTestId('terminal-empty-state')).toBeVisible();
+});
+
+test('a split continues the terminal it splits: project, folder and group (Task A01)', async ({
+  atlas,
+}) => {
+  const dir = atlas.workspace('nova');
+  mkdirSync(path.join(dir, 'src'), { recursive: true });
+  atlas.cli('project', 'add', dir);
+  const root = realpathSync(dir);
+  const { app, page } = await atlas.launch();
+  const sessionOf = async (index: number) => {
+    const id = await panes(page).nth(index).getAttribute('data-session-id');
+    return terminalList(atlas.cli).find((session) => session.id === id)!;
+  };
+  await openTerminals(page);
+  await newTerminal(page, 'nova');
+  await run(page, panes(page).nth(0), 'cd src');
+
+  await page.getByRole('button', { name: 'Split right' }).click();
+  await expect(panes(page)).toHaveCount(2);
+  await atlas.menu(app, 'terminal.splitDown');
+  await expect(panes(page)).toHaveCount(3);
+  const source = await sessionOf(0);
+  expect(source.projectId).not.toBeNull();
+  for (const index of [1, 2]) {
+    expect(await sessionOf(index)).toMatchObject({
+      projectId: source.projectId,
+      groupId: source.groupId,
+      cwd: path.join(root, 'src'),
+    });
+  }
+  await run(page, panes(page).nth(2), 'pwd');
+  await expect.poll(() => unwrappedText(panes(page).nth(2))).toContain(path.join(root, 'src'));
+
+  // Leaving the project folder: the split opens at the project root and says so.
+  await run(page, panes(page).nth(2), 'cd / && echo moved-$((40 + 2))');
+  await expect.poll(() => unwrappedText(panes(page).nth(2))).toContain('moved-42');
+  await page.getByRole('button', { name: 'Split right' }).click();
+  await expect(panes(page)).toHaveCount(4);
+  await expect(page.getByTestId('terminal-split-notice')).toContainText('/ is not available');
+  expect(await sessionOf(3)).toMatchObject({ projectId: source.projectId, cwd: root });
+});
+
+test('a split of a terminal without a project stays without one (Task A01)', async ({ atlas }) => {
+  const { page } = await atlas.launch();
+  const sessionOf = async (index: number) => {
+    const id = await panes(page).nth(index).getAttribute('data-session-id');
+    return terminalList(atlas.cli).find((session) => session.id === id)!;
+  };
+  await openTerminals(page);
+  await newTerminal(page);
+  await page.getByRole('button', { name: 'Split right' }).click();
+  await expect(panes(page)).toHaveCount(2);
+  const [loose, split] = [await sessionOf(0), await sessionOf(1)];
+  expect([loose.projectId, split.projectId]).toEqual([null, null]);
+  expect(split.cwd).toBe(loose.currentCwd);
+  await expect(page.getByTestId('terminal-split-notice')).toHaveCount(0);
 });
 
 test('splits panes, resizes the PTY and hides panes without killing processes', async ({

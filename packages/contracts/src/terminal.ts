@@ -99,11 +99,25 @@ export const CreateTerminalInputSchema = z
     groupId: TerminalGroupIdSchema.optional(),
     columns: TerminalColumnsSchema.optional(),
     rows: TerminalRowsSchema.optional(),
+    /**
+     * Split from this terminal: the new one takes its project, current directory, group,
+     * shell and size, as recorded by the Engine (Task A01). Other fields override them.
+     */
+    fromSessionId: TerminalIdSchema.optional(),
   })
   .refine((input) => input.projectId === undefined || input.cwd === undefined, {
     message: 'A terminal starts in a project or in a directory, not both.',
     path: ['cwd'],
-  });
+  })
+  .refine(
+    (input) =>
+      input.fromSessionId === undefined ||
+      (input.projectId === undefined && input.cwd === undefined),
+    {
+      message: 'A split terminal takes its project and directory from the source terminal.',
+      path: ['fromSessionId'],
+    },
+  );
 
 export type CreateTerminalInput = z.input<typeof CreateTerminalInputSchema>;
 
@@ -182,6 +196,11 @@ export interface TerminalSession {
   createdAt: string;
   startedAt?: string;
   endedAt?: string;
+  /**
+   * Only in the answer to a split (`fromSessionId`): the source's directory the new
+   * terminal could not use (gone, or outside the project), so it opened in `cwd` instead.
+   */
+  splitFallbackFrom?: string;
 }
 
 export interface ShellOption {
