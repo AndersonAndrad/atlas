@@ -38,6 +38,12 @@ export const ERROR_CODES = [
   'JOB_TRANSITION_INVALID',
   'JOB_NOT_CANCELLABLE',
   'JOB_CONFIRMATION_REQUIRED',
+  'TASK_EXECUTION_NOT_FOUND',
+  'TASK_EXECUTION_TERMINAL_UNAVAILABLE',
+  'TASK_EXECUTION_PROVIDER_UNAVAILABLE',
+  'TASK_EXECUTION_CONFIRMATION_REQUIRED',
+  'TASK_EXECUTION_ACTIVE',
+  'TASK_EXECUTION_INVALID_STATE',
   'DOCKER_UNAVAILABLE',
   'DOCKER_CONTEXT_NOT_FOUND',
   'DOCKER_CONTAINER_NOT_FOUND',
@@ -153,6 +159,15 @@ export const USER_MESSAGES: Record<ErrorCode, string> = {
   JOB_NOT_CANCELLABLE: 'This job cannot be stopped safely. Wait for it to finish.',
   JOB_CONFIRMATION_REQUIRED:
     'This command may change or delete data. Review the warnings and confirm to queue it.',
+  TASK_EXECUTION_NOT_FOUND: 'The task execution could not be found.',
+  TASK_EXECUTION_TERMINAL_UNAVAILABLE:
+    'This terminal cannot receive the task now. Choose another terminal or open a new one.',
+  TASK_EXECUTION_PROVIDER_UNAVAILABLE:
+    'This AI provider is not installed or cannot be found in ATLAS terminals.',
+  TASK_EXECUTION_CONFIRMATION_REQUIRED:
+    'This terminal belongs to another project or folder. Confirm to run the task there.',
+  TASK_EXECUTION_ACTIVE: 'This task is already running. Wait for it to finish or cancel it.',
+  TASK_EXECUTION_INVALID_STATE: 'This action is not available in the current execution status.',
   DOCKER_UNAVAILABLE:
     'Docker is not available. Check that Docker is installed and running, then try again.',
   DOCKER_CONTEXT_NOT_FOUND: 'The Docker context could not be found. Choose another context.',

@@ -953,4 +953,44 @@ export const MIGRATIONS: readonly Migration[] = [
       ) STRICT;
     `,
   },
+  {
+    version: 20,
+    name: 'task_executions',
+    // Explicit runs of shared-context tasks by an AI provider in a terminal (SDD-025 Task
+    // 02). Additive. Removed with their task. `request_id` is unique, so a repeated
+    // confirmation never creates a second run. The terminal is not a foreign key: history
+    // outlives removed terminals. Active rows are never trusted after a restart.
+    sql: `
+      CREATE TABLE task_executions (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        request_id TEXT NOT NULL UNIQUE CHECK (length(request_id) = 36),
+        task_id TEXT NOT NULL REFERENCES context_tasks (id) ON DELETE CASCADE,
+        project_id TEXT REFERENCES projects (id) ON DELETE SET NULL,
+        workspace_path TEXT CHECK (workspace_path IS NULL OR length(workspace_path) > 0),
+        mode TEXT NOT NULL CHECK (mode IN ('new-terminal', 'existing-terminal')),
+        provider TEXT NOT NULL CHECK (provider IN ('claude', 'codex')),
+        profile_id TEXT CHECK (profile_id IS NULL OR length(profile_id) = 36),
+        profile_name TEXT CHECK (profile_name IS NULL OR length(profile_name) <= 200),
+        terminal_id TEXT NOT NULL CHECK (length(terminal_id) = 36),
+        terminal_title TEXT NOT NULL CHECK (length(terminal_title) <= 200),
+        ai_session_id TEXT CHECK (ai_session_id IS NULL OR length(ai_session_id) = 36),
+        run_ref TEXT CHECK (run_ref IS NULL OR length(run_ref) BETWEEN 1 AND 200),
+        status TEXT NOT NULL CHECK (status IN ('LAUNCHING', 'RUNNING', 'UNTRACKED',
+          'REVIEW_REQUIRED', 'FAILED', 'INTERRUPTED', 'CANCELLED')),
+        exit_code INTEGER,
+        end_reason TEXT CHECK (end_reason IS NULL OR end_reason IN ('exit-code',
+          'launch-failed', 'terminal-ended', 'engine-restart', 'cancelled')),
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        ended_at TEXT,
+        cancel_requested_at TEXT,
+        reviewed_at TEXT,
+        CHECK (project_id IS NULL OR workspace_path IS NULL)
+      ) STRICT;
+      CREATE INDEX task_executions_task ON task_executions (task_id, created_at);
+      CREATE INDEX task_executions_active ON task_executions (status)
+        WHERE status IN ('LAUNCHING', 'RUNNING');
+      CREATE INDEX task_executions_terminal ON task_executions (terminal_id);
+    `,
+  },
 ];

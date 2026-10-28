@@ -17,6 +17,10 @@ import {
   type GitOperation,
   type StartAiSessionInput,
   type StartedAiSession,
+  type ExecuteTaskInput,
+  type ParsedExecuteTaskInput,
+  type TaskExecution,
+  type TaskExecutionOptions,
   type GitRepositoryEntry,
   type GitStatus,
   type LlmWrapperStatus,
@@ -49,6 +53,7 @@ import {
   SqliteJobRepository,
   SqliteProjectGitRepository,
   SqliteTerminalActivityRepository,
+  SqliteTaskExecutionRepository,
   SqliteTerminalGroupRepository,
   SqliteTerminalSessionRepository,
   getSchemaVersion,
@@ -64,6 +69,7 @@ import {
 } from '@atlas/sessions';
 import {
   SharedContextService,
+  TaskExecutionTracker,
   continuationPrompt,
   handoffMarkdown,
   type ResolvedTarget,
@@ -138,6 +144,7 @@ import { EditorSettings, FileWatchHub, ProjectFiles } from '@atlas/editor';
 import { createGitExecutor, createGitRunner } from './git/git-runner.js';
 import { captureLoginShellEnvironment } from './adapters/login-shell-environment.js';
 import { LlmSessionTracker } from './llm-session-tracker.js';
+import { TaskExecutionService, type PreparedAiLaunch } from './task-executions.js';
 import { ClaudeAuthStatusReader, CodexAppServerReader } from './adapters/usage-cli.js';
 import { ClaudeStatusInbox } from './usage-inbox.js';
 import { ShellPreflightExecutor } from './adapters/preflight-executor.js';
@@ -244,6 +251,16 @@ export interface Engine {
   startAiSession(input: StartAiSessionInput): Promise<StartedAiSession>;
   /** Tracks an existing terminal as an AI session (best effort, no conversation access). */
   attachTerminalSession(input: AttachTerminalInput): Promise<AiSession>;
+  /** Providers, account profiles and terminals offered to execute a task (SDD-025 Task 02). */
+  taskExecutionOptions(target: ContextTarget, taskId: string): Promise<TaskExecutionOptions>;
+  /** Runs a task with Claude Code or Codex in a terminal, after the user confirmed it. */
+  executeTask(input: ExecuteTaskInput): Promise<TaskExecution>;
+  /** Recent executions of a task, newest first. */
+  taskExecutions(target: ContextTarget, taskId: string): Promise<TaskExecution[]>;
+  /** Sends Ctrl+C to the run's terminal and records the cancellation. */
+  cancelTaskExecution(target: ContextTarget, id: string): Promise<TaskExecution>;
+  /** Explicit review of a finished run; it also reviews its terminal's tab status. */
+  reviewTaskExecution(target: ContextTarget, id: string): Promise<TaskExecution>;
   /** Per-project AI configuration files in the ATLAS data directory (PLAN-014). */
   readonly projectConfig: ProjectConfigStore;
   /** A project's configuration file (created with defaults) and its LLM wrapper status. */
@@ -1244,6 +1261,15 @@ export function createEngine(options: EngineOptions = {}): Engine {
     onChange: (summary) => terminals?.publish({ type: 'terminal-activity', summary }),
     logger,
   });
+  const taskExecutionTracker: TaskExecutionTracker = new TaskExecutionTracker({
+    store: new SqliteTaskExecutionRepository(db),
+    now: () => clock.now(),
+    onChange: (execution) => terminals?.publish({ type: 'task-execution', execution }),
+    // The service is created below (it needs the AI launch helpers); events come later.
+    onFinished: (execution): Promise<void> => taskExecutions.notifyFinished(execution),
+    onSettled: (execution): Promise<void> => taskExecutions.settled(execution),
+    logger,
+  });
   const llmSessions = new LlmSessionTracker({
     eventsDir: projectConfig.eventsDir,
     projectDir: (projectId) => projectConfig.paths(projectId).dir,
@@ -1262,8 +1288,13 @@ export function createEngine(options: EngineOptions = {}): Engine {
         run: event.run,
         contextSessionId,
       };
-      if (event.event === 'start') await terminalActivity.aiStarted(lifecycle);
-      else await terminalActivity.aiEnded({ ...lifecycle, exitCode: event.exitCode });
+      if (event.event === 'start') {
+        await terminalActivity.aiStarted(lifecycle);
+        await taskExecutionTracker.aiStarted(lifecycle);
+      } else {
+        await terminalActivity.aiEnded({ ...lifecycle, exitCode: event.exitCode });
+        await taskExecutionTracker.aiEnded({ ...lifecycle, exitCode: event.exitCode });
+      }
     },
     logger,
   });
@@ -1305,9 +1336,13 @@ export function createEngine(options: EngineOptions = {}): Engine {
     string,
     { at: number; wrappers: Record<(typeof WRAPPED_CLIS)[number], LlmWrapperStatus> }
   >();
-  /** Where `claude` and `codex` resolve in the project's ATLAS terminals (cached briefly). */
-  const wrapperStatus = async (project: Project, directory: string) => {
-    const cached = wrapperChecks.get(project.id);
+  /**
+   * Where `claude` and `codex` resolve in ATLAS terminals of a project, or of a folder
+   * (`projectId` null), started in `directory` (cached briefly).
+   */
+  const wrapperStatus = async (projectId: string | null, directory: string) => {
+    const cacheKey = projectId ?? `folder:${directory}`;
+    const cached = wrapperChecks.get(cacheKey);
     if (cached !== undefined && Date.now() - cached.at < WRAPPER_CHECK_TTL_MS) {
       return cached.wrappers;
     }
@@ -1317,11 +1352,11 @@ export function createEngine(options: EngineOptions = {}): Engine {
       env.SHELL ?? (platform === 'darwin' ? '/bin/zsh' : '/bin/sh'),
       {
         ...base,
-        ...projectConfig.terminalVariables({ projectId: project.id, cwd: directory }, base),
+        ...projectConfig.terminalVariables({ projectId, cwd: directory }, base),
       },
       directory,
     );
-    wrapperChecks.set(project.id, { at: Date.now(), wrappers });
+    wrapperChecks.set(cacheKey, { at: Date.now(), wrappers });
     return wrappers;
   };
 
@@ -1333,7 +1368,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
       config,
       configPath: projectConfig.paths(project.id).config,
       wrappers: await wrapperStatus(
-        project,
+        project.id,
         availability.status === 'available' ? project.workspacePath : homeDirectory,
       ),
     };
@@ -1355,6 +1390,111 @@ export function createEngine(options: EngineOptions = {}): Engine {
     }
     return terminals;
   };
+
+  /** The first message for a provider: a handoff, a context bundle or none. */
+  const aiPrompt = async (
+    target: ResolvedTarget,
+    input: Omit<StartAiSessionInput, 'target'>,
+  ): Promise<string | null> => {
+    if (input.handoffId !== undefined) {
+      return continuationPrompt(
+        handoffMarkdown(await context.getHandoff(target, input.handoffId), target.label),
+      );
+    }
+    if (input.includeContext) {
+      // The same selection the dialog previewed: objective, role and exclusions.
+      const bundle = await context.bundle(target, {
+        taskId: input.taskId,
+        provider: input.provider,
+        budgetTokens: input.budgetTokens,
+        objective: input.objective,
+        agentRole: input.agentRole,
+        executionProfile: input.executionProfile,
+        files: input.files,
+        keywords: input.keywords,
+        excludeIds: input.excludeIds,
+        detail: input.detail,
+        skillIds: input.skillIds,
+      });
+      return continuationPrompt(bundle.markdown);
+    }
+    return null;
+  };
+
+  /**
+   * Records the managed AI session for `terminal` and writes `prompt` to a private file.
+   * Returns the line that starts the provider with it; nothing is typed here.
+   */
+  const prepareAiLaunch = async (
+    target: ResolvedTarget,
+    input: Omit<StartAiSessionInput, 'target'>,
+    terminal: TerminalSession,
+    prompt: string | null,
+  ): Promise<PreparedAiLaunch> => {
+    const session = await context.startSession(target, {
+      provider: input.provider,
+      captureMode: 'managed',
+      ...(input.taskId ? { taskId: input.taskId } : {}),
+      ...(input.handoffId ? { handoffId: input.handoffId } : {}),
+      terminalId: terminal.id,
+    });
+    // Skills chosen for this session are kept as session assignments (auditable).
+    const sessionSkills = input.includeContext && !input.handoffId ? (input.skillIds ?? []) : [];
+    for (const skillId of sessionSkills) {
+      await skills.assign({ skillId, scope: 'session', target: session.id, effect: 'enable' });
+    }
+    let file: string | null = null;
+    if (prompt !== null) {
+      // The prompt goes through a private file: its content never becomes shell text.
+      const directory = path.join(dataDir, 'context', 'prompts');
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      file = path.join(directory, `${session.id}.md`);
+      await writeFile(file, prompt, { mode: 0o600 });
+      await chmod(file, 0o600);
+    }
+    return { session, command: promptCommand(input.provider, file, terminal.shell.name) };
+  };
+
+  /** A task run always sends the task's context, with the selection the dialog previewed. */
+  const taskLaunchInput = (
+    request: ParsedExecuteTaskInput,
+  ): Omit<StartAiSessionInput, 'target'> => ({
+    provider: request.provider,
+    taskId: request.taskId,
+    includeContext: true,
+    ...(request.budgetTokens !== undefined ? { budgetTokens: request.budgetTokens } : {}),
+    objective: request.objective,
+    agentRole: request.agentRole,
+    executionProfile: request.executionProfile,
+    files: request.files,
+    keywords: request.keywords,
+    excludeIds: request.excludeIds,
+    detail: request.detail,
+    skillIds: request.skillIds,
+  });
+
+  // Task executions (SDD-025 Task 02): explicit runs of shared-context tasks in terminals.
+  const taskExecutions: TaskExecutionService = new TaskExecutionService({
+    tracker: taskExecutionTracker,
+    context,
+    resolveContextTarget,
+    terminals: requireTerminals,
+    projectName: async (projectId) => (await projects.findById(projectId))?.name ?? null,
+    wrapperStatus: (target) => wrapperStatus(target.owner.projectId, target.directory),
+    profiles: () => usage.profiles(),
+    buildPrompt: ({ target, request }) => aiPrompt(target, taskLaunchInput(request)),
+    prepareLaunch: ({ target, request, terminal, prompt }) =>
+      prepareAiLaunch(target, taskLaunchInput(request), terminal, prompt),
+    markTerminalReviewed: async (terminalId) => {
+      if (terminals?.list().some((session) => session.id === terminalId)) {
+        await terminalActivity.markReviewed(terminalId);
+      }
+    },
+    publishNotification: (input) => notifications.publish(input).then(() => undefined),
+    contextChanged: (target) => contextChanged(target),
+    generateId: randomUUID,
+    logger,
+  });
 
   let closed = false;
   const close = () => {
@@ -1475,58 +1615,22 @@ export function createEngine(options: EngineOptions = {}): Engine {
     startAiSession: async (input) => {
       const service = requireTerminals();
       const target = await resolveContextTarget(input.target);
-      let prompt: string | null = null;
-      if (input.handoffId !== undefined) {
-        prompt = continuationPrompt(
-          handoffMarkdown(await context.getHandoff(target, input.handoffId), target.label),
-        );
-      } else if (input.includeContext) {
-        // The same selection the Start dialog previewed: objective, role and exclusions.
-        const bundle = await context.bundle(target, {
-          taskId: input.taskId,
-          provider: input.provider,
-          budgetTokens: input.budgetTokens,
-          objective: input.objective,
-          agentRole: input.agentRole,
-          executionProfile: input.executionProfile,
-          files: input.files,
-          keywords: input.keywords,
-          excludeIds: input.excludeIds,
-          detail: input.detail,
-          skillIds: input.skillIds,
-        });
-        prompt = continuationPrompt(bundle.markdown);
-      }
+      const prompt = await aiPrompt(target, input);
       const terminal = await service.create({
         ...(target.owner.projectId !== null
           ? { projectId: target.owner.projectId }
           : { cwd: target.directory }),
         title: input.provider === 'claude' ? 'Claude Code' : 'Codex',
       });
-      const session = await context.startSession(target, {
-        provider: input.provider,
-        captureMode: 'managed',
-        ...(input.taskId ? { taskId: input.taskId } : {}),
-        ...(input.handoffId ? { handoffId: input.handoffId } : {}),
-        terminalId: terminal.id,
-      });
-      // Skills chosen for this session are kept as session assignments (auditable).
-      const sessionSkills = input.includeContext && !input.handoffId ? (input.skillIds ?? []) : [];
-      for (const skillId of sessionSkills) {
-        await skills.assign({ skillId, scope: 'session', target: session.id, effect: 'enable' });
-      }
-      let file: string | null = null;
-      if (prompt !== null) {
-        // The prompt goes through a private file: its content never becomes shell text.
-        const directory = path.join(dataDir, 'context', 'prompts');
-        await mkdir(directory, { recursive: true, mode: 0o700 });
-        file = path.join(directory, `${session.id}.md`);
-        await writeFile(file, prompt, { mode: 0o600 });
-        await chmod(file, 0o600);
-      }
-      service.write(terminal.id, `${promptCommand(input.provider, file, terminal.shell.name)}\r`);
+      const { session, command } = await prepareAiLaunch(target, input, terminal, prompt);
+      service.write(terminal.id, `${command}\r`);
       return { session, terminalId: terminal.id, prompt };
     },
+    taskExecutionOptions: (target, taskId) => taskExecutions.options(target, taskId),
+    executeTask: (input) => taskExecutions.execute(input),
+    taskExecutions: (target, taskId) => taskExecutions.list(target, taskId),
+    cancelTaskExecution: (target, id) => taskExecutions.cancel(target, id),
+    reviewTaskExecution: (target, id) => taskExecutions.review(target, id),
     runQuickCommand: async (input) => {
       await projects.getDetails(input.projectId);
       const command = await quickCommands.forProject(input.projectId, input.commandId);
@@ -1617,6 +1721,12 @@ export function createEngine(options: EngineOptions = {}): Engine {
           .catch((error: unknown) =>
             logger.warn('Terminal activity could not be loaded', { error: describeError(error) }),
           );
+        // Task executions still active when ATLAS quit become INTERRUPTED.
+        await taskExecutionTracker.recover().catch((error: unknown) =>
+          logger.warn('Interrupted task executions could not be closed', {
+            error: describeError(error),
+          }),
+        );
         // Recording LLM sessions is a convenience: it never keeps the Engine from starting.
         try {
           await closeOrphanedLlmSessions().catch((error: unknown) =>
@@ -1634,6 +1744,11 @@ export function createEngine(options: EngineOptions = {}): Engine {
           if (event.type === 'session' && isFinalTerminalStatus(event.session.status)) {
             llmSessions.terminalClosed(event.session.id);
             void terminalActivity.terminalEnded(event.session.id);
+            void taskExecutionTracker
+              .terminalEnded(event.session.id)
+              .catch((error: unknown) =>
+                logger.warn('Task execution could not be updated', { error: describeError(error) }),
+              );
           }
           if (event.type === 'removed') terminalActivity.terminalRemoved(event.sessionId);
         });
@@ -1723,6 +1838,8 @@ export function createEngine(options: EngineOptions = {}): Engine {
     },
     markTerminalReviewed: async (terminalId) => {
       requireTerminals().getById(terminalId);
+      // Reviewing the terminal also reviews the task runs it hosted.
+      await taskExecutionTracker.markTerminalReviewed(terminalId);
       return terminalActivity.markReviewed(terminalId);
     },
     terminalLlmUsage: async (terminalId) => {
@@ -1764,6 +1881,8 @@ export function createEngine(options: EngineOptions = {}): Engine {
         if (usageTimer !== undefined) clearInterval(usageTimer);
         await usageInbox.close();
         await llmSessions.close();
+        // Runs still active are recorded as interrupted at the next start.
+        taskExecutionTracker.close();
         // Queued jobs never start; running ones stop and are reported as interrupted.
         await jobs.close();
         // Docker log and event streams stop; containers keep running.

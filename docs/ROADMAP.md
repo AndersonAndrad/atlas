@@ -46,6 +46,8 @@
 | M24b      | SDD-024 T02   | Pending Push sidebar: unpushed commits per project, details, Load more, push with confirmation  | Implemented — awaiting approval       |
 | M24c      | SDD-024 T03   | Git identity: global and per-project user.name/user.email with their effective source           | Implemented — awaiting approval       |
 | M25a      | SDD-025 T01   | Non-blocking background operations: push, pull and fetch as GIT jobs, View in Operations        | Implemented — awaiting approval       |
+| M25b      | SDD-025 T02   | Task execution: run a task with Claude Code or Codex in a new or existing terminal, history     | Implemented — awaiting approval       |
+| M25c      | SDD-025 T02 C | ATLAS team execution of a task (needs SDD-005 Milestone B orchestration)                        | Blocked                               |
 | M23b      | SDD-023 A02   | Terminal tab status: AI running, failed, needs attention, reviewed; explicit Mark as reviewed   | Implemented — awaiting approval       |
 | M4        | TBD           | Agents and multi-agent orchestration                                                            | Not started                           |
 | M5        | TBD           | Skills Hub and Context Engine                                                                   | Not started                           |

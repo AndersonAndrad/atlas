@@ -97,6 +97,7 @@ import {
   CreateHandoffSchema,
   SessionSummarySchema,
   StartAiSessionSchema,
+  ExecuteTaskSchema,
   UpdateContextEntrySchema,
   UpdateContextTaskSchema,
   UpdateProjectAiConfigSchema,
@@ -116,6 +117,8 @@ import {
   type SessionEvidence,
   type ProjectConfigView,
   type StartedAiSession,
+  type TaskExecution,
+  type TaskExecutionOptions,
 } from './context.js';
 import {
   AddSkillSourceSchema,
@@ -482,6 +485,11 @@ export const ENGINE_METHOD_PARAMS = {
   'context.endSession': z.tuple([Target, Uuid, SessionSummarySchema]),
   'context.sessionForTerminal': z.tuple([TerminalId]),
   'ai.start': z.tuple([StartAiSessionSchema]),
+  'ai.taskExecutionOptions': z.tuple([Target, Uuid]),
+  'ai.executeTask': z.tuple([ExecuteTaskSchema]),
+  'ai.taskExecutions': z.tuple([Target, Uuid]),
+  'ai.cancelTaskExecution': z.tuple([Target, Uuid]),
+  'ai.reviewTaskExecution': z.tuple([Target, Uuid]),
   'quickCommands.list': z.tuple([]),
   'quickCommands.create': z.tuple([QuickCommandInputSchema]),
   'quickCommands.update': z.tuple([QuickCommandIdSchema, QuickCommandInputSchema]),
@@ -812,6 +820,11 @@ export interface EngineMethodResults {
   'context.endSession': { session: AiSession; entries: ContextEntry[] };
   'context.sessionForTerminal': AiSession | null;
   'ai.start': StartedAiSession;
+  'ai.taskExecutionOptions': TaskExecutionOptions;
+  'ai.executeTask': TaskExecution;
+  'ai.taskExecutions': TaskExecution[];
+  'ai.cancelTaskExecution': TaskExecution;
+  'ai.reviewTaskExecution': TaskExecution;
   'quickCommands.list': QuickCommand[];
   'quickCommands.create': QuickCommand;
   'quickCommands.update': QuickCommand;

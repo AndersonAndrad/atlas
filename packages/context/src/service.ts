@@ -314,6 +314,11 @@ export class SharedContextService {
     await this.repo.deleteTask(id);
   }
 
+  /** A task of the target; any other owner's task reads as not found. */
+  getTask(target: ResolvedTarget, id: string): Promise<ContextTask> {
+    return this.ownTask(target.owner, id);
+  }
+
   listTasks(target: ResolvedTarget): Promise<ContextTask[]> {
     return this.repo.listTasks(target.owner);
   }

@@ -39,8 +39,11 @@ interface TerminalsViewProps {
   terminals: TerminalSessionsState;
   groups: ReturnType<typeof useTerminalGroups>;
   preferences: ReturnType<typeof useTerminalPreferences>;
-  /** Open a terminal in this project once the view is shown (from the Projects view). */
-  openRequest: { projectId: string; nonce: number } | null;
+  /**
+   * Once the view is shown: open a terminal in a project (from the Projects view), or show
+   * an existing terminal (e.g. a task execution's).
+   */
+  openRequest: TerminalOpenRequest | null;
   /** Called once the request was taken, so it is not replayed when the view mounts again. */
   onOpenRequestHandled: () => void;
   /** Show the project palette or drawer once the view is shown (menu shortcut, PLAN-052). */
@@ -54,6 +57,9 @@ interface TerminalsViewProps {
   /** Shared context actions requested from a terminal. */
   onContextAction: (terminalId: string, action: TerminalContextAction) => void;
 }
+
+export type TerminalOpenRequest =
+  { projectId: string; nonce: number } | { terminalId: string; nonce: number };
 
 export interface ProjectsNavigationRequest {
   surface: 'palette' | 'drawer';
@@ -149,6 +155,21 @@ export function TerminalsView({
     [activeGroup, run, showTerminal, terminals],
   );
 
+  /** Shows an existing terminal; one created just before may not be listed here yet. */
+  const showTerminalById = useCallback(
+    async (terminalId: string) => {
+      const listed = await run(() => unwrap(api().terminals.list()));
+      const session = listed?.find((item) => item.id === terminalId);
+      if (!session) {
+        if (listed) setError('This terminal is no longer open.');
+        return;
+      }
+      terminals.upsert(session);
+      showTerminal(session);
+    },
+    [run, showTerminal, terminals],
+  );
+
   /** Opens a terminal in the project that runs the quick command (PLAN-023). */
   const runQuickCommand = useCallback(
     async (projectId: string, commandId: string) => {
@@ -169,14 +190,21 @@ export function TerminalsView({
     [activeGroup, run, showTerminal, terminals],
   );
 
-  // A request from the Projects view ("Open terminal").
+  // A request from the Projects view ("Open terminal") or to show a terminal.
+  const handleOpenRequest = useCallback(
+    (request: TerminalOpenRequest) =>
+      'projectId' in request
+        ? openInProject(request.projectId)
+        : showTerminalById(request.terminalId),
+    [openInProject, showTerminalById],
+  );
   const handledRequest = useRef<number | null>(null);
   useEffect(() => {
     if (openRequest === null || openRequest.nonce === handledRequest.current) return;
     handledRequest.current = openRequest.nonce;
     onOpenRequestHandled();
-    void openInProject(openRequest.projectId);
-  }, [onOpenRequestHandled, openInProject, openRequest]);
+    void handleOpenRequest(openRequest);
+  }, [handleOpenRequest, onOpenRequestHandled, openRequest]);
 
   // A menu shortcut asked for the project palette or drawer.
   const handledProjectsRequest = useRef<number | null>(null);

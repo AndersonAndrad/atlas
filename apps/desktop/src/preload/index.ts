@@ -387,6 +387,15 @@ const api: AtlasApi = {
   ai: {
     start: (input) => ipcRenderer.invoke(IPC_CHANNELS.aiStart, input),
     attach: (input) => ipcRenderer.invoke(IPC_CHANNELS.aiAttach, input),
+    taskExecutionOptions: (target, taskId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.aiTaskExecutionOptions, target, taskId),
+    executeTask: (input) => ipcRenderer.invoke(IPC_CHANNELS.aiExecuteTask, input),
+    taskExecutions: (target, taskId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.aiTaskExecutions, target, taskId),
+    cancelTaskExecution: (target, id) =>
+      ipcRenderer.invoke(IPC_CHANNELS.aiCancelTaskExecution, target, id),
+    reviewTaskExecution: (target, id) =>
+      ipcRenderer.invoke(IPC_CHANNELS.aiReviewTaskExecution, target, id),
   },
   app: {
     info: () => ipcRenderer.invoke(IPC_CHANNELS.appInfo),

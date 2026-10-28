@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-27 — PLAN-052 (SDD-023 Task A03: project palette and drawer).
+Last updated: 2026-10-27 — PLAN-053 (SDD-025 Task 02: task execution from shared-context tasks).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -63,7 +63,24 @@ run as background jobs) is implemented and awaits approval. PLAN-050 (SDD-023 Ta
 terminal tab status with explicit review) is implemented and awaits approval. PLAN-051
 (SDD-024 Task 03: global and per-project Git identity) is implemented and awaits approval.
 PLAN-052 (SDD-023 Task A03: project palette and Projects drawer; the Terminals sidebar lists
-only open terminals) is implemented and awaits approval. Version 0.38.0 (schema v19).
+only open terminals) is implemented and awaits approval. PLAN-053 (SDD-025 Task 02: tasks run
+with Claude Code or Codex in a new or existing terminal, tracked and reviewed; ATLAS team
+execution deferred) is implemented and awaits approval. Version 0.39.0 (schema v20).
+
+## PLAN-053 — SDD-025 Task 02: task execution (Milestones A and B; C deferred)
+
+- Approved 2026-10-27 by Anderson Andrade ("pode seguir, q1 a q5 recomendado, ciente
+  R1–R8"). Details: SDD-025, Task 02.
+- What was built:
+  - **Execute…** on shared-context tasks (button, "More actions" menu and right-click menu).
+  - A dialog with provider and account, a new or an idle existing terminal, the first
+    message preview, warnings and a summary; nothing runs before **Run task**.
+  - Migration v20 (`task_executions`): one record per confirmation, tracked by the AI
+    wrapper events; history, cancel (Ctrl+C) and review per task; one notification per
+    finished run. Tasks are never completed automatically.
+  - The ATLAS team option is shown disabled: SDD-005 Milestone B (orchestration) does not
+    exist yet.
+- Rolling back to 0.38.x needs a database copy taken before 0.39.0 first ran.
 
 ## PLAN-052 — SDD-023 Task A03: project palette and Projects drawer
 

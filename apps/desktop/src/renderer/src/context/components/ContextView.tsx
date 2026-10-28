@@ -38,9 +38,13 @@ import { TasksTab } from './TasksTab';
 /** A request from a terminal or project to act on its shared context. */
 export interface ContextOpenRequest {
   projectId?: string;
+  /** A repository opened in ATLAS without a project. */
+  workspacePath?: string;
   terminalId?: string;
-  action: 'view' | 'continue' | 'handoff' | 'summary' | 'attach';
+  /** `task` shows `taskId` in the Tasks tab (e.g. from a task execution notification). */
+  action: 'view' | 'continue' | 'handoff' | 'summary' | 'attach' | 'task';
   provider?: AiProvider;
+  taskId?: string;
   nonce: number;
 }
 
@@ -57,6 +61,8 @@ interface ContextViewProps {
   onRequestHandled: () => void;
   /** Called after an AI session was started in a terminal. */
   onAiStarted: (terminalId: string) => void;
+  /** Shows a terminal, e.g. the one a task execution ran in. */
+  onOpenTerminal: (terminalId: string) => void;
 }
 
 /**
@@ -68,6 +74,7 @@ export function ContextView({
   request,
   onRequestHandled,
   onAiStarted,
+  onOpenTerminal,
 }: ContextViewProps) {
   const options = useContextTargets(projects);
   const [chosen, setChosen] = useState<string | null>(null);
@@ -77,6 +84,7 @@ export function ContextView({
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [handledRequest, setHandledRequest] = useState<number | null>(null);
+  const [focusTaskId, setFocusTaskId] = useState<string | undefined>(undefined);
 
   const selected = options.find((option) => option.key === chosen) ?? options[0] ?? null;
   const target = selected?.target ?? null;
@@ -98,7 +106,9 @@ export function ContextView({
       try {
         let resolved: ContextTarget | null = request.projectId
           ? { projectId: request.projectId }
-          : null;
+          : request.workspacePath
+            ? { workspacePath: request.workspacePath }
+            : null;
         if (request.terminalId) {
           const repositories = await unwrap(api().git.repositories());
           const entry = repositories.find((item) => item.terminalIds.includes(request.terminalId!));
@@ -113,7 +123,10 @@ export function ContextView({
           return;
         }
         setChosen(targetKey(resolved));
-        if (request.action === 'continue') {
+        if (request.action === 'task') {
+          setTab('tasks');
+          setFocusTaskId(request.taskId);
+        } else if (request.action === 'continue') {
           setDialog({ kind: 'start', provider: request.provider ?? 'claude' });
         } else if (request.action === 'handoff') {
           setDialog({ kind: 'handoff' });
@@ -218,9 +231,12 @@ export function ContextView({
                 key={`${key}:${version}`}
                 target={target}
                 targetKey={key}
+                label={selected!.label}
+                {...(focusTaskId ? { focusTaskId } : {})}
                 onChanged={changed}
                 onContinue={(provider, taskId) => setDialog({ kind: 'start', provider, taskId })}
                 onHandoff={(taskId) => setDialog({ kind: 'handoff', taskId })}
+                onOpenTerminal={onOpenTerminal}
               />
             </TabsContent>
             <TabsContent value="decisions">

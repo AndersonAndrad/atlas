@@ -26,7 +26,11 @@ import { TooltipProvider } from './components/ui/tooltip';
 import { useAppInfo, versionLabel } from './hooks/useAppInfo';
 import { useProjects } from './hooks/useProjects';
 import { SessionsView } from './sessions/components/SessionsView';
-import { TerminalsView, type ProjectsNavigationRequest } from './terminal/components/TerminalsView';
+import {
+  TerminalsView,
+  type ProjectsNavigationRequest,
+  type TerminalOpenRequest,
+} from './terminal/components/TerminalsView';
 import { useTerminalGroups } from './terminal/hooks/useTerminalGroups';
 import { useTerminalPreferences } from './terminal/hooks/useTerminalPreferences';
 import { runningSessionCount, useTerminalSessions } from './terminal/hooks/useTerminalSessions';
@@ -57,7 +61,7 @@ const ExtensionsView = lazy(() =>
 export function App() {
   const [view, setView] = useState<AppView>('projects');
   const [aboutOpen, setAboutOpen] = useState(false);
-  const [openRequest, setOpenRequest] = useState<{ projectId: string; nonce: number } | null>(null);
+  const [openRequest, setOpenRequest] = useState<TerminalOpenRequest | null>(null);
   /** Project palette or drawer asked from the menu; shown by the Terminals view (PLAN-052). */
   const [projectsRequest, setProjectsRequest] = useState<ProjectsNavigationRequest | null>(null);
   const [sessionRequest, setSessionRequest] = useState<{
@@ -155,6 +159,12 @@ export function App() {
     setView('terminals');
   };
 
+  /** Shows an existing terminal, e.g. the one a task execution runs in. */
+  const showTerminal = (terminalId: string) => {
+    setOpenRequest({ terminalId, nonce: Date.now() });
+    setView('terminals');
+  };
+
   const clearOpenRequest = useCallback(() => setOpenRequest(null), []);
   const clearProjectsRequest = useCallback(() => setProjectsRequest(null), []);
   const clearGitRequest = useCallback(() => setGitRequest(null), []);
@@ -204,6 +214,20 @@ export function App() {
         await unwrap(api().jobs.get(action.jobId));
         setOperationsRequest({ jobId: action.jobId, nonce: Date.now() });
         setView('operations');
+        return;
+      }
+      if (action.type === 'task-execution') {
+        const target = action.projectId
+          ? { projectId: action.projectId }
+          : { workspacePath: action.workspacePath! };
+        // Throws when the task (and so its executions) no longer exists.
+        await unwrap(api().ai.taskExecutions(target, action.taskId));
+        openContext({
+          action: 'task',
+          taskId: action.taskId,
+          ...(action.projectId ? { projectId: action.projectId } : {}),
+          ...(action.workspacePath ? { workspacePath: action.workspacePath } : {}),
+        });
         return;
       }
       await unwrap(api().preflight.run(action.runId));
@@ -371,9 +395,13 @@ export function App() {
                 projects={projects.items ?? []}
                 request={contextRequest}
                 onRequestHandled={clearContextRequest}
-                onAiStarted={() => {
+                onAiStarted={(terminalId) => {
                   void terminals.reload();
-                  setView('terminals');
+                  showTerminal(terminalId);
+                }}
+                onOpenTerminal={(terminalId) => {
+                  void terminals.reload();
+                  showTerminal(terminalId);
                 }}
               />
             )}

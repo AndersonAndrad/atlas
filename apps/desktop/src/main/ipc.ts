@@ -453,6 +453,11 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     [IPC_CHANNELS.contextProjectConfig, 'context.projectConfig'],
     [IPC_CHANNELS.contextSetProjectConfig, 'context.setProjectConfig'],
     [IPC_CHANNELS.aiStart, 'ai.start'],
+    [IPC_CHANNELS.aiTaskExecutionOptions, 'ai.taskExecutionOptions'],
+    [IPC_CHANNELS.aiExecuteTask, 'ai.executeTask'],
+    [IPC_CHANNELS.aiTaskExecutions, 'ai.taskExecutions'],
+    [IPC_CHANNELS.aiCancelTaskExecution, 'ai.cancelTaskExecution'],
+    [IPC_CHANNELS.aiReviewTaskExecution, 'ai.reviewTaskExecution'],
     [IPC_CHANNELS.aiAttach, 'ai.attach'],
     // Quick commands and project actions (PLAN-023).
     [IPC_CHANNELS.quickCommandsList, 'quickCommands.list'],

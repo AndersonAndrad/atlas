@@ -75,6 +75,11 @@ export class UsageService {
 
   // Profiles -------------------------------------------------------------------
 
+  /** Registered profiles, without detecting new ones. */
+  profiles(): Promise<UsageProfile[]> {
+    return this.options.repository.listProfiles();
+  }
+
   /** Registers profile directories that follow the CLI naming convention. */
   async syncProfiles(): Promise<UsageProfile[]> {
     const { repository } = this.options;

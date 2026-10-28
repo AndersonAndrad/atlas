@@ -30,6 +30,7 @@ import {
   type CreateHandoffInput,
   type SessionSummaryInput,
   type StartAiSessionInput,
+  type ExecuteTaskInput,
   type UpdateContextEntryInput,
   type UpdateContextTaskInput,
   type UpdateProjectAiConfig,
@@ -424,6 +425,15 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     'context.sessionForTerminal': ([terminalId]: [string]) =>
       context.sessionForTerminal(terminalId),
     'ai.start': ([input]: [StartAiSessionInput]) => engine.startAiSession(input),
+    'ai.taskExecutionOptions': ([target, taskId]: [ContextTarget, string]) =>
+      engine.taskExecutionOptions(target, taskId),
+    'ai.executeTask': ([input]: [ExecuteTaskInput]) => engine.executeTask(input),
+    'ai.taskExecutions': ([target, taskId]: [ContextTarget, string]) =>
+      engine.taskExecutions(target, taskId),
+    'ai.cancelTaskExecution': ([target, id]: [ContextTarget, string]) =>
+      engine.cancelTaskExecution(target, id),
+    'ai.reviewTaskExecution': ([target, id]: [ContextTarget, string]) =>
+      engine.reviewTaskExecution(target, id),
     'quickCommands.list': () => engine.quickCommands.list(),
     'quickCommands.create': ([input]: [QuickCommandInput]) => engine.quickCommands.create(input),
     'quickCommands.update': ([id, input]: [string, QuickCommandInput]) =>

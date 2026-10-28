@@ -609,6 +609,152 @@ export interface SessionEvidence {
   head: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Task execution (SDD-025 Task 02)
+// ---------------------------------------------------------------------------
+
+export const TASK_EXECUTION_MODES = ['new-terminal', 'existing-terminal'] as const;
+export type TaskExecutionMode = (typeof TASK_EXECUTION_MODES)[number];
+
+/**
+ * `LAUNCHING`: the command was typed and ATLAS waits for the wrapper to report the start.
+ * `RUNNING`: the wrapper reported the start. `UNTRACKED`: the command was typed but ATLAS
+ * cannot follow it (no wrapper, or no start reported in time). `REVIEW_REQUIRED`: ended
+ * with exit code 0. `FAILED`: ended otherwise, or could not be launched. `INTERRUPTED`: its
+ * terminal or ATLAS stopped first. `CANCELLED`: stopped by the user from ATLAS.
+ */
+export const TASK_EXECUTION_STATUSES = [
+  'LAUNCHING',
+  'RUNNING',
+  'UNTRACKED',
+  'REVIEW_REQUIRED',
+  'FAILED',
+  'INTERRUPTED',
+  'CANCELLED',
+] as const;
+export type TaskExecutionStatus = (typeof TASK_EXECUTION_STATUSES)[number];
+
+/** Statuses that can still change by themselves. */
+export const ACTIVE_TASK_EXECUTION_STATUSES: readonly TaskExecutionStatus[] = [
+  'LAUNCHING',
+  'RUNNING',
+];
+
+/** Why an execution failed or was interrupted; safe to show. */
+export const TASK_EXECUTION_END_REASONS = [
+  'exit-code',
+  'launch-failed',
+  'terminal-ended',
+  'engine-restart',
+  'cancelled',
+] as const;
+export type TaskExecutionEndReason = (typeof TASK_EXECUTION_END_REASONS)[number];
+
+/**
+ * One explicit, user-approved run of a task by an AI provider in a terminal. Never
+ * completes its task: a successful run only asks for review.
+ */
+export interface TaskExecution extends ContextOwner {
+  id: string;
+  /** Chosen by the client for one confirmation; a repeated request returns this record. */
+  requestId: string;
+  taskId: string;
+  mode: TaskExecutionMode;
+  provider: AiProvider;
+  /** Account profile used (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`); null for the CLI's default. */
+  profileId: string | null;
+  profileName: string | null;
+  terminalId: string;
+  terminalTitle: string;
+  /** The managed shared-context session recording this run. */
+  aiSessionId: string | null;
+  /** The wrapper run reporting start and end, once known. */
+  runRef: string | null;
+  status: TaskExecutionStatus;
+  exitCode: number | null;
+  endReason: TaskExecutionEndReason | null;
+  createdAt: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  cancelRequestedAt: string | null;
+  /** Set only by an explicit review. */
+  reviewedAt: string | null;
+}
+
+export const ExecuteTaskSchema = z
+  .strictObject({
+    requestId: Id,
+    target: ContextTargetSchema,
+    taskId: Id,
+    provider: z.enum(AI_PROVIDERS),
+    profileId: Id.optional(),
+    mode: z.enum(TASK_EXECUTION_MODES),
+    terminalId: z.uuid().optional(),
+    /** The user confirmed running in a terminal of another project or folder. */
+    acknowledgeOtherProject: z.boolean().default(false),
+    budgetTokens: BudgetTokens.optional(),
+    ...RetrievalFields,
+  })
+  .refine((input) => (input.mode === 'existing-terminal') === (input.terminalId !== undefined), {
+    message: 'Choose a terminal only when running in an existing terminal.',
+    path: ['terminalId'],
+  });
+export type ExecuteTaskInput = z.input<typeof ExecuteTaskSchema>;
+export type ParsedExecuteTaskInput = z.infer<typeof ExecuteTaskSchema>;
+
+/** Why an open terminal cannot receive a task now. */
+export const TASK_TERMINAL_BLOCKERS = [
+  'disconnected',
+  'busy',
+  'process-unknown',
+  'unsupported-shell',
+  'ai-session-active',
+  'execution-active',
+] as const;
+export type TaskTerminalBlocker = (typeof TASK_TERMINAL_BLOCKERS)[number];
+
+export interface TaskTerminalOption {
+  terminalId: string;
+  title: string;
+  projectId: string | null;
+  projectName: string | null;
+  currentCwd: string;
+  shellName: string;
+  connected: boolean;
+  /** In the task's project (or inside its repository for folder tasks). */
+  sameProject: boolean;
+  /** Null when the terminal can receive the task now; checked again when it starts. */
+  blocker: TaskTerminalBlocker | null;
+  /** The foreground process when `busy`. */
+  processName: string | null;
+}
+
+export interface TaskProviderOption {
+  provider: AiProvider;
+  /** How the CLI resolves in ATLAS terminals; `missing` cannot be chosen. */
+  availability: LlmWrapperStatus;
+}
+
+export interface TaskProfileOption {
+  id: string;
+  provider: AiProvider;
+  displayName: string;
+  /** Last known status (UsageProfileStatus); informative only. */
+  status: string;
+  plan: string | null;
+}
+
+/** What the Execute dialog offers for a task's project or folder. */
+export interface TaskExecutionOptions {
+  providers: TaskProviderOption[];
+  profiles: TaskProfileOption[];
+  terminals: TaskTerminalOption[];
+  /** Where a new terminal opens. */
+  directory: string;
+  /** Multi-agent ATLAS teams need SDD-005 Milestone B; always false for now. */
+  atlasTeamsAvailable: boolean;
+}
+
 /** Result of starting a managed AI session: the terminal it runs in. */
 export interface StartedAiSession {
   session: AiSession;

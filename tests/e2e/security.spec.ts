@@ -211,7 +211,15 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'setPreferences',
     ],
     // AI CLIs are only started or tracked; no command text crosses the bridge.
-    aiKeys: ['attach', 'start'],
+    aiKeys: [
+      'attach',
+      'cancelTaskExecution',
+      'executeTask',
+      'reviewTaskExecution',
+      'start',
+      'taskExecutionOptions',
+      'taskExecutions',
+    ],
     // Only the path of a file the user dropped; no filesystem access.
     fileKeys: ['pathFor'],
     // Quick commands run by id: what runs is the stored command the user saw in the menu.

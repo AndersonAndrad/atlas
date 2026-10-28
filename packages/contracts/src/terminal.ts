@@ -5,6 +5,7 @@ import type { BackgroundJob } from './jobs.js';
 import type { DebugEvent } from './debug.js';
 import type { AtlasNotification } from './notification.js';
 import type { TerminalActivitySummary } from './terminal-activity.js';
+import type { TaskExecution } from './context.js';
 
 export const TERMINAL_STATUSES = [
   'CREATED',
@@ -267,7 +268,9 @@ export type TerminalEvent =
   /** A debug session changed or its adapter sent an event; only `ownerId` acts on it (SDD-016). */
   | { type: 'debug'; ownerId: string; event: DebugEvent }
   /** Tracked activity of a terminal changed (SDD-023 Task A02); carries the new summary. */
-  | { type: 'terminal-activity'; summary: TerminalActivitySummary };
+  | { type: 'terminal-activity'; summary: TerminalActivitySummary }
+  /** A task execution was created or changed (SDD-025 Task 02); carries the new state. */
+  | { type: 'task-execution'; execution: TaskExecution };
 
 export const TERMINAL_FONT_FAMILIES = ['system', 'menlo', 'sf-mono', 'monaco', 'courier'] as const;
 export type TerminalFontFamily = (typeof TERMINAL_FONT_FAMILIES)[number];

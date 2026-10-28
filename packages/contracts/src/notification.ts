@@ -53,6 +53,15 @@ export const NotificationActionSchema = z.discriminatedUnion('type', [
     type: z.literal('background-job'),
     jobId: z.uuid(),
   }),
+  /** A task execution (SDD-025 Task 02): opens its task and can open its terminal. */
+  z.object({
+    type: z.literal('task-execution'),
+    executionId: z.uuid(),
+    taskId: z.uuid(),
+    projectId: z.uuid().nullable(),
+    workspacePath: z.string().min(1).max(4096).nullable(),
+    terminalId: z.uuid(),
+  }),
 ]);
 export type NotificationAction = z.infer<typeof NotificationActionSchema>;
 

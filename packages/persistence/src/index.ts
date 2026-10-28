@@ -16,3 +16,4 @@ export * from './sqlite-http-workbench-repository.js';
 export * from './sqlite-extension-repository.js';
 export * from './sqlite-project-git-repository.js';
 export * from './sqlite-terminal-activity-repository.js';
+export * from './sqlite-task-execution-repository.js';

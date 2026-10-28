@@ -201,6 +201,9 @@ import type {
   SessionEvidence,
   SessionSummaryInput,
   StartAiSessionInput,
+  ExecuteTaskInput,
+  TaskExecution,
+  TaskExecutionOptions,
   StartedAiSession,
   UpdateContextBudgetSettings,
   UpdateContextEntryInput,
@@ -558,6 +561,11 @@ export const IPC_CHANNELS = {
   appSetTerminalShortcuts: 'atlas:app:set-terminal-shortcuts',
   appSetUnsavedFiles: 'atlas:app:set-unsaved-files',
   aiStart: 'atlas:ai:start',
+  aiTaskExecutionOptions: 'atlas:ai:task-execution-options',
+  aiExecuteTask: 'atlas:ai:execute-task',
+  aiTaskExecutions: 'atlas:ai:task-executions',
+  aiCancelTaskExecution: 'atlas:ai:cancel-task-execution',
+  aiReviewTaskExecution: 'atlas:ai:review-task-execution',
   quickCommandsList: 'atlas:quick-commands:list',
   quickCommandsCreate: 'atlas:quick-commands:create',
   quickCommandsUpdate: 'atlas:quick-commands:update',
@@ -1159,6 +1167,16 @@ export interface AtlasApi {
     /** Opens Claude Code or Codex in a new terminal, with the reviewed context prompt. */
     start(input: StartAiSessionInput): Promise<IpcResult<StartedAiSession>>;
     attach(input: AttachTerminalInput): Promise<IpcResult<AiSession>>;
+    /** Providers, account profiles and terminals the Execute dialog offers for a task. */
+    taskExecutionOptions(
+      target: ContextTarget,
+      taskId: string,
+    ): Promise<IpcResult<TaskExecutionOptions>>;
+    /** Runs a task after the user confirmed it; a repeated `requestId` returns the same run. */
+    executeTask(input: ExecuteTaskInput): Promise<IpcResult<TaskExecution>>;
+    taskExecutions(target: ContextTarget, taskId: string): Promise<IpcResult<TaskExecution[]>>;
+    cancelTaskExecution(target: ContextTarget, id: string): Promise<IpcResult<TaskExecution>>;
+    reviewTaskExecution(target: ContextTarget, id: string): Promise<IpcResult<TaskExecution>>;
   };
   app: {
     info(): Promise<IpcResult<AppInfo>>;
