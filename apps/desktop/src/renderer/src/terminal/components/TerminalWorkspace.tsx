@@ -51,7 +51,7 @@ interface TerminalWorkspaceProps {
   /** Closes a terminal, asking first when a program is running. */
   onRequestClose: (sessionId: string) => void;
   onProjectInfo: (sessionId: string) => void;
-  onOpenGit: (sessionId: string) => void;
+  onOpenGit: (sessionId: string, options?: { commit?: boolean }) => void;
   onOpenPreflight: (sessionId: string) => void;
   onContextAction: (sessionId: string, action: TerminalContextAction) => void;
   onFontSize: (delta: number | 'reset') => void;
@@ -94,6 +94,15 @@ export function TerminalWorkspace({
     () => new Map(projects.map((item) => [item.project.id, item.project.name])),
     [projects],
   );
+  const unavailableProjects = useMemo(
+    () =>
+      new Set(
+        projects
+          .filter((item) => item.availability.status !== 'available')
+          .map((item) => item.project.id),
+      ),
+    [projects],
+  );
   const panes = useMemo(() => listPanes(layout?.root ?? null), [layout]);
   const visibleSessionIds = useMemo(() => new Set(panes.map((pane) => pane.sessionId)), [panes]);
   const current = layout ? activePane(layout) : undefined;
@@ -124,11 +133,20 @@ export function TerminalWorkspace({
   }, [focusRequest, sessionMap, update]);
 
   const createTerminal = useCallback(
-    async (options: NewTerminalOptions & { split?: SplitDirection } = {}) => {
+    async (
+      options: NewTerminalOptions & {
+        split?: SplitDirection;
+        /** Split this pane instead of the active one (terminal Actions menu). */
+        paneId?: string;
+        /** Continue this terminal instead of the active one (split or duplicate). */
+        fromSessionId?: string;
+      } = {},
+    ) => {
       if (busy) return;
       setNotice(null);
       // A split continues the active terminal: same project, folder, group and shell.
-      const fromSessionId = options.split ? current?.sessionId : undefined;
+      const fromSessionId =
+        options.fromSessionId ?? (options.split ? current?.sessionId : undefined);
       let cwd: string | undefined;
       if (options.chooseFolder) {
         const choice = await run(() => unwrap(api().dialog.chooseDirectory('terminal')));
@@ -160,7 +178,14 @@ export function TerminalWorkspace({
       onSessionChanged(session);
       update((value) =>
         options.split
-          ? splitActivePane(value, options.split, session.id, newLayoutId)
+          ? splitActivePane(
+              options.paneId !== undefined && value.activePaneId !== options.paneId
+                ? focusPane(value, options.paneId)
+                : value,
+              options.split,
+              session.id,
+              newLayoutId,
+            )
           : showSession(value, session.id, newLayoutId),
       );
     },
@@ -352,6 +377,17 @@ export function TerminalWorkspace({
             onCloseTab={onRequestClose}
             onProjectInfo={onProjectInfo}
             onOpenGit={onOpenGit}
+            onRenameSession={(sessionId) => {
+              update((value) => showSession(value, sessionId, newLayoutId));
+              // After the menu closed and the terminal took focus: the name field keeps it.
+              setTimeout(() => setRenamingId(sessionId), 50);
+            }}
+            onSplitPane={(paneId, sessionId, direction) =>
+              void createTerminal({ split: direction, paneId, fromSessionId: sessionId })
+            }
+            onDuplicateSession={(sessionId) => void createTerminal({ fromSessionId: sessionId })}
+            unavailableProjects={unavailableProjects}
+            canSplit={layout !== null && layout.root !== null && canSplit(layout)}
             onOpenPreflight={onOpenPreflight}
             onContextAction={onContextAction}
             onRatio={(splitId, ratio) => update((value) => setSplitRatio(value, splitId, ratio))}

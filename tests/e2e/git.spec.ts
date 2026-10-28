@@ -425,10 +425,11 @@ test('opens the Git view from standalone terminals, the context menu and the sho
   await page.getByRole('button', { name: 'More ways to open a terminal' }).click();
   await page.getByRole('menuitem', { name: 'Open in folder…' }).click();
   const pane = page.getByTestId('terminal-pane').first();
-  await pane.getByRole('button', { name: 'Git actions' }).click({ timeout: 15_000 });
-  const gitMenu = page.getByTestId('terminal-git-menu');
-  await expect(gitMenu.getByRole('menuitem', { name: /Operations/ })).toBeVisible();
-  await gitMenu.getByRole('menuitem', { name: 'Open Git panel' }).click();
+  await pane.getByRole('button', { name: 'Actions' }).click();
+  const gitMenu = page.getByTestId('terminal-actions-menu');
+  // Enabled once the terminal's repository is known.
+  await expect(gitMenu.getByTestId('terminal-action-operations')).toBeEnabled({ timeout: 15_000 });
+  await gitMenu.getByTestId('terminal-action-status').click();
   await expect(page.getByTestId('git-repository-name')).toHaveText('loose');
 
   await page
@@ -853,11 +854,12 @@ test('opens the operations panel from a terminal and on remote failures', async 
     .click();
   await openProjectTerminal(page, 'ops');
   const pane = page.getByTestId('terminal-pane').first();
-  await pane.getByRole('button', { name: 'Git actions' }).click({ timeout: 15_000 });
-  await page
-    .getByTestId('terminal-git-menu')
-    .getByRole('menuitem', { name: /Operations/ })
-    .click();
+  await pane.getByRole('button', { name: 'Actions' }).click();
+  const operations = page
+    .getByTestId('terminal-actions-menu')
+    .getByTestId('terminal-action-operations');
+  await expect(operations).toBeEnabled({ timeout: 15_000 });
+  await operations.click();
   const sheet = page.getByTestId('git-operations-sheet');
   await expect(sheet).toContainText('ops');
   await expect(sheet).toContainText('No Git operations yet.');

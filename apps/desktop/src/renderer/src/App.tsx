@@ -8,7 +8,7 @@ import { ProjectsView } from './components/ProjectsView';
 import { ProjectHubView } from './hub/components/ProjectHubView';
 import { EditorView } from './editor/components/EditorView';
 import { onOpenInEditor, type EditorOpenTarget } from './editor/navigation';
-import { onProjectAuditRequest } from './audit/navigation';
+import { onHubNavigation, type HubNavigation } from './audit/navigation';
 import { SettingsView } from './components/SettingsView';
 import { GitView, type GitOpenRequest } from './git/components/GitView';
 import { ContextView, type ContextOpenRequest } from './context/components/ContextView';
@@ -75,9 +75,7 @@ export function App() {
   const [contextRequest, setContextRequest] = useState<ContextOpenRequest | null>(null);
   const [preflightRequest, setPreflightRequest] = useState<PreflightOpenRequest | null>(null);
   const [operationsRequest, setOperationsRequest] = useState<OperationsOpenRequest | null>(null);
-  const [auditRequest, setAuditRequest] = useState<{ projectId: string; nonce: number } | null>(
-    null,
-  );
+  const [hubRequest, setHubRequest] = useState<(HubNavigation & { nonce: number }) | null>(null);
   const [editorRequest, setEditorRequest] = useState<(EditorOpenTarget & { nonce: number }) | null>(
     null,
   );
@@ -200,8 +198,8 @@ export function App() {
   // "Analyze project…" from the Projects drawer or palette opens the Hub's audits (SDD-026).
   useEffect(
     () =>
-      onProjectAuditRequest((projectId) => {
-        setAuditRequest({ projectId, nonce: Date.now() });
+      onHubNavigation((request) => {
+        setHubRequest({ ...request, nonce: Date.now() });
         setView('hub');
       }),
     [],
@@ -326,7 +324,7 @@ export function App() {
                 onOpenGit={(projectId) => openGit({ projectId })}
                 onOpenTerminal={showTerminal}
                 onContextAction={(request) => openContext(request)}
-                auditRequest={auditRequest}
+                hubRequest={hubRequest}
               />
             )}
             {view === 'terminals' && (
@@ -340,7 +338,7 @@ export function App() {
                 projectsRequest={projectsRequest}
                 onProjectsRequestHandled={clearProjectsRequest}
                 subscribeCommands={subscribeCommands}
-                onOpenGit={(terminalId) => openGit({ terminalId })}
+                onOpenGit={(terminalId, options) => openGit({ terminalId, ...options })}
                 onOpenPreflight={(terminalId) => openPreflight({ terminalId })}
                 onContextAction={(terminalId, { action, provider }) =>
                   openContext({ terminalId, action, ...(provider ? { provider } : {}) })
@@ -353,7 +351,7 @@ export function App() {
                 projects={projects}
                 terminals={terminals}
                 terminalPreferences={preferences.preferences}
-                onOpenGit={(terminalId) => openGit({ terminalId })}
+                onOpenGit={(terminalId, options) => openGit({ terminalId, ...options })}
                 onOpenPreflight={(terminalId) => openPreflight({ terminalId })}
                 onContextAction={(terminalId, { action, provider }) =>
                   openContext({ terminalId, action, ...(provider ? { provider } : {}) })

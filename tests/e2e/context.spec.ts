@@ -295,7 +295,10 @@ test('tracks an existing terminal and keeps the context view responsive', async 
     .click();
   await openProjectTerminal(page, 'tracked-with-a-rather-long-repository-name-for-layout');
   const pane = page.getByTestId('terminal-pane').first();
-  await expect(pane.getByRole('button', { name: 'Git actions' })).toBeVisible({ timeout: 15_000 });
+  // The Git actions are enabled once the terminal's repository is known.
+  await pane.getByRole('button', { name: 'Actions' }).click();
+  await expect(page.getByTestId('terminal-action-status')).toBeEnabled({ timeout: 15_000 });
+  await page.keyboard.press('Escape');
   await pane.getByTestId('terminal-host').click({ button: 'right' });
   await page
     .getByTestId('terminal-context-menu')

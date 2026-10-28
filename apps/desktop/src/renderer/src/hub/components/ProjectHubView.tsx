@@ -24,6 +24,7 @@ import { scopeFromKey, scopeKey, useNoteList } from '../hooks/useNotes';
 import { NotesPanel } from './NotesPanel';
 import { AnalyzeProjectDialog } from '@/audit/components/AnalyzeProjectDialog';
 import { AuditsPanel } from '@/audit/components/AuditsPanel';
+import type { HubNavigation } from '@/audit/navigation';
 import { WorkflowSteps } from '@/audit/components/WorkflowSteps';
 import { TasksTab } from '@/context/components/TasksTab';
 
@@ -69,8 +70,8 @@ interface ProjectHubViewProps {
     taskId: string;
     provider?: AiProvider;
   }) => void;
-  /** Shows the project's audits and opens the Analyze Project dialog (SDD-026). */
-  auditRequest: { projectId: string; nonce: number } | null;
+  /** Shows a project's audits (with Analyze Project) or tasks (SDD-026, SDD-023 A04). */
+  hubRequest: (HubNavigation & { nonce: number }) | null;
 }
 
 /**
@@ -83,7 +84,7 @@ export function ProjectHubView({
   onOpenGit,
   onOpenTerminal,
   onContextAction,
-  auditRequest,
+  hubRequest,
 }: ProjectHubViewProps) {
   const items = projects.items ?? [];
   const [chosenScope, setChosenScope] = useState<string | null>(() => remembered.scope);
@@ -113,11 +114,11 @@ export function ProjectHubView({
     remembered.tab = tab;
     remembered.auditNonce = handledAudit;
   }, [chosenScope, tab, handledAudit]);
-  if (auditRequest !== null && auditRequest.nonce !== handledAudit) {
-    setHandledAudit(auditRequest.nonce);
-    setChosenScope(`project:${auditRequest.projectId}`);
-    setTab('audits');
-    setAnalyzing(auditRequest.projectId);
+  if (hubRequest !== null && hubRequest.nonce !== handledAudit) {
+    setHandledAudit(hubRequest.nonce);
+    setChosenScope(`project:${hubRequest.projectId}`);
+    setTab(hubRequest.tab);
+    if (hubRequest.analyze) setAnalyzing(hubRequest.projectId);
   }
 
   const projectName = (id: string) =>

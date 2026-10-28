@@ -23,7 +23,7 @@ interface EditorTerminalPanelProps {
   terminals: ReturnType<typeof useTerminalSessions>;
   preferences: TerminalPreferences;
   onHide: () => void;
-  onOpenGit: (terminalId: string) => void;
+  onOpenGit: (terminalId: string, options?: { commit?: boolean }) => void;
   onOpenPreflight: (terminalId: string) => void;
   onContextAction: (terminalId: string, action: TerminalContextAction) => void;
   onProjectInfo: () => void;
@@ -127,6 +127,9 @@ export function EditorTerminalPanel(props: EditorTerminalPanelProps) {
             }
             onProjectInfo={props.onProjectInfo}
             onOpenGit={() => props.onOpenGit(session.id)}
+            onCommit={() => props.onOpenGit(session.id, { commit: true })}
+            projectAvailable
+            canSplit={false}
             onOpenPreflight={() => props.onOpenPreflight(session.id)}
             onContextAction={(action) => props.onContextAction(session.id, action)}
             registerHandle={() => undefined}

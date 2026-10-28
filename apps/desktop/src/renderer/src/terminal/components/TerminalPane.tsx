@@ -1,6 +1,8 @@
 import {
   hasPendingReview,
   isFinalTerminalStatus,
+  type BackgroundJob,
+  type GitWorkingTree,
   type TerminalPreferences,
   type TerminalSession,
 } from '@atlas/contracts';
@@ -35,17 +37,20 @@ import {
   ContextMenuShortcut,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { OperationsSheet, useOperationsSheet } from '@/git/components/OperationsSheet';
 import { useGitOperations } from '@/git/hooks/useGit';
 import { cn } from '@/lib/utils';
-import { ActionDot } from '@/components/git/ActionDot';
+import { api, errorMessage, unwrap } from '@/api';
+import { requestProjectTasks } from '@/audit/navigation';
+import { openInEditor } from '@/editor/navigation';
+import { isActive } from '@/git/format';
+import { BranchesDialog } from '@/git/components/BranchesDialog';
+import { PullDialog, PushDialog } from '@/git/components/RemoteDialogs';
+import { putProjectGitState } from '@/git/state/project-git-states';
+import { SubmittedNotice } from '@/operations/components/SubmittedNotice';
+import { terminalActionAvailability, type TerminalActionId } from '../state/terminal-actions';
+import { TerminalActionsMenu } from './TerminalActionsMenu';
 import { GitBadges } from '@/components/git/GitBadges';
 import { pendingGitActions } from '@/components/git/git-format';
 import { useTerminalGit } from '../hooks/useGitStatus';
@@ -91,6 +96,23 @@ interface TerminalPaneProps {
   onOpenPreflight: () => void;
   /** Shared context actions for this terminal (SDD-005). */
   onContextAction: (action: TerminalContextAction) => void;
+  /** Opens the Git view with the commit dialog for this terminal's repository. */
+  onCommit: () => void;
+  /**
+   * Tab and pane actions of the Terminals view; absent in the editor's terminal panel,
+   * where the menu explains that they are available in the Terminals view.
+   */
+  tabActions?: {
+    /** Starts renaming this terminal (its tab becomes editable). */
+    onRename: () => void;
+    /** Splits this pane with a terminal that continues this one's project and folder. */
+    onSplit: (direction: 'row' | 'column') => void;
+    /** A new tab continuing this terminal's project, folder, group and shell. */
+    onDuplicate: () => void;
+  };
+  /** The project's folder can be reached (true without a project). */
+  projectAvailable: boolean;
+  canSplit: boolean;
   registerHandle: (paneId: string, handle: TerminalPaneHandle | null) => void;
 }
 
@@ -109,6 +131,10 @@ export function TerminalPane({
   onOpenGit,
   onOpenPreflight,
   onContextAction,
+  onCommit,
+  tabActions,
+  projectAvailable,
+  canSplit,
   registerHandle,
 }: TerminalPaneProps) {
   const git = useTerminalGit(session.id, session.currentCwd, session.status === 'RUNNING');
@@ -132,6 +158,99 @@ export function TerminalPane({
   const [menuHasSelection, setMenuHasSelection] = useState(false);
   const ended = isFinalTerminalStatus(session.status);
   const running = session.status === 'RUNNING';
+  const fetching = operations.some((item) => isActive(item) && item.kind === 'fetch');
+  const availability = terminalActionAvailability({
+    running,
+    repository: snapshot !== null,
+    gitBusy: operations.some((item) => isActive(item) && item.kind !== 'fetch'),
+    fetching,
+    projectId: session.projectId,
+    projectAvailable,
+    canSplit,
+    manageable: tabActions !== undefined,
+  });
+  /** A Git dialog of the Actions menu, on the repository chosen when it was opened. */
+  const [gitDialog, setGitDialog] = useState<{
+    kind: 'branches' | 'push' | 'pull';
+    tree: GitWorkingTree;
+  } | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState<BackgroundJob | null>(null);
+
+  /**
+   * Runs an entry of the Actions menu (SDD-023 Task A04). The repository and project are
+   * read now, from this pane's terminal: a dialog opened here keeps working on them even
+   * if another tab becomes active meanwhile.
+   */
+  async function runAction(id: TerminalActionId) {
+    if (availability[id] !== null) return;
+    setActionError(null);
+    const root = snapshot?.repositoryRoot ?? null;
+    const projectId = session.projectId;
+    try {
+      switch (id) {
+        case 'branch':
+        case 'push':
+        case 'pull': {
+          const tree = await unwrap(api().git.workingTree(root!));
+          setGitDialog({ kind: id === 'branch' ? 'branches' : id, tree });
+          return;
+        }
+        case 'fetch':
+          setSubmitted(
+            await unwrap(
+              api().jobs.create({ type: 'GIT', action: 'fetch', repositoryRoot: root! }),
+            ),
+          );
+          return;
+        case 'status':
+          onOpenGit();
+          return;
+        case 'commit':
+          onCommit();
+          return;
+        case 'operations':
+          operationsSheet.setOpen(true);
+          return;
+        case 'project-details':
+          onProjectInfo();
+          return;
+        case 'editor':
+          openInEditor({ projectId: projectId! });
+          return;
+        case 'tasks':
+          requestProjectTasks(projectId!);
+          return;
+        case 'refresh':
+          putProjectGitState((await unwrap(api().git.refreshProject(projectId!))).state);
+          return;
+        case 'rename':
+          tabActions?.onRename();
+          return;
+        case 'split-right':
+          tabActions?.onSplit('row');
+          return;
+        case 'split-down':
+          tabActions?.onSplit('column');
+          return;
+        case 'duplicate':
+          tabActions?.onDuplicate();
+          return;
+        case 'clear':
+          viewRef.current?.clear();
+          return;
+        case 'restart':
+          onRestart();
+          return;
+        case 'close':
+          // The close flow asks first when a program is still running.
+          onCloseTab();
+          return;
+      }
+    } catch (caught) {
+      setActionError(errorMessage(caught));
+    }
+  }
   // Read at mount only; later changes are applied through the effects below.
   const initialRef = useRef({ preferences, running });
   const activeRef = useRef(active);
@@ -224,48 +343,14 @@ export function TerminalPane({
             sessionId={session.id}
             onOpenSession={() => onContextAction({ action: 'view' })}
           />
-          {snapshot && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  className="relative"
-                  aria-label="Git actions"
-                  title={['Git', ...pendingGitActions(snapshot)].join(' · ')}
-                >
-                  {operationsSheet.running > 0 ? (
-                    <Activity className="text-sky-400" />
-                  ) : (
-                    <GitBranch />
-                  )}
-                  <ActionDot reasons={pendingGitActions(snapshot)} />
-                  {operationsSheet.unseenFailure && (
-                    <span
-                      className="bg-destructive ring-background pointer-events-none absolute -bottom-0.5 -right-0.5 size-2 rounded-full ring-2"
-                      aria-hidden="true"
-                      data-testid="git-operations-failure-dot"
-                    />
-                  )}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" data-testid="terminal-git-menu">
-                <DropdownMenuItem onSelect={onOpenGit}>
-                  <GitBranch />
-                  Open Git panel
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => operationsSheet.setOpen(true)}>
-                  <Activity />
-                  Operations
-                  {operationsSheet.running > 0 && (
-                    <span className="text-muted-foreground ml-auto text-xs tabular-nums">
-                      {operationsSheet.running} running
-                    </span>
-                  )}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+          <TerminalActionsMenu
+            availability={availability}
+            pending={snapshot ? pendingGitActions(snapshot) : []}
+            gitRunning={operationsSheet.running > 0}
+            gitFailure={operationsSheet.unseenFailure}
+            labels={fetching ? { fetch: 'Fetching…' } : {}}
+            onAction={(id) => void runAction(id)}
+          />
           <Button
             variant="ghost"
             size="icon-xs"
@@ -486,6 +571,52 @@ export function TerminalPane({
             </>
           )}
         </div>
+      )}
+      {(actionError || submitted) && (
+        <div
+          className="flex shrink-0 flex-col gap-1 border-t px-2 py-1"
+          data-testid="terminal-action-status"
+        >
+          {actionError && (
+            <div className="text-destructive flex items-center gap-2 text-xs" role="alert">
+              <span className="min-w-0 flex-1 break-words" data-testid="terminal-action-error">
+                {actionError}
+              </span>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label="Dismiss"
+                onClick={() => setActionError(null)}
+              >
+                <X />
+              </Button>
+            </div>
+          )}
+          {submitted && <SubmittedNotice job={submitted} onDismiss={() => setSubmitted(null)} />}
+        </div>
+      )}
+      {gitDialog?.kind === 'branches' && (
+        <BranchesDialog tree={gitDialog.tree} onClose={() => setGitDialog(null)} />
+      )}
+      {gitDialog?.kind === 'push' && (
+        <PushDialog
+          tree={gitDialog.tree}
+          onClose={() => setGitDialog(null)}
+          onSubmitted={(job) => {
+            setGitDialog(null);
+            setSubmitted(job);
+          }}
+        />
+      )}
+      {gitDialog?.kind === 'pull' && (
+        <PullDialog
+          tree={gitDialog.tree}
+          onClose={() => setGitDialog(null)}
+          onSubmitted={(job) => {
+            setGitDialog(null);
+            setSubmitted(job);
+          }}
+        />
       )}
       {snapshot && (
         <OperationsSheet

@@ -1,8 +1,96 @@
 # SDD-023 — UX & Terminal Refinements
 
 Status: Task A02 implemented (PLAN-050 revision 1). Task A03 implemented (PLAN-052
-revision 1). Task A01 (split terminals keep their context) was PLAN-045. Other tasks need
+revision 1). Task A04 (terminal Actions menu) implemented (PLAN-057 revision 1). Task A01 (split terminals keep their context) was PLAN-045. Other tasks need
 their own plans.
+
+## Task A04 — Terminal Actions menu
+
+Implemented by PLAN-057 revision 1. Approved 2026-10-28 by Anderson Andrade ("pode seguir q1 a
+q4 pode ir para o recomendado"). The specification calls this task "A03"; that id was already
+used by the project palette and Projects drawer (PLAN-052), so it is recorded as **A04**.
+Version 0.43.0, no schema change.
+
+Decisions:
+
+- **Q1:** the Actions menu replaces the pane's former "Git actions" menu.
+- **Q2:** Commit opens the Git view with its commit dialog.
+- **Q3:** Restart is offered only for ended terminals.
+- **Q4:** the task is recorded as A04.
+
+### The menu
+
+Every terminal pane has an **Actions** button in its header. It keeps the former Git button's
+indicators:
+
+- a dot for pending work;
+- a spinner while a Git operation runs;
+- a red dot for an unseen failure.
+
+| Section  | Actions                                                                       | Uses                                                                                                |
+| -------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Git      | Switch branch…, View Git status, Fetch, Pull…, Push…, Commit…, Git operations | Branches, Pull and Push dialogs; GIT jobs; the Git view and its commit dialog; the operations panel |
+| Project  | Project details, Open in editor, Open tasks, Refresh project info             | Project details; the editor; the Project Hub's Tasks tab; the project Git refresh                   |
+| Terminal | Rename…, Split right, Split down, Duplicate, Clear output, Restart, Close…    | Tab rename; split with the terminal's context; a new tab continuing it; restart; the close flow     |
+
+### Context and safety rules
+
+- **Pinned target.** Each pane has its own menu. The repository and project are read from that
+  pane's terminal when an action is chosen. A dialog opened from it keeps its repository,
+  even if another tab becomes active.
+- **Nothing runs on opening.** Fetch starts only when chosen, and shows its job as started in
+  the background. Pull and Push go through their usual dialogs, with the same checks. Commit
+  goes through the Git view's commit flow, with its pre-commit steps and background commit.
+- **Branch switching.** It is the Branches dialog, which warns about uncommitted changes. Git
+  carries them along or refuses. Nothing is stashed, reset or discarded.
+- **Close.** A terminal still running a program asks for confirmation first.
+- **Disabled actions.** They stay visible, with the reason under them, so keyboard and
+  screen-reader users read it too:
+
+| Situation                                          | Reason shown                                         |
+| -------------------------------------------------- | ---------------------------------------------------- |
+| Not in a Git repository                            | Not a Git repository.                                |
+| Ended terminal (Git actions)                       | The terminal ended. Restart it to use Git here.      |
+| Another change running in the repository           | Another Git operation is running in this repository. |
+| Fetch already running                              | Fetching…                                            |
+| No project                                         | This terminal is not in a registered project.        |
+| Project folder missing                             | The project folder is missing.                       |
+| No room for another pane                           | There is no room for another pane.                   |
+| Running terminal (Restart)                         | Restart is available after the process ends.         |
+| Editor's terminal panel (rename, split, duplicate) | Available in the Terminals view.                     |
+
+**Errors.** Errors of an action show in the pane and can be dismissed. Job outcomes keep using
+Operations and the notification center.
+
+**Keyboard.** The menu opens with Enter or Space on the focused first action. The arrows move
+between actions, and Escape closes the menu. Focus moves to what an action opened: a dialog,
+the tab's name field, a new pane.
+
+The pane's right-click menu (copy, paste, shared context, Preflight) is unchanged.
+
+### Limitations
+
+- Restarting a running terminal is not offered: it would need to stop its process first.
+- Rename starts a moment after the menu closes, so the name field keeps the focus.
+- Opening the editor without a file only switches the editor to the project.
+
+### Tests
+
+- **Unit:** every availability rule (`apps/desktop/tests/terminal-actions.test.ts`).
+- **E2E** (`tests/e2e/terminal-actions.spec.ts`, Linux and Xvfb):
+  - **Git project:**
+    - keyboard navigation;
+    - Restart disabled with its reason;
+    - nothing runs on opening;
+    - switching branch with an uncommitted change keeps the change;
+    - Push through its dialog;
+    - Commit opening the Git view's commit dialog.
+  - **Without Git, without a project, busy and ended terminals:**
+    - the reasons shown;
+    - closing a busy terminal asks first;
+    - Restart works once the terminal ended.
+  - **Split, duplicate and rename.**
+- The Git and context E2E use the new menu.
 
 ## Task A03 — Project palette and Projects drawer
 

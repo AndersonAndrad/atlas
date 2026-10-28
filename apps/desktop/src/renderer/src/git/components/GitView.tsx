@@ -75,6 +75,8 @@ export interface GitOpenRequest {
   repositoryRoot?: string;
   /** Also open the operations panel (e.g. from a notification). */
   operations?: boolean;
+  /** Also open the commit dialog once the repository is shown (terminal Actions menu). */
+  commit?: boolean;
   nonce: number;
 }
 
@@ -170,10 +172,13 @@ export function GitView({ request, onRequestHandled, onOpenPreflight }: GitViewP
               entry.repositoryRoot === pending.repositoryRoot),
         );
   const [showOperations, setShowOperations] = useState(false);
+  /** The repository whose commit dialog was asked for; opened once its tree is loaded. */
+  const [commitFor, setCommitFor] = useState<string | null>(null);
   if (requested !== undefined) {
     setPending(null);
     setChosenRoot(requested.repositoryRoot);
     if (pending?.operations === true) setShowOperations(true);
+    if (pending?.commit === true) setCommitFor(requested.repositoryRoot);
   }
 
   const known = (root: string | null | undefined) =>
@@ -194,6 +199,10 @@ export function GitView({ request, onRequestHandled, onOpenPreflight }: GitViewP
   if (showOperations) {
     setShowOperations(false);
     operationsSheet.setOpen(true);
+  }
+  if (commitFor !== null && tree?.repositoryRoot === commitFor) {
+    setCommitFor(null);
+    if (dialog === null) setDialog('commit');
   }
   /**
    * Message of the last commit sent to the background, offered again by "Edit commit"

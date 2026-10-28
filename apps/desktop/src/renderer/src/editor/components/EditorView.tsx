@@ -99,7 +99,7 @@ export interface EditorViewProps {
   terminalPreferences: TerminalPreferences | null;
   /** The view stays mounted while hidden, so unsaved buffers are kept (FR-1105). */
   visible: boolean;
-  onOpenGit: (terminalId: string) => void;
+  onOpenGit: (terminalId: string, options?: { commit?: boolean }) => void;
   onOpenPreflight: (terminalId: string) => void;
   onContextAction: (terminalId: string, action: TerminalContextAction) => void;
   onOpenProjects: () => void;
@@ -625,10 +625,13 @@ export function EditorView(props: EditorViewProps) {
         return;
       }
       if (!ready) return;
-      if (openRequest.line !== undefined && !viewStates.current.has(openRequest.path)) {
-        viewStates.current.set(openRequest.path, { line: openRequest.line });
+      const { path, line } = openRequest;
+      if (path !== undefined) {
+        if (line !== undefined && !viewStates.current.has(path)) {
+          viewStates.current.set(path, { line });
+        }
+        openFile(path);
       }
-      openFile(openRequest.path);
       onOpenRequestHandled();
     }, 0);
     return () => clearTimeout(timer);

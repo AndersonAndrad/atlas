@@ -8,7 +8,11 @@ export interface LayoutCallbacks {
   onRestart: (sessionId: string) => void;
   onCloseTab: (sessionId: string) => void;
   onProjectInfo: (sessionId: string) => void;
-  onOpenGit: (sessionId: string) => void;
+  onOpenGit: (sessionId: string, options?: { commit?: boolean }) => void;
+  onRenameSession: (sessionId: string) => void;
+  /** Splits the pane `paneId`, continuing `sessionId`. */
+  onSplitPane: (paneId: string, sessionId: string, direction: 'row' | 'column') => void;
+  onDuplicateSession: (sessionId: string) => void;
   onOpenPreflight: (sessionId: string) => void;
   onContextAction: (sessionId: string, action: TerminalContextAction) => void;
   onRatio: (splitId: string, ratio: number) => void;
@@ -19,6 +23,9 @@ interface TerminalLayoutViewProps extends LayoutCallbacks {
   node: TerminalLayoutNode;
   sessions: Map<string, TerminalSession>;
   projectNames: Map<string, string>;
+  /** Projects whose folder cannot be reached. */
+  unavailableProjects: Set<string>;
+  canSplit: boolean;
   preferences: TerminalPreferences;
   activePaneId: string | null;
   paneCount: number;
@@ -44,6 +51,16 @@ export function TerminalLayoutView(props: TerminalLayoutViewProps) {
         onCloseTab={() => props.onCloseTab(session.id)}
         onProjectInfo={() => props.onProjectInfo(session.id)}
         onOpenGit={() => props.onOpenGit(session.id)}
+        onCommit={() => props.onOpenGit(session.id, { commit: true })}
+        tabActions={{
+          onRename: () => props.onRenameSession(session.id),
+          onSplit: (direction) => props.onSplitPane(node.id, session.id, direction),
+          onDuplicate: () => props.onDuplicateSession(session.id),
+        }}
+        projectAvailable={
+          session.projectId === null || !props.unavailableProjects.has(session.projectId)
+        }
+        canSplit={props.canSplit}
         onOpenPreflight={() => props.onOpenPreflight(session.id)}
         onContextAction={(action) => props.onContextAction(session.id, action)}
         registerHandle={props.registerHandle}

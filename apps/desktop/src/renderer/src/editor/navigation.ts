@@ -5,8 +5,8 @@
  */
 export interface EditorOpenTarget {
   projectId: string;
-  /** Relative to the project folder, `/` separators. */
-  path: string;
+  /** Relative to the project folder, `/` separators; absent: only show the project. */
+  path?: string;
   /** Shown when the file is opened for the first time. */
   line?: number;
 }

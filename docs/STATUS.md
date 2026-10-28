@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-28 — PLAN-056 (Audit → Task → Execute with ATLAS in one flow).
+Last updated: 2026-10-28 — PLAN-057 (SDD-023 Task A04: terminal Actions menu).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -70,7 +70,20 @@ read-only AI project audits with validated findings) is implemented and awaits a
 Milestones B and C need authorization. PLAN-055 (SDD-026 Task 02: Execute with ATLAS, approved
 teams run as sequential members in terminals) is implemented and awaits approval. Version
 0.41.0 (schema v22). PLAN-056 (SDD-026 Task 01 Milestone B with tasks from findings and one
-daily flow in the Project Hub) is implemented and awaits approval. Version 0.42.0 (schema v23).
+daily flow in the Project Hub) is implemented and awaits approval. Version 0.42.0 (schema v23). PLAN-057 (SDD-023 Task A04: terminal Actions menu) is implemented
+and awaits approval. Version 0.43.0 (schema v23).
+
+## PLAN-057 — SDD-023 Task A04: terminal Actions menu
+
+- Approved 2026-10-28 by Anderson Andrade ("pode seguir q1 a q4 pode ir para o recomendado").
+  Recorded as A04 because A03 was taken. Details: SDD-023, Task A04.
+- What was built: an Actions menu in every terminal pane, in place of its Git menu:
+  - **Git:** branch, status, fetch, pull, push, commit and operations.
+  - **Project:** details, editor, tasks and refresh.
+  - **Terminal:** rename, split, duplicate, clear, restart and close.
+- Each action reuses an existing dialog or service, keeps the pane's repository and project,
+  and shows why it is disabled.
+- No schema change.
 
 ## PLAN-056 — Audit → Task → Execute with ATLAS in one flow
 

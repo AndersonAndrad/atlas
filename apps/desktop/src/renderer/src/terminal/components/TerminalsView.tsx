@@ -51,7 +51,7 @@ interface TerminalsViewProps {
   onProjectsRequestHandled: () => void;
   subscribeCommands: (handler: (command: AppCommand) => void) => () => void;
   /** Opens the Git view on a terminal's repository. */
-  onOpenGit: (terminalId: string) => void;
+  onOpenGit: (terminalId: string, options?: { commit?: boolean }) => void;
   /** Opens Preflight for a terminal's project. */
   onOpenPreflight: (terminalId: string) => void;
   /** Shared context actions requested from a terminal. */
