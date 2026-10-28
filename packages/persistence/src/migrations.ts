@@ -1038,4 +1038,30 @@ export const MIGRATIONS: readonly Migration[] = [
         ON project_audit_findings (project_id, fingerprint);
     `,
   },
+  {
+    version: 22,
+    name: 'team_executions',
+    // Approved "Execute with ATLAS" plans and their progress (SDD-026 Task 02). Additive.
+    // Removed with their task. `request_id` is unique, so a repeated approval never starts
+    // a second team. `data` holds the plan, stages and summary as JSON written by the
+    // Engine; the columns are what the Engine looks up. Active rows are never trusted after
+    // a restart: the Engine pauses them.
+    sql: `
+      CREATE TABLE team_executions (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        request_id TEXT NOT NULL UNIQUE CHECK (length(request_id) = 36),
+        task_id TEXT NOT NULL REFERENCES context_tasks (id) ON DELETE CASCADE,
+        project_id TEXT REFERENCES projects (id) ON DELETE SET NULL,
+        workspace_path TEXT CHECK (workspace_path IS NULL OR length(workspace_path) > 0),
+        status TEXT NOT NULL
+          CHECK (status IN ('RUNNING', 'PAUSED', 'CHECKING', 'REVIEW_REQUIRED', 'CANCELLED')),
+        data TEXT NOT NULL CHECK (json_valid(data) AND length(data) <= 262144),
+        approved_at TEXT NOT NULL,
+        finished_at TEXT
+      ) STRICT;
+      CREATE INDEX team_executions_task ON team_executions (task_id, approved_at);
+      CREATE INDEX team_executions_active ON team_executions (status)
+        WHERE status IN ('RUNNING', 'PAUSED', 'CHECKING');
+    `,
+  },
 ];

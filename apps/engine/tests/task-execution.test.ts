@@ -132,7 +132,7 @@ describe.skipIf(process.platform === 'win32' || !existsSync('/bin/zsh'))(
         { provider: 'claude', availability: 'wrapped' },
         { provider: 'codex', availability: 'missing' },
       ]);
-      expect(options.atlasTeamsAvailable).toBe(false);
+      expect(options.atlasTeamsAvailable).toBe(true);
       expect(options.directory).toBe(workspace);
       const byId = new Map(options.terminals.map((item) => [item.terminalId, item]));
       expect(byId.get(same.id)).toMatchObject({ sameProject: true, blocker: null });

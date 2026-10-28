@@ -1,7 +1,11 @@
 # SDD-026 — AI Project Audit & Task Discovery
 
-Status: Task 01 Milestone A implemented (PLAN-054 revision 1). Milestones B (findings review
-and decision memory) and C (task creation and execution) need explicit authorization.
+Status:
+
+- **Task 01 Milestone A** is implemented (PLAN-054 revision 1). Its Milestones B (findings
+  review and decision memory) and C (task creation and execution) need explicit authorization.
+- **Task 02** (Execute with ATLAS) is implemented as a sequential minimal integration
+  (PLAN-055 revision 1), because the multi-agent orchestration engine does not exist.
 
 ## Task 01 — Milestone A: audit engine and structured findings
 
@@ -267,3 +271,208 @@ money.
   - entry from the Projects drawer, defaults, nothing before Start, validated findings,
     restricted arguments, prompt on standard input, files unchanged, opening evidence;
   - the Codex warning gate and a provider failure.
+
+---
+
+## Task 02 — Execute with ATLAS (one-click team execution)
+
+Approved 2026-10-27 by Anderson Andrade ("aprovado, q1 a q4 recomendado, ciente R1–R4").
+R5–R8 were presented but not acknowledged by ID. Version 0.41.0, schema v22.
+
+Decisions:
+
+- **Q1:** all three milestones, as a sequence of members.
+- **Q2:** the next member starts automatically when the previous one succeeds. The preview
+  offers manual advance instead.
+- **Q3:** the assessment is deterministic; no provider is called.
+- **Q4:** Preflight at the end is optional. It runs as a job with the checks authorized in
+  the preview.
+
+### Gap: no orchestration engine
+
+The specification assumed SDD-005 Multi-Agent Orchestration. It does not exist:
+
+- SDD-005 Milestone B was never started.
+- There is no task DAG, no agent-to-agent handoff and no worktree isolation.
+- AI providers can change files only interactively in ATLAS terminals.
+
+The minimal compatible integration reuses what exists:
+
+| Specified                  | Implemented with                                                                                   |
+| -------------------------- | -------------------------------------------------------------------------------------------------- |
+| Orchestration engine / DAG | A fixed order of members; each is an ordinary task execution (SDD-025) in a new terminal           |
+| Agent handoffs             | Each member's objective carries a handoff of what Git shows the earlier members changed            |
+| Role-specific context      | The member's context bundle uses its role (`agentRole`); the task's shared context is not repeated |
+| Parallel execution         | Not offered: without worktrees two members could edit the same files                               |
+| Quality gates              | Optional Preflight profile as a background job at the end                                          |
+| Provider router            | Usage account profiles and their last reported subscription use                                    |
+
+No second scheduler or queue exists. A team is a record that starts the next run when the
+previous one settles. Teams are not background jobs, so the team's id stands in for the
+operation id. Only its optional Preflight runs as a job.
+
+### Task assessment (FR-002)
+
+`assessTask` (`packages/context`, pure) reads these inputs:
+
+- the task's title and objective;
+- the files that the objective and the task's context entries name;
+- the active decisions of the project or task.
+
+It finds disciplines from words and file types:
+
+- architecture
+- backend
+- frontend
+- security
+- testing
+- documentation
+
+It scores complexity (simple, moderate, complex) from these signals:
+
+- both backend and frontend;
+- structural impact;
+- security;
+- five or more files;
+- four or more criteria;
+- a long objective.
+
+Acceptance criteria are the bullet, numbered or Given/When/Then lines of the objective. There
+is no repository audit, and every conclusion comes with the evidence behind it.
+
+### Team proposal (FR-003, FR-004)
+
+`recommendRoles` returns the smallest team:
+
+- **Simple task:** one Engineer, or a Documentation Specialist for documentation-only tasks.
+- **Moderate or complex task:**
+  - an Architect when the task is complex or has structural impact;
+  - Backend and Frontend Engineers when both sides are involved, one Engineer otherwise;
+  - a Security Reviewer when there is a security signal;
+  - QA when there is a testing signal or the task is complex;
+  - Documentation when docs are mentioned.
+
+Every role states why it is there. The team has at most 6 members, in a fixed order.
+Coordinator and Product Owner are not agents: ATLAS and the user hold those roles.
+
+`allocateProvider` chooses a provider and an account for each member:
+
+- **Provider:** Claude Code when it is installed. Otherwise another installed provider, with
+  a visible substitution notice that the approval accepts.
+- **Account:** the visible account with the lowest known subscription use, skipping limited
+  ones. With no known use, the CLI's default account is kept. Capacity is never invented.
+
+### Preview and approval (FR-005, FR-006)
+
+**Execute with ATLAS** is the first action of an open task: a button, plus an entry in the
+More actions and right-click menus. Choosing **ATLAS team** in Execute… leads to the same
+preview. The preview shows:
+
+- the assessment;
+- each member with its reason, responsibility, deliverables, provider and account (all
+  editable: members can be removed, added, or have their provider and account changed);
+- whether to advance automatically;
+- the optional Preflight profile, with its checks that need authorization;
+- the risks.
+
+Cost is not estimated. **Reject proposal** and **Cancel** close the preview without saving
+or running anything.
+
+**Approve and run** sends the plan (`ai.approveTeamPlan`). The Engine checks it again:
+
+- the task is open;
+- no team or run of the task is active;
+- each provider is installed;
+- each account belongs to its provider;
+- roles are unique;
+- the Preflight profile belongs to the project.
+
+The approved plan is stored with a unique request id (migration v22, `team_executions`).
+Only then does the first member start. The team never grows, and providers never change,
+without a new approval.
+
+### Execution lifecycle (FR-007 to FR-011)
+
+```text
+approve → member 1 (task execution, new terminal) ── settles ──► next member … ──► Preflight? ──► REVIEW_REQUIRED
+                      │ failed / interrupted / untracked / could not start
+                      └──► PAUSED (notification) ── Retry member | Skip member | Member finished | Cancel team
+```
+
+How the members run:
+
+- Each member is a task execution with:
+  - its role's context bundle;
+  - an objective that names its role, its place in the team, its deliverables, and the
+    handoff (commits and changed files since each earlier member's session started).
+- The tracker's settle hook drives the team:
+  - success starts the next member, or pauses in manual mode;
+  - anything else pauses.
+- Pauses explain the decision needed, and the user's choice resumes the team. Nothing is
+  rerun, skipped or continued without the user.
+- An untracked member (no wrapper) cannot report its end. The user confirms it finished.
+- Members' own notifications are not sent. The team sends one when it needs a decision and
+  one when it finishes.
+- Cancelling sends Ctrl+C to the running member, like Execute…. Members that have not
+  started are cancelled.
+
+### Results and review (FR-012, FR-014, FR-015)
+
+When the last member ends, the team records:
+
+- the changed files and commits Git shows since the first member started;
+- the Preflight result, when one was requested;
+- the subscription use (a percentage) of the accounts the team used, never converted to
+  money.
+
+Measured cost per member is not linked: Claude Code session costs appear in the Usage view.
+Codex reports none in terminals.
+
+The team becomes **review required** and the task stays open. **Mark reviewed** also reviews
+each member's run and terminal.
+
+The task shows its last three teams: members, statuses, terminals, pauses and summaries.
+Teams follow their task when a project is removed.
+
+### Failure and recovery (FR-013)
+
+| Failure                        | Behavior                                                         |
+| ------------------------------ | ---------------------------------------------------------------- |
+| Provider not installed         | Not offered; approval refuses it                                 |
+| Member cannot start            | Paused (`launch-failed`) with the reason                         |
+| Member fails / is interrupted  | Paused; Retry member starts a new run of the same role           |
+| Member untracked               | Paused until the user confirms it finished                       |
+| Preflight fails                | Recorded as failed; the team still asks for review               |
+| Preflight checks changed       | Recorded as "needs a new authorization"; run it from Preflight   |
+| User cancels                   | Team cancelled; running member interrupted with Ctrl+C           |
+| ATLAS quits                    | After restart, active teams are paused; nothing reruns           |
+| Conflicting file modifications | Prevented by running one member at a time; no merge logic exists |
+
+### Known limitations
+
+- Not real multi-agent orchestration: members run one after another, interactively, in
+  their own terminals. The user exits each CLI to finish its member.
+- Handoffs carry only what Git shows. What a member concluded or decided is captured only
+  if it records it in shared context (SDD-005 A2 does not exist).
+- With automatic advance, the next member may change files before the user reviews the
+  previous one.
+- The recommendation is a heuristic. It can be edited, and it explains each role.
+- No parallel members, no worktrees, no conflict resolution.
+- Tasks created from audits do not exist yet (Task 01 Milestone C). The action works for any
+  open shared-context task.
+- Opening the proposal of a project registers it in Preflight, as opening the Preflight view
+  does, so that its profiles can be listed.
+- Tested with a fake CLI only. A manual check with real Claude Code and Codex is pending.
+
+### Tests
+
+- **Unit, `packages/context`:** assessment, roles, allocation, risks and the stage objective.
+- **Persistence:** v22, the unique request, history, ownership moves.
+- **Engine:** proposal, no run before approval, repeated approval, active task, provider and
+  account validation, automatic and manual advance, handoff, failure, retry, skip,
+  untracked, launch failure, cancellation, Preflight passed/failed/needs authorization,
+  restart, review.
+- **E2E** (`tests/e2e/team-execution.spec.ts`, Linux and Xvfb):
+  - proposal and editing, nothing before approval, two members in order with a handoff,
+    one notification, review;
+  - simple single-member proposal, rejection runs nothing, failure pause and retry.

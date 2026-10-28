@@ -1,3 +1,4 @@
+import type { TeamExecution } from './team.js';
 import type { ProjectAudit } from './audit.js';
 import { z } from 'zod';
 import { ProjectIdSchema, WorkspacePathSchema } from './project.js';
@@ -273,7 +274,9 @@ export type TerminalEvent =
   /** A task execution was created or changed (SDD-025 Task 02); carries the new state. */
   | { type: 'task-execution'; execution: TaskExecution }
   /** A project audit was queued or changed (SDD-026); carries the new state. */
-  | { type: 'audit'; audit: ProjectAudit };
+  | { type: 'audit'; audit: ProjectAudit }
+  /** An ATLAS team execution was approved or changed (SDD-026 Task 02). */
+  | { type: 'team-execution'; execution: TeamExecution };
 
 export const TERMINAL_FONT_FAMILIES = ['system', 'menlo', 'sf-mono', 'monaco', 'courier'] as const;
 export type TerminalFontFamily = (typeof TERMINAL_FONT_FAMILIES)[number];

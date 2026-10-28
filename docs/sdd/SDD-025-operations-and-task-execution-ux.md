@@ -1,8 +1,9 @@
 # SDD-025 — Operations & Task Execution UX
 
 Status: Task 01 implemented (PLAN-049 revision 1). Task 02 Milestones A and B implemented
-(PLAN-053 revision 1); Milestone C is blocked on SDD-005 Milestone B. Later tasks need their
-own plans.
+(PLAN-053 revision 1). Milestone C (the ATLAS team option) is provided by SDD-026 Task 02
+(PLAN-055) as a sequential minimal integration, since SDD-005 Milestone B does not exist.
+Later tasks need their own plans.
 
 ## Task 02 — Unified task execution
 

@@ -751,7 +751,7 @@ export interface TaskExecutionOptions {
   terminals: TaskTerminalOption[];
   /** Where a new terminal opens. */
   directory: string;
-  /** Multi-agent ATLAS teams need SDD-005 Milestone B; always false for now. */
+  /** Execute with ATLAS teams (SDD-026 Task 02) can be proposed for the task. */
   atlasTeamsAvailable: boolean;
 }
 

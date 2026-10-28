@@ -1,4 +1,10 @@
 import {
+  ApproveTeamPlanSchema,
+  TeamContinueActionSchema,
+  type TeamExecution,
+  type TeamProposal,
+} from './team.js';
+import {
   StartAuditSchema,
   type AuditDetails,
   type AuditOptions,
@@ -496,6 +502,13 @@ export const ENGINE_METHOD_PARAMS = {
   'ai.taskExecutions': z.tuple([Target, Uuid]),
   'ai.cancelTaskExecution': z.tuple([Target, Uuid]),
   'ai.reviewTaskExecution': z.tuple([Target, Uuid]),
+  // Execute with ATLAS (SDD-026 Task 02); desktop only.
+  'ai.teamProposal': z.tuple([Target, Uuid]),
+  'ai.approveTeamPlan': z.tuple([ApproveTeamPlanSchema]),
+  'ai.teamExecutions': z.tuple([Target, Uuid]),
+  'ai.continueTeamExecution': z.tuple([Target, Uuid, TeamContinueActionSchema]),
+  'ai.cancelTeamExecution': z.tuple([Target, Uuid]),
+  'ai.reviewTeamExecution': z.tuple([Target, Uuid]),
   'quickCommands.list': z.tuple([]),
   'quickCommands.create': z.tuple([QuickCommandInputSchema]),
   'quickCommands.update': z.tuple([QuickCommandIdSchema, QuickCommandInputSchema]),
@@ -837,6 +850,12 @@ export interface EngineMethodResults {
   'ai.taskExecutions': TaskExecution[];
   'ai.cancelTaskExecution': TaskExecution;
   'ai.reviewTaskExecution': TaskExecution;
+  'ai.teamProposal': TeamProposal;
+  'ai.approveTeamPlan': TeamExecution;
+  'ai.teamExecutions': TeamExecution[];
+  'ai.continueTeamExecution': TeamExecution;
+  'ai.cancelTeamExecution': TeamExecution;
+  'ai.reviewTeamExecution': TeamExecution;
   'quickCommands.list': QuickCommand[];
   'quickCommands.create': QuickCommand;
   'quickCommands.update': QuickCommand;

@@ -1,3 +1,9 @@
+import type {
+  ApproveTeamPlanInput,
+  TeamContinueAction,
+  TeamExecution,
+  TeamProposal,
+} from './team.js';
 import type { AuditDetails, AuditOptions, ProjectAudit, StartAuditInput } from './audit.js';
 import type { TerminalActivitySummary } from './terminal-activity.js';
 import type { SerializedError } from '@atlas/shared';
@@ -572,6 +578,12 @@ export const IPC_CHANNELS = {
   aiTaskExecutions: 'atlas:ai:task-executions',
   aiCancelTaskExecution: 'atlas:ai:cancel-task-execution',
   aiReviewTaskExecution: 'atlas:ai:review-task-execution',
+  aiTeamProposal: 'atlas:ai:team-proposal',
+  aiApproveTeamPlan: 'atlas:ai:approve-team-plan',
+  aiTeamExecutions: 'atlas:ai:team-executions',
+  aiContinueTeamExecution: 'atlas:ai:continue-team-execution',
+  aiCancelTeamExecution: 'atlas:ai:cancel-team-execution',
+  aiReviewTeamExecution: 'atlas:ai:review-team-execution',
   quickCommandsList: 'atlas:quick-commands:list',
   quickCommandsCreate: 'atlas:quick-commands:create',
   quickCommandsUpdate: 'atlas:quick-commands:update',
@@ -1199,6 +1211,19 @@ export interface AtlasApi {
     taskExecutions(target: ContextTarget, taskId: string): Promise<IpcResult<TaskExecution[]>>;
     cancelTaskExecution(target: ContextTarget, id: string): Promise<IpcResult<TaskExecution>>;
     reviewTaskExecution(target: ContextTarget, id: string): Promise<IpcResult<TaskExecution>>;
+    /** Execute with ATLAS (SDD-026 Task 02): a team proposal; nothing runs. */
+    teamProposal(target: ContextTarget, taskId: string): Promise<IpcResult<TeamProposal>>;
+    /** Starts the approved team; a repeated `requestId` returns the same execution. */
+    approveTeamPlan(input: ApproveTeamPlanInput): Promise<IpcResult<TeamExecution>>;
+    /** Newest first; changes arrive as `team-execution` events. */
+    teamExecutions(target: ContextTarget, taskId: string): Promise<IpcResult<TeamExecution[]>>;
+    continueTeamExecution(
+      target: ContextTarget,
+      id: string,
+      action: TeamContinueAction,
+    ): Promise<IpcResult<TeamExecution>>;
+    cancelTeamExecution(target: ContextTarget, id: string): Promise<IpcResult<TeamExecution>>;
+    reviewTeamExecution(target: ContextTarget, id: string): Promise<IpcResult<TeamExecution>>;
   };
   app: {
     info(): Promise<IpcResult<AppInfo>>;

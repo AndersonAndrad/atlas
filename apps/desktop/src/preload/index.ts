@@ -403,6 +403,17 @@ const api: AtlasApi = {
       ipcRenderer.invoke(IPC_CHANNELS.aiCancelTaskExecution, target, id),
     reviewTaskExecution: (target, id) =>
       ipcRenderer.invoke(IPC_CHANNELS.aiReviewTaskExecution, target, id),
+    teamProposal: (target, taskId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.aiTeamProposal, target, taskId),
+    approveTeamPlan: (input) => ipcRenderer.invoke(IPC_CHANNELS.aiApproveTeamPlan, input),
+    teamExecutions: (target, taskId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.aiTeamExecutions, target, taskId),
+    continueTeamExecution: (target, id, action) =>
+      ipcRenderer.invoke(IPC_CHANNELS.aiContinueTeamExecution, target, id, action),
+    cancelTeamExecution: (target, id) =>
+      ipcRenderer.invoke(IPC_CHANNELS.aiCancelTeamExecution, target, id),
+    reviewTeamExecution: (target, id) =>
+      ipcRenderer.invoke(IPC_CHANNELS.aiReviewTeamExecution, target, id),
   },
   app: {
     info: () => ipcRenderer.invoke(IPC_CHANNELS.appInfo),

@@ -212,14 +212,21 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'setPreferences',
     ],
     // AI CLIs are only started or tracked; no command text crosses the bridge.
+    // Teams are approved as a whole plan; members run only through task executions.
     aiKeys: [
+      'approveTeamPlan',
       'attach',
       'cancelTaskExecution',
+      'cancelTeamExecution',
+      'continueTeamExecution',
       'executeTask',
       'reviewTaskExecution',
+      'reviewTeamExecution',
       'start',
       'taskExecutionOptions',
       'taskExecutions',
+      'teamExecutions',
+      'teamProposal',
     ],
     // Only the path of a file the user dropped; no filesystem access.
     fileKeys: ['pathFor'],

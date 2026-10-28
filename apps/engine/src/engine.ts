@@ -56,6 +56,7 @@ import {
   SqliteTerminalActivityRepository,
   SqliteTaskExecutionRepository,
   SqliteAuditRepository,
+  SqliteTeamExecutionRepository,
   SqliteTerminalGroupRepository,
   SqliteTerminalSessionRepository,
   getSchemaVersion,
@@ -147,6 +148,7 @@ import { createGitExecutor, createGitRunner } from './git/git-runner.js';
 import { captureLoginShellEnvironment } from './adapters/login-shell-environment.js';
 import { LlmSessionTracker } from './llm-session-tracker.js';
 import { TaskExecutionService, type PreparedAiLaunch } from './task-executions.js';
+import { TeamExecutionService } from './team-executions.js';
 import { ClaudeAuthStatusReader, CodexAppServerReader } from './adapters/usage-cli.js';
 import { ClaudeStatusInbox } from './usage-inbox.js';
 import { ShellPreflightExecutor } from './adapters/preflight-executor.js';
@@ -269,6 +271,8 @@ export interface Engine {
   cancelTaskExecution(target: ContextTarget, id: string): Promise<TaskExecution>;
   /** Explicit review of a finished run; it also reviews its terminal's tab status. */
   reviewTaskExecution(target: ContextTarget, id: string): Promise<TaskExecution>;
+  /** "Execute with ATLAS" (SDD-026 Task 02): proposals, approved teams and decisions. */
+  readonly teamExecutions: TeamExecutionService;
   /** Per-project AI configuration files in the ATLAS data directory (PLAN-014). */
   readonly projectConfig: ProjectConfigStore;
   /** A project's configuration file (created with defaults) and its LLM wrapper status. */
@@ -1345,10 +1349,29 @@ export function createEngine(options: EngineOptions = {}): Engine {
   const taskExecutionTracker: TaskExecutionTracker = new TaskExecutionTracker({
     store: new SqliteTaskExecutionRepository(db),
     now: () => clock.now(),
-    onChange: (execution) => terminals?.publish({ type: 'task-execution', execution }),
-    // The service is created below (it needs the AI launch helpers); events come later.
-    onFinished: (execution): Promise<void> => taskExecutions.notifyFinished(execution),
-    onSettled: (execution): Promise<void> => taskExecutions.settled(execution),
+    onChange: (execution) => {
+      terminals?.publish({ type: 'task-execution', execution });
+      void teamExecutions
+        .stageChanged(execution)
+        .catch((error: unknown) =>
+          logger.warn('Team stage could not follow its run', { error: describeError(error) }),
+        );
+    },
+    // The services are created below (they need the AI launch helpers); events come later.
+    // A team stage is reported by its team, not by itself (SDD-026 Task 02).
+    onFinished: (execution): Promise<void> =>
+      teamExecutions.isStage(execution.id)
+        ? Promise.resolve()
+        : taskExecutions.notifyFinished(execution),
+    onSettled: async (execution): Promise<void> => {
+      await taskExecutions.settled(execution);
+      // Not awaited: the team may start its next member, which needs this tracker.
+      void teamExecutions
+        .stageSettled(execution)
+        .catch((error: unknown) =>
+          logger.warn('Team stage could not follow its run', { error: describeError(error) }),
+        );
+    },
     logger,
   });
   const llmSessions = new LlmSessionTracker({
@@ -1577,6 +1600,39 @@ export function createEngine(options: EngineOptions = {}): Engine {
     logger,
   });
 
+  // Execute with ATLAS (SDD-026 Task 02): approved teams run as a sequence of task runs.
+  const teamExecutions: TeamExecutionService = new TeamExecutionService({
+    store: new SqliteTeamExecutionRepository(db),
+    context,
+    resolveContextTarget,
+    runs: {
+      execute: (input) => taskExecutions.execute(input),
+      cancel: (target, id) => taskExecutions.cancel(target, id),
+      review: (target, id) => taskExecutions.review(target, id),
+      activeForTask: (taskId) => taskExecutionTracker.activeForTask(taskId),
+    },
+    wrapperStatus: (target) => wrapperStatus(target.owner.projectId, target.directory),
+    usage: () => usage.overview({ days: 1 }),
+    preflight,
+    jobs: {
+      create: (input) => jobs.create(input, 'desktop'),
+      cancel: (id) => jobs.cancel(id),
+    },
+    publishNotification: (input) => notifications.publish(input).then(() => undefined),
+    onChange: (execution) => terminals?.publish({ type: 'team-execution', execution }),
+    generateId: randomUUID,
+    now: () => clock.now(),
+    logger,
+  });
+  jobs.subscribe((job) => {
+    if (job.type !== 'PREFLIGHT' || !isFinalJobStatus(job.status)) return;
+    void teamExecutions
+      .preflightFinished(job)
+      .catch((error: unknown) =>
+        logger.warn('Team Preflight result could not be saved', { error: describeError(error) }),
+      );
+  });
+
   let closed = false;
   const close = () => {
     if (closed) return;
@@ -1713,6 +1769,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
     taskExecutions: (target, taskId) => taskExecutions.list(target, taskId),
     cancelTaskExecution: (target, id) => taskExecutions.cancel(target, id),
     reviewTaskExecution: (target, id) => taskExecutions.review(target, id),
+    teamExecutions,
     runQuickCommand: async (input) => {
       await projects.getDetails(input.projectId);
       const command = await quickCommands.forProject(input.projectId, input.commandId);
@@ -1813,6 +1870,12 @@ export function createEngine(options: EngineOptions = {}): Engine {
         // Task executions still active when ATLAS quit become INTERRUPTED.
         await taskExecutionTracker.recover().catch((error: unknown) =>
           logger.warn('Interrupted task executions could not be closed', {
+            error: describeError(error),
+          }),
+        );
+        // Teams still active when ATLAS quit wait for the user; nothing reruns by itself.
+        await teamExecutions.recover().catch((error: unknown) =>
+          logger.warn('Interrupted team executions could not be paused', {
             error: describeError(error),
           }),
         );

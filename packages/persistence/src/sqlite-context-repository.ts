@@ -756,6 +756,7 @@ export class SqliteContextRepository implements ContextRepository {
         'context_reconciliations',
         // Task executions follow their task (SDD-025 Task 02).
         'task_executions',
+        'team_executions',
       ]) {
         this.db
           .prepare(`UPDATE ${table} SET project_id = NULL, workspace_path = ? WHERE project_id = ?`)

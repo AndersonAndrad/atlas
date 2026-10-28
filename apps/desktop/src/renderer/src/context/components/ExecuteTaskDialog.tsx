@@ -63,6 +63,8 @@ interface ExecuteTaskDialogProps {
   onClose: () => void;
   /** The run was accepted; it continues if the dialog closes. */
   onStarted: (execution: TaskExecution) => void;
+  /** "ATLAS team" continues in the Execute with ATLAS proposal (SDD-026 Task 02). */
+  onExecuteWithAtlas: () => void;
 }
 
 type Mode = TaskExecutionMode | 'atlas';
@@ -191,7 +193,7 @@ export function ExecuteTaskDialog(props: ExecuteTaskDialogProps) {
                 [
                   'atlas',
                   'ATLAS team',
-                  'Multi-agent teams arrive with SDD-005 Milestone B; not available yet.',
+                  'ATLAS proposes a team of members that run one after another.',
                 ],
               ] as const
             ).map(([value, title, text]) => {
@@ -375,9 +377,15 @@ export function ExecuteTaskDialog(props: ExecuteTaskDialogProps) {
           <Button variant="outline" onClick={props.onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={() => void execute()} disabled={!ready || busy}>
-            {busy ? 'Starting…' : 'Run task'}
-          </Button>
+          {mode === 'atlas' ? (
+            <Button onClick={props.onExecuteWithAtlas} disabled={busy}>
+              Propose a team…
+            </Button>
+          ) : (
+            <Button onClick={() => void execute()} disabled={!ready || busy}>
+              {busy ? 'Starting…' : 'Run task'}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

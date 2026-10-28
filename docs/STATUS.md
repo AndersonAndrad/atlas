@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-27 — PLAN-054 (SDD-026 Task 01 Milestone A: AI project audit).
+Last updated: 2026-10-27 — PLAN-055 (SDD-026 Task 02: Execute with ATLAS).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -67,7 +67,27 @@ only open terminals) is implemented and awaits approval. PLAN-053 (SDD-025 Task 
 with Claude Code or Codex in a new or existing terminal, tracked and reviewed; ATLAS team
 execution deferred) is implemented and awaits approval. PLAN-054 (SDD-026 Task 01 Milestone A:
 read-only AI project audits with validated findings) is implemented and awaits approval;
-Milestones B and C need authorization. Version 0.40.0 (schema v21).
+Milestones B and C need authorization. PLAN-055 (SDD-026 Task 02: Execute with ATLAS, approved
+teams run as sequential members in terminals) is implemented and awaits approval. Version
+0.41.0 (schema v22).
+
+## PLAN-055 — SDD-026 Task 02: Execute with ATLAS
+
+- Approved 2026-10-27 by Anderson Andrade ("aprovado, q1 a q4 recomendado, ciente R1–R4").
+  R5–R8 were presented but not acknowledged by ID. Details: SDD-026, Task 02.
+- The SDD-005 orchestration engine does not exist, so the team is a minimal integration:
+  members run one after another as task executions in their own terminals.
+- What was built:
+  - **Execute with ATLAS** on tasks.
+  - A deterministic assessment and the smallest team, each role with its reason.
+  - Providers and accounts chosen by subscription use, and editable.
+  - A preview with Approve, Reject and Cancel.
+  - Automatic or manual advance, with pauses for the user's decisions.
+  - Handoffs from Git evidence.
+  - Optional Preflight at the end.
+  - A summary, one notification and an explicit review.
+  - Migration v22 (`team_executions`).
+- Rolling back to 0.40.x needs a database copy taken before 0.41.0 first ran.
 
 ## PLAN-054 — SDD-026 Task 01 Milestone A: AI project audit
 

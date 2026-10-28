@@ -65,7 +65,7 @@ test('runs a task in a new terminal after confirmation and asks for review', asy
 
   await task.getByTestId('task-execute').click();
   const dialog = page.getByTestId('execute-task-dialog');
-  await expect(dialog.getByRole('radio', { name: /ATLAS team/ })).toBeDisabled();
+  await expect(dialog.getByRole('radio', { name: /ATLAS team/ })).toBeEnabled();
   await expect(dialog.getByTestId('execute-task-preview')).toContainText(
     'Validate the token audience.',
   );

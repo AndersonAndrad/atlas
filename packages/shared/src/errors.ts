@@ -45,6 +45,9 @@ export const ERROR_CODES = [
   'TASK_EXECUTION_ACTIVE',
   'TASK_EXECUTION_INVALID_STATE',
   'AUDIT_NOT_FOUND',
+  'TEAM_EXECUTION_NOT_FOUND',
+  'TEAM_EXECUTION_ACTIVE',
+  'TEAM_EXECUTION_INVALID_STATE',
   'AUDIT_PROVIDER_UNAVAILABLE',
   'AUDIT_CONFIRMATION_REQUIRED',
   'AUDIT_ACTIVE',
@@ -174,6 +177,10 @@ export const USER_MESSAGES: Record<ErrorCode, string> = {
   TASK_EXECUTION_ACTIVE: 'This task is already running. Wait for it to finish or cancel it.',
   TASK_EXECUTION_INVALID_STATE: 'This action is not available in the current execution status.',
   AUDIT_NOT_FOUND: 'The project audit could not be found.',
+  TEAM_EXECUTION_NOT_FOUND: 'The ATLAS team execution could not be found.',
+  TEAM_EXECUTION_ACTIVE:
+    'This task is already running with ATLAS or a provider. Wait for it to finish or cancel it.',
+  TEAM_EXECUTION_INVALID_STATE: 'This action is not available in the current team status.',
   AUDIT_PROVIDER_UNAVAILABLE:
     'This AI provider cannot run a read-only audit. Install or update it, or choose another provider.',
   AUDIT_CONFIRMATION_REQUIRED:

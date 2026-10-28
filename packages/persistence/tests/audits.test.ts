@@ -86,9 +86,9 @@ describe('SqliteAuditRepository (SDD-026 Task 01)', () => {
 
   afterEach(() => db.close());
 
-  it('is created by the latest migration', () => {
-    expect(getSchemaVersion(db)).toBe(21);
-    expect(MIGRATIONS.at(-1)!.name).toBe('project_audits');
+  it('is created by migration v21', () => {
+    expect(getSchemaVersion(db)).toBe(MIGRATIONS.at(-1)!.version);
+    expect(MIGRATIONS.find((migration) => migration.version === 21)!.name).toBe('project_audits');
   });
 
   it('round-trips an audit with its configuration and result', async () => {

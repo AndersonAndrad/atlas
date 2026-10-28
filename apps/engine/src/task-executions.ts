@@ -157,7 +157,8 @@ export class TaskExecutionService {
         })),
       terminals,
       directory: target.directory,
-      atlasTeamsAvailable: false,
+      // Teams run as sequences of task executions (SDD-026 Task 02).
+      atlasTeamsAvailable: true,
     };
   }
 

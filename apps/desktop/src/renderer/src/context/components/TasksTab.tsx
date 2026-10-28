@@ -5,7 +5,7 @@ import type {
   ContextTaskStatus,
   UpdateContextTaskInput,
 } from '@atlas/contracts';
-import { MoreHorizontal, Play, Plus } from 'lucide-react';
+import { MoreHorizontal, Play, Plus, Users } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, api, errorMessage, unwrap } from '@/api';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -45,6 +45,8 @@ import { BUDGET_OPTIONS, formatDateTime, formatTokens } from '../format';
 import { useKeyedLoad } from '../hooks/useContextData';
 import { ExecuteTaskDialog } from './ExecuteTaskDialog';
 import { TaskExecutions, executionLabel, useTaskExecutions } from './TaskExecutions';
+import { TeamExecutions, teamLabel, useTeamExecutions } from './TeamExecutions';
+import { TeamProposalDialog } from './TeamProposalDialog';
 
 const DEFAULT_BUDGET = '__default__';
 
@@ -82,6 +84,7 @@ export function TasksTab({
   const tasks = useKeyedLoad(`${targetKey}:tasks`, () => api().context.tasks(target));
   const [creating, setCreating] = useState(false);
   const [executing, setExecuting] = useState<ContextTask | null>(null);
+  const [teaming, setTeaming] = useState<ContextTask | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function change(task: ContextTask, input: UpdateContextTaskInput) {
@@ -125,6 +128,7 @@ export function TasksTab({
             onContinue={onContinue}
             onHandoff={onHandoff}
             onExecute={() => setExecuting(task)}
+            onExecuteWithAtlas={() => setTeaming(task)}
             onOpenTerminal={onOpenTerminal}
           />
         ))}
@@ -139,6 +143,24 @@ export function TasksTab({
           onStarted={(execution) => {
             setExecuting(null);
             onOpenTerminal(execution.terminalId);
+          }}
+          onExecuteWithAtlas={() => {
+            setTeaming(executing);
+            setExecuting(null);
+          }}
+        />
+      )}
+      {teaming && (
+        <TeamProposalDialog
+          target={target}
+          targetKey={targetKey}
+          label={label}
+          task={teaming}
+          onClose={() => setTeaming(null)}
+          onStarted={(execution) => {
+            setTeaming(null);
+            const terminalId = execution.stages[execution.currentStage ?? 0]?.terminalId;
+            if (terminalId) onOpenTerminal(terminalId);
           }}
         />
       )}
@@ -243,6 +265,7 @@ interface TaskItemProps {
   onContinue: (provider: AiProvider, taskId: string) => void;
   onHandoff: (taskId: string) => void;
   onExecute: () => void;
+  onExecuteWithAtlas: () => void;
   onOpenTerminal: (terminalId: string) => void;
 }
 
@@ -259,10 +282,13 @@ function TaskItem({
   onContinue,
   onHandoff,
   onExecute,
+  onExecuteWithAtlas,
   onOpenTerminal,
 }: TaskItemProps) {
   const { executions } = useTaskExecutions(target, targetKey, task.id);
+  const teams = useTeamExecutions(target, targetKey, task.id);
   const latest = executions[0];
+  const latestTeam = teams[0];
   const item = useRef<HTMLLIElement>(null);
   useEffect(() => {
     if (highlighted) item.current?.scrollIntoView({ block: 'nearest' });
@@ -270,6 +296,11 @@ function TaskItem({
   const open = task.status === 'open';
   const actions: { label: string; run: () => void; testId?: string }[] = open
     ? [
+        {
+          label: 'Execute with ATLAS…',
+          run: onExecuteWithAtlas,
+          testId: 'task-execute-atlas-menu',
+        },
         { label: 'Execute…', run: onExecute, testId: 'task-execute-menu' },
         { label: 'Continue with Claude', run: () => onContinue('claude', task.id) },
         { label: 'Continue with Codex', run: () => onContinue('codex', task.id) },
@@ -293,6 +324,16 @@ function TaskItem({
           <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
             <span className="min-w-0 font-medium break-words">{task.title}</span>
             <span className="flex flex-wrap items-center gap-1.5">
+              {latestTeam &&
+                latestTeam.reviewedAt === null &&
+                latestTeam.status !== 'CANCELLED' && (
+                  <span
+                    className="bg-accent rounded px-1.5 py-0.5 text-[10px] font-medium"
+                    data-testid="task-team-badge"
+                  >
+                    {teamLabel(latestTeam)}
+                  </span>
+                )}
               {latest && latest.reviewedAt === null && latest.status !== 'CANCELLED' && (
                 <span
                   className="bg-accent rounded px-1.5 py-0.5 text-[10px] font-medium"
@@ -360,7 +401,16 @@ function TaskItem({
             <span className="ml-auto flex flex-wrap gap-1.5">
               {open ? (
                 <>
-                  <Button size="xs" onClick={onExecute} data-testid="task-execute">
+                  <Button size="xs" onClick={onExecuteWithAtlas} data-testid="task-execute-atlas">
+                    <Users />
+                    Execute with ATLAS
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={onExecute}
+                    data-testid="task-execute"
+                  >
                     <Play />
                     Execute…
                   </Button>
@@ -391,6 +441,7 @@ function TaskItem({
               )}
             </span>
           </div>
+          <TeamExecutions target={target} executions={teams} onOpenTerminal={onOpenTerminal} />
           <TaskExecutions target={target} executions={executions} onOpenTerminal={onOpenTerminal} />
         </li>
       </ContextMenuTrigger>

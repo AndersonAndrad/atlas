@@ -1,6 +1,7 @@
 import {
   CLI_ENGINE_METHODS,
   type StartAuditInput,
+  type ApproveTeamPlanInput,
   type CreateEntryInput,
   type EditorLayout,
   type FileRef,
@@ -435,6 +436,17 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
       engine.cancelTaskExecution(target, id),
     'ai.reviewTaskExecution': ([target, id]: [ContextTarget, string]) =>
       engine.reviewTaskExecution(target, id),
+    'ai.teamProposal': ([target, taskId]: [ContextTarget, string]) =>
+      engine.teamExecutions.proposal(target, taskId),
+    'ai.approveTeamPlan': ([input]: [ApproveTeamPlanInput]) => engine.teamExecutions.approve(input),
+    'ai.teamExecutions': ([target, taskId]: [ContextTarget, string]) =>
+      engine.teamExecutions.list(target, taskId),
+    'ai.continueTeamExecution': ([target, id, action]: [ContextTarget, string, string]) =>
+      engine.teamExecutions.continue(target, id, action),
+    'ai.cancelTeamExecution': ([target, id]: [ContextTarget, string]) =>
+      engine.teamExecutions.cancel(target, id),
+    'ai.reviewTeamExecution': ([target, id]: [ContextTarget, string]) =>
+      engine.teamExecutions.review(target, id),
     'quickCommands.list': () => engine.quickCommands.list(),
     'quickCommands.create': ([input]: [QuickCommandInput]) => engine.quickCommands.create(input),
     'quickCommands.update': ([id, input]: [string, QuickCommandInput]) =>
