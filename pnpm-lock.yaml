@@ -177,6 +177,9 @@ importers:
       '@atlas/api-workbench':
         specifier: workspace:*
         version: link:../../packages/api-workbench
+      '@atlas/audit':
+        specifier: workspace:*
+        version: link:../../packages/audit
       '@atlas/context':
         specifier: workspace:*
         version: link:../../packages/context
@@ -258,6 +261,15 @@ importers:
         version: 3.4.0
 
   packages/api-workbench:
+    dependencies:
+      '@atlas/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@atlas/shared':
+        specifier: workspace:*
+        version: link:../shared
+
+  packages/audit:
     dependencies:
       '@atlas/contracts':
         specifier: workspace:*
@@ -372,6 +384,9 @@ importers:
       '@atlas/api-workbench':
         specifier: workspace:*
         version: link:../api-workbench
+      '@atlas/audit':
+        specifier: workspace:*
+        version: link:../audit
       '@atlas/context':
         specifier: workspace:*
         version: link:../context

@@ -14,6 +14,7 @@
     { "path": "packages/preflight" },
     { "path": "packages/notifications" },
     { "path": "packages/notes" },
+    { "path": "packages/audit" },
     { "path": "packages/jobs" },
     { "path": "packages/docker" },
     { "path": "packages/api-workbench" },

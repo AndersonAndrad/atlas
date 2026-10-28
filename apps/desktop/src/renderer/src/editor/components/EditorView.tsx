@@ -1,3 +1,4 @@
+import type { EditorOpenTarget } from '../navigation';
 import {
   EDITOR_LAYOUT_TABS_MAX,
   FILE_PATH_MAX,
@@ -102,6 +103,9 @@ export interface EditorViewProps {
   onOpenPreflight: (terminalId: string) => void;
   onContextAction: (terminalId: string, action: TerminalContextAction) => void;
   onOpenProjects: () => void;
+  /** A file to open, e.g. the evidence of an audit finding; cleared once handled. */
+  openRequest: (EditorOpenTarget & { nonce: number }) | null;
+  onOpenRequestHandled: () => void;
 }
 
 function useNarrow(): boolean {
@@ -594,6 +598,41 @@ export function EditorView(props: EditorViewProps) {
     if (dirty.length > 0) setUnsavedPrompt({ paths: dirty, action: 'Switch project', proceed });
     else proceed();
   };
+  const changeProjectRef = useRef(changeProject);
+  useEffect(() => {
+    changeProjectRef.current = changeProject;
+  });
+
+  // A file asked by another view: switch to its project first, then open it once that
+  // project's tabs are restored.
+  const { openRequest, onOpenRequestHandled } = props;
+  const requestedProject = openRequest?.projectId ?? null;
+  const requestKnown =
+    requestedProject !== null &&
+    (projectItems?.some((item) => item.id === requestedProject) ?? false);
+  useEffect(() => {
+    if (openRequest === null || projectItems === null) return;
+    const timer = setTimeout(() => {
+      if (!requestKnown) {
+        onOpenRequestHandled();
+        return;
+      }
+      if (projectId !== openRequest.projectId) {
+        // With unsaved changes the user is asked first; the request is not kept waiting.
+        const dirty = (buffersRef.current?.dirtyPaths() ?? []).length > 0;
+        changeProjectRef.current(openRequest.projectId);
+        if (dirty) onOpenRequestHandled();
+        return;
+      }
+      if (!ready) return;
+      if (openRequest.line !== undefined && !viewStates.current.has(openRequest.path)) {
+        viewStates.current.set(openRequest.path, { line: openRequest.line });
+      }
+      openFile(openRequest.path);
+      onOpenRequestHandled();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [openRequest, projectItems, requestKnown, projectId, ready, openFile, onOpenRequestHandled]);
 
   /** Save As (FR-1106): a new file in the project; replacing one needs confirmation. */
   const saveAs = useCallback(

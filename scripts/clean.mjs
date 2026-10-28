@@ -11,6 +11,7 @@ const projects = [
   'packages/preflight',
   'packages/notifications',
   'packages/notes',
+  'packages/audit',
   'packages/jobs',
   'packages/docker',
   'packages/api-workbench',

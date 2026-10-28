@@ -21,11 +21,14 @@ import type { useProjects } from '@/hooks/useProjects';
 import { cn } from '@/lib/utils';
 import { scopeFromKey, scopeKey, useNoteList } from '../hooks/useNotes';
 import { NotesPanel } from './NotesPanel';
+import { AnalyzeProjectDialog } from '@/audit/components/AnalyzeProjectDialog';
+import { AuditsPanel } from '@/audit/components/AuditsPanel';
 
-type HubTab = 'overview' | 'notes' | 'tasks' | 'jira';
+type HubTab = 'overview' | 'notes' | 'audits' | 'tasks' | 'jira';
 const TABS: { id: HubTab; label: string; available: boolean; hint?: string }[] = [
   { id: 'overview', label: 'Overview', available: true },
   { id: 'notes', label: 'Notes', available: true },
+  { id: 'audits', label: 'Audits', available: true, hint: 'AI audits of the selected project.' },
   { id: 'tasks', label: 'Tasks', available: false, hint: 'Local tasks arrive in a later release.' },
   {
     id: 'jira',
@@ -39,13 +42,20 @@ interface ProjectHubViewProps {
   projects: ReturnType<typeof useProjects>;
   onOpenSession: (sessionId: string) => void;
   onOpenGit: (projectId: string) => void;
+  /** Shows the project's audits and opens the Analyze Project dialog (SDD-026). */
+  auditRequest: { projectId: string; nonce: number } | null;
 }
 
 /**
  * Project Hub (SDD-010): local, offline organization of a project's knowledge. Milestone A
  * brings notes; tasks and Jira are shown as upcoming and hold no data.
  */
-export function ProjectHubView({ projects, onOpenSession, onOpenGit }: ProjectHubViewProps) {
+export function ProjectHubView({
+  projects,
+  onOpenSession,
+  onOpenGit,
+  auditRequest,
+}: ProjectHubViewProps) {
   const items = projects.items ?? [];
   const [chosenScope, setChosenScope] = useState<string | null>(null);
   // Until the user chooses, follow the selected project (or global notes without one).
@@ -58,6 +68,15 @@ export function ProjectHubView({ projects, onOpenSession, onOpenGit }: ProjectHu
   const [openRequest, setOpenRequest] = useState<{ noteId: string; nonce: number } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const clearOpenRequest = useCallback(() => setOpenRequest(null), []);
+  const [analyzing, setAnalyzing] = useState<string | null>(null);
+  // A request from the Projects drawer or palette: adjusted while rendering, once per nonce.
+  const [handledAudit, setHandledAudit] = useState<number | null>(null);
+  if (auditRequest !== null && auditRequest.nonce !== handledAudit) {
+    setHandledAudit(auditRequest.nonce);
+    setChosenScope(`project:${auditRequest.projectId}`);
+    setTab('audits');
+    setAnalyzing(auditRequest.projectId);
+  }
 
   const projectName = (id: string) =>
     items.find((item) => item.project.id === id)?.project.name ?? null;
@@ -140,8 +159,12 @@ export function ProjectHubView({ projects, onOpenSession, onOpenGit }: ProjectHu
             className="rounded-full"
             variant={tab === option.id ? 'secondary' : 'ghost'}
             aria-current={tab === option.id ? 'page' : undefined}
-            disabled={!option.available}
-            title={option.hint}
+            disabled={!option.available || (option.id === 'audits' && scope.kind !== 'project')}
+            title={
+              option.id === 'audits' && scope.kind !== 'project'
+                ? 'Choose a project to audit it.'
+                : option.hint
+            }
             onClick={() => setTab(option.id)}
           >
             {option.label}
@@ -179,6 +202,20 @@ export function ProjectHubView({ projects, onOpenSession, onOpenGit }: ProjectHu
           }
           onOpenNote={openNote}
           onShowNotes={() => setTab('notes')}
+        />
+      )}
+      {tab === 'audits' && scope.kind === 'project' && (
+        <AuditsPanel
+          key={scope.projectId}
+          projectId={scope.projectId}
+          onAnalyze={() => setAnalyzing(scope.projectId)}
+        />
+      )}
+      {analyzing !== null && (
+        <AnalyzeProjectDialog
+          projectId={analyzing}
+          onClose={() => setAnalyzing(null)}
+          onStarted={() => setAnalyzing(null)}
         />
       )}
       {tab === 'notes' && (

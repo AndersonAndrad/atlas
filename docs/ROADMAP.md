@@ -48,6 +48,9 @@
 | M25a      | SDD-025 T01   | Non-blocking background operations: push, pull and fetch as GIT jobs, View in Operations        | Implemented — awaiting approval       |
 | M25b      | SDD-025 T02   | Task execution: run a task with Claude Code or Codex in a new or existing terminal, history     | Implemented — awaiting approval       |
 | M25c      | SDD-025 T02 C | ATLAS team execution of a task (needs SDD-005 Milestone B orchestration)                        | Blocked                               |
+| M26a      | SDD-026 T01 A | AI project audit: read-only Claude Code/Codex runs as jobs, validated structured findings       | Implemented — awaiting approval       |
+| M26b      | SDD-026 T01 B | Findings review, filters, decision memory, deduplication across audits                          | Not started (needs authorization)     |
+| M26c      | SDD-026 T01 C | Approved findings → tasks, idempotent bulk creation, Task Execution Hub integration             | Not started (after B)                 |
 | M23b      | SDD-023 A02   | Terminal tab status: AI running, failed, needs attention, reviewed; explicit Mark as reviewed   | Implemented — awaiting approval       |
 | M4        | TBD           | Agents and multi-agent orchestration                                                            | Not started                           |
 | M5        | TBD           | Skills Hub and Context Engine                                                                   | Not started                           |

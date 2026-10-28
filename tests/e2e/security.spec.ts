@@ -37,6 +37,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
     atlasKeys: [
       'ai',
       'app',
+      'audit',
       'context',
       'dialog',
       'docker',

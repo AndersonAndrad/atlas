@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-27 — PLAN-053 (SDD-025 Task 02: task execution from shared-context tasks).
+Last updated: 2026-10-27 — PLAN-054 (SDD-026 Task 01 Milestone A: AI project audit).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -65,7 +65,27 @@ terminal tab status with explicit review) is implemented and awaits approval. PL
 PLAN-052 (SDD-023 Task A03: project palette and Projects drawer; the Terminals sidebar lists
 only open terminals) is implemented and awaits approval. PLAN-053 (SDD-025 Task 02: tasks run
 with Claude Code or Codex in a new or existing terminal, tracked and reviewed; ATLAS team
-execution deferred) is implemented and awaits approval. Version 0.39.0 (schema v20).
+execution deferred) is implemented and awaits approval. PLAN-054 (SDD-026 Task 01 Milestone A:
+read-only AI project audits with validated findings) is implemented and awaits approval;
+Milestones B and C need authorization. Version 0.40.0 (schema v21).
+
+## PLAN-054 — SDD-026 Task 01 Milestone A: AI project audit
+
+- Approved 2026-10-27 by Anderson Andrade ("aprovado, pode seguir e q1 a q4 segue o
+  recomendado"). R1–R10 were presented but not acknowledged by ID. Details: SDD-026.
+- What was built:
+  - **Analyze project…** in the Project Hub (Audits) and in the project actions.
+  - A dialog with provider and account, categories, scope (project, folders, files, changed
+    files), the read-only mode and the Codex warning to acknowledge.
+  - The audit runs as an AGENT background job. Claude Code runs with read and search tools
+    only; Codex runs in its read-only sandbox.
+  - The Git status is compared before and after.
+  - The schema is strict. Each finding is checked against the project's files, gets a
+    fingerprint, and is stored with the audit (migration v21).
+  - Audit history and a read-only list of findings.
+  - Reviewing findings, decision memory and task creation are Milestones B and C.
+- Manual check with the real CLIs is pending (tests use fake CLIs).
+- Rolling back to 0.39.x needs a database copy taken before 0.40.0 first ran.
 
 ## PLAN-053 — SDD-025 Task 02: task execution (Milestones A and B; C deferred)
 

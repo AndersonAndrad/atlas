@@ -21,3 +21,4 @@ export * from './http.js';
 export * from './extensions.js';
 export * from './debug.js';
 export * from './terminal-activity.js';
+export * from './audit.js';

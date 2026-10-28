@@ -1,3 +1,4 @@
+import type { AuditDetails, AuditOptions, ProjectAudit, StartAuditInput } from './audit.js';
 import type { TerminalActivitySummary } from './terminal-activity.js';
 import type { SerializedError } from '@atlas/shared';
 import type {
@@ -473,6 +474,11 @@ export const IPC_CHANNELS = {
   jobsSummary: 'atlas:jobs:summary',
   jobsGetSettings: 'atlas:jobs:get-settings',
   jobsSetSettings: 'atlas:jobs:set-settings',
+  auditOptions: 'atlas:audit:options',
+  auditStart: 'atlas:audit:start',
+  auditList: 'atlas:audit:list',
+  auditGet: 'atlas:audit:get',
+  auditCancel: 'atlas:audit:cancel',
   dockerStatus: 'atlas:docker:status',
   dockerContexts: 'atlas:docker:contexts',
   dockerSelectContext: 'atlas:docker:select-context',
@@ -1005,6 +1011,22 @@ export interface AtlasApi {
     summary(): Promise<IpcResult<JobSummary>>;
     getSettings(): Promise<IpcResult<JobSettings>>;
     setSettings(input: UpdateJobSettingsInput): Promise<IpcResult<JobSettings>>;
+  };
+  /**
+   * AI project audits (SDD-026 Task 01). An audit runs as a background job with a
+   * provider restricted to reading the project; changes arrive as `audit` events.
+   */
+  audit: {
+    options(projectId: string): Promise<IpcResult<AuditOptions>>;
+    /**
+     * Fails with AUDIT_CONFIRMATION_REQUIRED until the provider's warnings are
+     * acknowledged, and with AUDIT_ACTIVE when the same scope is already queued or running.
+     */
+    start(input: StartAuditInput): Promise<IpcResult<ProjectAudit>>;
+    /** Newest first. */
+    list(projectId: string): Promise<IpcResult<ProjectAudit[]>>;
+    get(id: string): Promise<IpcResult<AuditDetails>>;
+    cancel(id: string): Promise<IpcResult<ProjectAudit>>;
   };
   /**
    * Docker (SDD-013 Milestone A). Typed operations only: the renderer never reaches the

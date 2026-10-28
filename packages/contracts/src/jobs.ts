@@ -69,7 +69,9 @@ export interface JobProgress {
 export type JobExecutionReference =
   | { type: 'preflight-run'; workspaceId: string; runId: string }
   /** The Git operation a GIT job runs (SDD-025); its log is the job's output. */
-  | { type: 'git-operation'; operationId: string; repositoryRoot: string };
+  | { type: 'git-operation'; operationId: string; repositoryRoot: string }
+  /** The project audit an AGENT job runs (SDD-026); its results live in the audit. */
+  | { type: 'project-audit'; auditId: string };
 
 /** Git actions that run as background jobs (SDD-025 Task 01). */
 export const GIT_JOB_ACTIONS = ['push', 'pull', 'fetch'] as const;
@@ -107,6 +109,12 @@ export type JobPayload =
       mode?: 'ff-only' | 'configured';
       /** Fetch only; the default remote when absent. */
       remote?: string;
+    }
+  | {
+      /** An AI provider working without a terminal (SDD-026 project audits). */
+      type: 'AGENT';
+      kind: 'project-audit';
+      auditId: string;
     };
 
 export interface BackgroundJob {
@@ -228,15 +236,28 @@ export const CreateGitJobSchema = z.discriminatedUnion('action', [
   }),
 ]);
 
+/**
+ * Starts a project audit the user already confirmed with `audit.start` (SDD-026); the
+ * executor only accepts audits that are queued and have no job yet.
+ */
+export const CreateAgentJobSchema = z.strictObject({
+  type: z.literal('AGENT'),
+  kind: z.literal('project-audit'),
+  auditId: z.uuid({ message: 'Invalid audit identifier.' }),
+  priority: z.enum(JOB_PRIORITIES).default('NORMAL'),
+});
+
 export const CreateJobSchema = z.union([
   CreateCommandJobSchema,
   CreatePreflightJobSchema,
   CreateGitJobSchema,
+  CreateAgentJobSchema,
 ]);
 export type CreateJobInput = z.input<typeof CreateJobSchema>;
 export type CreateCommandJob = z.output<typeof CreateCommandJobSchema>;
 export type CreatePreflightJob = z.output<typeof CreatePreflightJobSchema>;
 export type CreateGitJob = z.output<typeof CreateGitJobSchema>;
+export type CreateAgentJob = z.output<typeof CreateAgentJobSchema>;
 
 export const JobListQuerySchema = z.strictObject({
   statuses: z.array(z.enum(JOB_STATUSES)).min(1).max(JOB_STATUSES.length).optional(),

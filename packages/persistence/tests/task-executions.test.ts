@@ -61,9 +61,9 @@ describe('SqliteTaskExecutionRepository (SDD-025 Task 02)', () => {
   });
   afterEach(() => db.close());
 
-  it('is created by the latest migration', () => {
+  it('is created by migration v20', () => {
     expect(getSchemaVersion(db)).toBe(MIGRATIONS.at(-1)!.version);
-    expect(MIGRATIONS.at(-1)!.name).toBe('task_executions');
+    expect(MIGRATIONS.find((migration) => migration.version === 20)!.name).toBe('task_executions');
   });
 
   it('stores, updates and lists executions newest first', async () => {

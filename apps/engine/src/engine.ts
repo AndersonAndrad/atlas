@@ -9,6 +9,7 @@ import {
   type CreateProjectInput,
   type UpdateProjectInput,
   parseInput,
+  isFinalJobStatus,
   type AiSession,
   type AttachTerminalInput,
   type BackgroundWork,
@@ -54,6 +55,7 @@ import {
   SqliteProjectGitRepository,
   SqliteTerminalActivityRepository,
   SqliteTaskExecutionRepository,
+  SqliteAuditRepository,
   SqliteTerminalGroupRepository,
   SqliteTerminalSessionRepository,
   getSchemaVersion,
@@ -155,6 +157,10 @@ import { QuickCommandStore } from './quick-commands.js';
 import { RepositoryWatcher } from './git/repository-watcher.js';
 import { GIT_SHUTDOWN_TIMEOUT_MS } from './shutdown-timing.js';
 import { GitJobExecutor } from './jobs/git-executor.js';
+import { AuditJobExecutor } from './jobs/audit-executor.js';
+import { ProjectAuditService, type AuditProviderRunner } from '@atlas/audit';
+import { CliAuditRunner } from './adapters/audit-cli.js';
+import { GitAuditWorkspace } from './adapters/audit-workspace.js';
 
 export interface TerminalRuntimeOptions {
   /** Version reported to shells through TERM_PROGRAM_VERSION. */
@@ -218,6 +224,8 @@ export interface Engine {
   readonly notes: NotesService;
   /** Background jobs (SDD-012 Milestone A); they run only in the Engine host. */
   readonly jobs: JobService;
+  /** AI project audits (SDD-026 Task 01); they run as AGENT jobs in the Engine host. */
+  readonly audits: ProjectAuditService;
   /** Docker through the Docker CLI (SDD-013 Milestone A); optional, never required. */
   readonly docker: DockerService;
   /** HTTP requests, collections and history (SDD-014 Milestone A); desktop only. */
@@ -1016,6 +1024,12 @@ export function createEngine(options: EngineOptions = {}): Engine {
               logger,
             }),
             new PreflightJobExecutor(preflight),
+            new AuditJobExecutor({
+              audits: () => audits,
+              logs: new FilePreflightLogStore(path.join(dataDir, 'jobs', 'logs')),
+              redact: redactCredentials,
+              logger,
+            }),
           ],
         }),
     settings,
@@ -1024,6 +1038,73 @@ export function createEngine(options: EngineOptions = {}): Engine {
     logger,
   });
   jobs.subscribe((job) => terminals?.publish({ type: 'jobs', job }));
+  // Project audits (SDD-026 Task 01): CLIs restricted to reading, run as AGENT jobs.
+  const auditEnvironment = ownsExecution ? terminalEnvironment : undefined;
+  const auditRunner: AuditProviderRunner =
+    auditEnvironment === undefined
+      ? {
+          availability: async () => ({
+            available: false,
+            reason: 'Audits run only in the ATLAS desktop app.',
+          }),
+          run: async () => ({
+            kind: 'failed',
+            summary: 'Audits run only in the ATLAS desktop app.',
+            metrics: null,
+          }),
+        }
+      : new CliAuditRunner({
+          platform,
+          home: homeDirectory,
+          searchPath: cliSearchPath,
+          excludeDirectory: projectConfig.binDir,
+          env: () => auditEnvironment.shellEnvironment(),
+          tempDirectory: path.join(dataDir, 'audits', 'tmp'),
+        });
+  const audits: ProjectAuditService = new ProjectAuditService({
+    store: new SqliteAuditRepository(db),
+    project: async (projectId) => {
+      try {
+        const details = await projects.getDetails(projectId);
+        return {
+          id: details.project.id,
+          name: details.project.name,
+          workspacePath: details.project.workspacePath,
+          available: details.availability.status === 'available',
+        };
+      } catch (error) {
+        if (error instanceof AtlasError && error.code === 'PROJECT_NOT_FOUND') return null;
+        throw error;
+      }
+    },
+    workspace: new GitAuditWorkspace(gitExecutor),
+    runner: auditRunner,
+    jobs: {
+      submit: (auditId) =>
+        jobs.create({ type: 'AGENT', kind: 'project-audit', auditId }, 'desktop'),
+      cancel: async (jobId) => {
+        await jobs.cancel(jobId);
+      },
+    },
+    profiles: () => usage.profiles(),
+    onChanged: (audit) => terminals?.publish({ type: 'audit', audit }),
+    clock,
+    generateId: randomUUID,
+    logger,
+  });
+  // A job that ended without running its audit (cancelled while queued, interrupted).
+  jobs.subscribe((job) => {
+    if (job.payload.type !== 'AGENT' || !isFinalJobStatus(job.status)) return;
+    void audits
+      .jobFinished(
+        job.payload.auditId,
+        job.status as 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'INTERRUPTED',
+        job.errorSummary,
+      )
+      .catch((error: unknown) =>
+        logger.warn('Project audit could not follow its job', { error: describeError(error) }),
+      );
+  });
   jobs.onFinished((job) => {
     void (async () => {
       const project = job.projectId === null ? null : await projects.findById(job.projectId);
@@ -1523,6 +1604,7 @@ export function createEngine(options: EngineOptions = {}): Engine {
     notifications,
     notes,
     jobs,
+    audits,
     docker,
     http,
     extensions,
@@ -1707,6 +1789,13 @@ export function createEngine(options: EngineOptions = {}): Engine {
           await jobs.recover();
         } catch (error) {
           logger.warn('Interrupted background jobs could not be closed', {
+            error: describeError(error),
+          });
+        }
+        try {
+          await audits.recover();
+        } catch (error) {
+          logger.warn('Interrupted project audits could not be closed', {
             error: describeError(error),
           });
         }

@@ -1,5 +1,6 @@
 import {
   CLI_ENGINE_METHODS,
+  type StartAuditInput,
   type CreateEntryInput,
   type EditorLayout,
   type FileRef,
@@ -587,6 +588,12 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     'jobs.summary': () => engine.jobs.summary(),
     'jobs.getSettings': () => engine.jobs.settings(),
     'jobs.setSettings': ([input]: [unknown]) => engine.jobs.updateSettings(input),
+    // AI project audits (SDD-026 Task 01); the service validates every input again.
+    'audit.options': ([projectId]: [string]) => engine.audits.options(projectId),
+    'audit.start': ([input]: [StartAuditInput]) => engine.audits.start(input),
+    'audit.list': ([projectId]: [string]) => engine.audits.list(projectId),
+    'audit.get': ([id]: [string]) => engine.audits.get(id),
+    'audit.cancel': ([id]: [string]) => engine.audits.cancel(id),
     // Docker (SDD-013 Milestone A); the service validates every input again.
     'docker.status': () => engine.docker.status(),
     'docker.contexts': () => engine.docker.contexts(true),

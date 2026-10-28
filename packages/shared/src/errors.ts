@@ -44,6 +44,11 @@ export const ERROR_CODES = [
   'TASK_EXECUTION_CONFIRMATION_REQUIRED',
   'TASK_EXECUTION_ACTIVE',
   'TASK_EXECUTION_INVALID_STATE',
+  'AUDIT_NOT_FOUND',
+  'AUDIT_PROVIDER_UNAVAILABLE',
+  'AUDIT_CONFIRMATION_REQUIRED',
+  'AUDIT_ACTIVE',
+  'AUDIT_SCOPE_INVALID',
   'DOCKER_UNAVAILABLE',
   'DOCKER_CONTEXT_NOT_FOUND',
   'DOCKER_CONTAINER_NOT_FOUND',
@@ -168,6 +173,13 @@ export const USER_MESSAGES: Record<ErrorCode, string> = {
     'This terminal belongs to another project or folder. Confirm to run the task there.',
   TASK_EXECUTION_ACTIVE: 'This task is already running. Wait for it to finish or cancel it.',
   TASK_EXECUTION_INVALID_STATE: 'This action is not available in the current execution status.',
+  AUDIT_NOT_FOUND: 'The project audit could not be found.',
+  AUDIT_PROVIDER_UNAVAILABLE:
+    'This AI provider cannot run a read-only audit. Install or update it, or choose another provider.',
+  AUDIT_CONFIRMATION_REQUIRED:
+    'Review the warnings for this provider and confirm to start the audit.',
+  AUDIT_ACTIVE: 'An audit of this project with the same scope is already queued or running.',
+  AUDIT_SCOPE_INVALID: 'The audit scope is not valid for this project.',
   DOCKER_UNAVAILABLE:
     'Docker is not available. Check that Docker is installed and running, then try again.',
   DOCKER_CONTEXT_NOT_FOUND: 'The Docker context could not be found. Choose another context.',

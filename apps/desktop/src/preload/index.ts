@@ -327,6 +327,13 @@ const api: AtlasApi = {
     getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.jobsGetSettings),
     setSettings: (input) => ipcRenderer.invoke(IPC_CHANNELS.jobsSetSettings, input),
   },
+  audit: {
+    options: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.auditOptions, projectId),
+    start: (input) => ipcRenderer.invoke(IPC_CHANNELS.auditStart, input),
+    list: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.auditList, projectId),
+    get: (id) => ipcRenderer.invoke(IPC_CHANNELS.auditGet, id),
+    cancel: (id) => ipcRenderer.invoke(IPC_CHANNELS.auditCancel, id),
+  },
   docker: {
     status: () => ipcRenderer.invoke(IPC_CHANNELS.dockerStatus),
     contexts: () => ipcRenderer.invoke(IPC_CHANNELS.dockerContexts),

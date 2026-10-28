@@ -5,11 +5,13 @@ import {
   Info,
   Play,
   RefreshCw,
+  ScanSearch,
   SquareTerminal,
   type LucideIcon,
 } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { api, errorMessage, unwrap } from '@/api';
+import { requestProjectAudit } from '@/audit/navigation';
 import { putProjectGitState, useProjectGitState } from '@/git/state/project-git-states';
 
 type ProjectCommandAction = Extract<ProjectAction, { kind: 'run-command' }>;
@@ -107,6 +109,15 @@ export function useProjectActions(projectId: string, handlers: ProjectActionHand
       mode: 'close',
       testId: 'project-action-details',
       run: handlers.onProjectInfo,
+    },
+    {
+      key: 'analyze',
+      label: 'Analyze project…',
+      icon: ScanSearch,
+      disabled: !handlers.available,
+      mode: 'close',
+      testId: 'project-action-analyze',
+      run: () => requestProjectAudit(projectId),
     },
     {
       key: 'git-refresh',

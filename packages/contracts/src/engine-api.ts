@@ -1,3 +1,9 @@
+import {
+  StartAuditSchema,
+  type AuditDetails,
+  type AuditOptions,
+  type ProjectAudit,
+} from './audit.js';
 import type { TerminalActivitySummary } from './terminal-activity.js';
 import { z } from 'zod';
 import {
@@ -579,6 +585,12 @@ export const ENGINE_METHOD_PARAMS = {
   'jobs.summary': z.tuple([]),
   'jobs.getSettings': z.tuple([]),
   'jobs.setSettings': z.tuple([UpdateJobSettingsSchema]),
+  // AI project audits (SDD-026 Task 01); desktop only.
+  'audit.options': z.tuple([ProjectIdSchema]),
+  'audit.start': z.tuple([StartAuditSchema]),
+  'audit.list': z.tuple([ProjectIdSchema]),
+  'audit.get': z.tuple([z.uuid()]),
+  'audit.cancel': z.tuple([z.uuid()]),
   // Docker (SDD-013 Milestone A): desktop only; every request names its context.
   'docker.status': z.tuple([]),
   'docker.contexts': z.tuple([]),
@@ -912,6 +924,11 @@ export interface EngineMethodResults {
   'jobs.summary': JobSummary;
   'jobs.getSettings': JobSettings;
   'jobs.setSettings': JobSettings;
+  'audit.options': AuditOptions;
+  'audit.start': ProjectAudit;
+  'audit.list': ProjectAudit[];
+  'audit.get': AuditDetails;
+  'audit.cancel': ProjectAudit;
   'docker.status': DockerStatus;
   'docker.contexts': DockerContextList;
   'docker.selectContext': DockerContextList;

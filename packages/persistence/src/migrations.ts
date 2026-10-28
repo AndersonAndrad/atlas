@@ -993,4 +993,49 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX task_executions_terminal ON task_executions (terminal_id);
     `,
   },
+  {
+    version: 21,
+    name: 'project_audits',
+    // AI project audits and their validated findings (SDD-026 Task 01). Additive. Removed
+    // with their project. `config` holds what the user chose (categories, scope, read-only
+    // mode) and `result` what the audit produced; both are JSON written by the Engine.
+    // QUEUED and RUNNING rows are never trusted after a restart: they become INTERRUPTED.
+    sql: `
+      CREATE TABLE project_audits (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        project_id TEXT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+        job_id TEXT CHECK (job_id IS NULL OR length(job_id) = 36),
+        provider TEXT NOT NULL CHECK (provider IN ('claude', 'codex')),
+        profile_id TEXT CHECK (profile_id IS NULL OR length(profile_id) = 36),
+        profile_name TEXT CHECK (profile_name IS NULL OR length(profile_name) <= 200),
+        status TEXT NOT NULL CHECK (status IN ('QUEUED', 'RUNNING', 'COMPLETED', 'FAILED',
+          'CANCELLED', 'INTERRUPTED')),
+        config TEXT NOT NULL CHECK (json_valid(config) AND length(config) <= 262144),
+        result TEXT NOT NULL CHECK (json_valid(result) AND length(result) <= 262144),
+        error_summary TEXT CHECK (error_summary IS NULL OR length(error_summary) <= 500),
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT
+      ) STRICT;
+      CREATE INDEX project_audits_project ON project_audits (project_id, created_at);
+      CREATE INDEX project_audits_active ON project_audits (status)
+        WHERE status IN ('QUEUED', 'RUNNING');
+      CREATE TABLE project_audit_findings (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 36),
+        audit_id TEXT NOT NULL REFERENCES project_audits (id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL CHECK (length(project_id) = 36),
+        ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+        fingerprint TEXT NOT NULL CHECK (length(fingerprint) = 64),
+        category TEXT NOT NULL CHECK (length(category) BETWEEN 1 AND 40),
+        severity TEXT NOT NULL CHECK (severity IN ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW',
+          'INFORMATIONAL')),
+        validation TEXT NOT NULL
+          CHECK (validation IN ('evidence-located', 'needs-review', 'invalid')),
+        data TEXT NOT NULL CHECK (json_valid(data) AND length(data) <= 131072),
+        UNIQUE (audit_id, ordinal)
+      ) STRICT;
+      CREATE INDEX project_audit_findings_fingerprint
+        ON project_audit_findings (project_id, fingerprint);
+    `,
+  },
 ];

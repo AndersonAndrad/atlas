@@ -1,3 +1,4 @@
+import type { ProjectAudit } from './audit.js';
 import { z } from 'zod';
 import { ProjectIdSchema, WorkspacePathSchema } from './project.js';
 import type { GitOperation, ProjectGitState } from './git.js';
@@ -270,7 +271,9 @@ export type TerminalEvent =
   /** Tracked activity of a terminal changed (SDD-023 Task A02); carries the new summary. */
   | { type: 'terminal-activity'; summary: TerminalActivitySummary }
   /** A task execution was created or changed (SDD-025 Task 02); carries the new state. */
-  | { type: 'task-execution'; execution: TaskExecution };
+  | { type: 'task-execution'; execution: TaskExecution }
+  /** A project audit was queued or changed (SDD-026); carries the new state. */
+  | { type: 'audit'; audit: ProjectAudit };
 
 export const TERMINAL_FONT_FAMILIES = ['system', 'menlo', 'sf-mono', 'monaco', 'courier'] as const;
 export type TerminalFontFamily = (typeof TERMINAL_FONT_FAMILIES)[number];

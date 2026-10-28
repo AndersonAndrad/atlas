@@ -652,6 +652,12 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     [IPC_CHANNELS.jobsSummary, 'jobs.summary'],
     [IPC_CHANNELS.jobsGetSettings, 'jobs.getSettings'],
     [IPC_CHANNELS.jobsSetSettings, 'jobs.setSettings'],
+    // AI project audits (SDD-026 Task 01).
+    [IPC_CHANNELS.auditOptions, 'audit.options'],
+    [IPC_CHANNELS.auditStart, 'audit.start'],
+    [IPC_CHANNELS.auditList, 'audit.list'],
+    [IPC_CHANNELS.auditGet, 'audit.get'],
+    [IPC_CHANNELS.auditCancel, 'audit.cancel'],
   ];
   // Extensions Hub (SDD-015 Milestone A): forwarded as they are; the Engine validates.
   const extensionChannels: [string, EngineMethod][] = [

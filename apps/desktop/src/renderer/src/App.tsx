@@ -7,6 +7,8 @@ import { AboutDialog } from './components/AboutDialog';
 import { ProjectsView } from './components/ProjectsView';
 import { ProjectHubView } from './hub/components/ProjectHubView';
 import { EditorView } from './editor/components/EditorView';
+import { onOpenInEditor, type EditorOpenTarget } from './editor/navigation';
+import { onProjectAuditRequest } from './audit/navigation';
 import { SettingsView } from './components/SettingsView';
 import { GitView, type GitOpenRequest } from './git/components/GitView';
 import { ContextView, type ContextOpenRequest } from './context/components/ContextView';
@@ -73,6 +75,12 @@ export function App() {
   const [contextRequest, setContextRequest] = useState<ContextOpenRequest | null>(null);
   const [preflightRequest, setPreflightRequest] = useState<PreflightOpenRequest | null>(null);
   const [operationsRequest, setOperationsRequest] = useState<OperationsOpenRequest | null>(null);
+  const [auditRequest, setAuditRequest] = useState<{ projectId: string; nonce: number } | null>(
+    null,
+  );
+  const [editorRequest, setEditorRequest] = useState<(EditorOpenTarget & { nonce: number }) | null>(
+    null,
+  );
   // Mounted on first use and then kept, so unsaved editor buffers survive switching views.
   const [editorMounted, setEditorMounted] = useState(false);
   if (view === 'editor' && !editorMounted) setEditorMounted(true);
@@ -189,6 +197,25 @@ export function App() {
       }),
     [],
   );
+  // "Analyze project…" from the Projects drawer or palette opens the Hub's audits (SDD-026).
+  useEffect(
+    () =>
+      onProjectAuditRequest((projectId) => {
+        setAuditRequest({ projectId, nonce: Date.now() });
+        setView('hub');
+      }),
+    [],
+  );
+  // Evidence of an audit finding opens in the code editor.
+  useEffect(
+    () =>
+      onOpenInEditor((target) => {
+        setEditorRequest({ ...target, nonce: Date.now() });
+        setView('editor');
+      }),
+    [],
+  );
+  const clearEditorRequest = useCallback(() => setEditorRequest(null), []);
   const openPreflight = (target: Omit<PreflightOpenRequest, 'nonce'>) => {
     setPreflightRequest({ ...target, nonce: Date.now() });
     setView('preflight');
@@ -297,6 +324,7 @@ export function App() {
                   setView('sessions');
                 }}
                 onOpenGit={(projectId) => openGit({ projectId })}
+                auditRequest={auditRequest}
               />
             )}
             {view === 'terminals' && (
@@ -329,6 +357,8 @@ export function App() {
                   openContext({ terminalId, action, ...(provider ? { provider } : {}) })
                 }
                 onOpenProjects={() => setView('projects')}
+                openRequest={editorRequest}
+                onOpenRequestHandled={clearEditorRequest}
               />
             )}
             {view === 'git' && (

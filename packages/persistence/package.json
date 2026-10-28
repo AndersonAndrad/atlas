@@ -1,6 +1,6 @@
 {
   "name": "@atlas/persistence",
-  "version": "0.39.0",
+  "version": "0.40.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -24,6 +24,7 @@
     "@atlas/preflight": "workspace:*",
     "@atlas/notifications": "workspace:*",
     "@atlas/notes": "workspace:*",
+    "@atlas/audit": "workspace:*",
     "@atlas/jobs": "workspace:*",
     "@atlas/api-workbench": "workspace:*",
     "@atlas/extensions": "workspace:*"

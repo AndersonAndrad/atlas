@@ -15,6 +15,7 @@ import {
   type PreflightLogStore,
 } from '@atlas/preflight';
 import { AtlasError, describeError, type Logger } from '@atlas/shared';
+import { readJobOutput } from './job-log.js';
 
 /** Local changes that cannot be undone; the external ones come from Preflight's list. */
 const LOCAL_DANGERS: readonly (readonly [RegExp, string])[] = [
@@ -157,37 +158,12 @@ export class CommandJobExecutor implements JobExecutor {
     }
   }
 
-  async output(
-    job: JobRecord,
-    attempt: number,
-    after: number,
-    limit: number,
-  ): Promise<JobOutputPage> {
-    const buffer = this.buffers.get(`${job.id}:${attempt}`);
-    if (buffer !== undefined) {
-      const lines = buffer.read(after, limit);
-      const next = lines.at(-1)?.seq ?? Math.max(after, buffer.firstSeq - 1);
-      return {
-        lines,
-        next,
-        complete: buffer.complete && next >= buffer.count - 1,
-        truncatedBefore: after + 1 < buffer.firstSeq,
-      };
-    }
-    const log = await this.options.logs.read(job.id, attempt);
-    if (log === null) {
-      // The current attempt may not have started its process yet: more output may come.
-      const starting = job.status === 'RUNNING' && attempt === job.retryCount + 1;
-      return { lines: [], next: after, complete: !starting, truncatedBefore: false };
-    }
-    const start = Math.max(0, after + 1 - log.firstSeq);
-    const lines = log.lines.slice(start, start + limit);
-    return {
-      lines,
-      next: lines.at(-1)?.seq ?? Math.max(after, log.firstSeq - 1),
-      complete: start + lines.length >= log.lines.length,
-      truncatedBefore: after + 1 < log.firstSeq,
-    };
+  output(job: JobRecord, attempt: number, after: number, limit: number): Promise<JobOutputPage> {
+    return readJobOutput(
+      { job, attempt, after, limit },
+      this.buffers.get(`${job.id}:${attempt}`),
+      this.options.logs,
+    );
   }
 
   removeLogs(jobId: string): Promise<void> {

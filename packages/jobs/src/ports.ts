@@ -1,6 +1,7 @@
 import type {
   BackgroundJob,
   CreateCommandJob,
+  CreateAgentJob,
   CreateGitJob,
   CreatePreflightJob,
   JobAttempt,
@@ -44,7 +45,8 @@ export interface JobRepository {
   prune(keep: number): Promise<string[]>;
 }
 
-export type CreateJobRequest = CreateCommandJob | CreatePreflightJob | CreateGitJob;
+export type CreateJobRequest =
+  CreateCommandJob | CreatePreflightJob | CreateGitJob | CreateAgentJob;
 
 /** What an executor resolved from a request; the service adds ids, times and status. */
 export interface PreparedJob {
