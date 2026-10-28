@@ -1,7 +1,7 @@
 # SDD-024 — Git Intelligence & Project Sync
 
-Status: Task 01 (PLAN-047), Task 02 (PLAN-048) and Task 03 (PLAN-051) implemented. Later
-tasks need their own plans.
+Status: Task 01 (PLAN-047), Task 02 (PLAN-048) and Task 03 (PLAN-051) implemented. Task 04
+Milestone A (PLAN-059) implemented. Later tasks and milestones need their own plans.
 
 ## Task 01 — Per-project Git monitoring and status badges
 
@@ -361,3 +361,235 @@ change: the identity lives in Git's own configuration.
   about a second.
 - Removing the global identity is not offered; edit it or remove it with
   `git config --global --unset`.
+
+## Task 04 (B05) — Pull Request Center, Milestone A: repositories and hosting accounts
+
+Approved 2026-10-28 by Anderson Andrade ("pode seguir aprovado"), PLAN-059 revision 1. Q1–Q5
+were answered with the presented recommendations. R1–R9 were presented but not acknowledged
+by ID. Version 0.45.0, schema v24.
+
+Milestones B (pull requests and the dashboard), C (synchronization) and D (notifications)
+need their own plans. The specification text received was cut after Milestone B, so C and D
+come from its functional requirements (FR-012–FR-019).
+
+### Decisions (Q1–Q5)
+
+- **Q1:** Milestone A only.
+- **Q2:** without a real system secret store, tokens are refused. On Linux without GNOME
+  Keyring or KWallet, Electron would fall back to a hard-coded key.
+- **Q3:** personal tokens:
+  - **GitHub:** a fine-grained token with read-only _Pull requests_ and _Metadata_, or a
+    classic token with `repo`.
+  - **Bitbucket Cloud:** an Atlassian API token with scopes `read:user`,
+    `read:repository` and `read:pullrequest`, sent with the account email. App passwords
+    no longer work (creation was disabled on 2025-09-09; the final cutoff was mid-2026).
+
+  OAuth and importing from `gh` are later options.
+
+- **Q4:** a **Pull requests** view after Git in the main navigation, with **Repositories**
+  and **Accounts** tabs.
+- **Q5:** the network is used only when an account is tested (also right after saving its
+  token) or when **Check access** is chosen.
+
+### Discovery (FR-001)
+
+- `git remote -v` of every available project that is a Git repository. Fetch URLs are used
+  when present.
+- **Supported forms:**
+  - `git@host:owner/repo(.git)`;
+  - `ssh://[user@]host[:port]/owner/repo`;
+  - `https://[user@]host/owner/repo`.
+
+  Local paths, `file://`, `git://` and plain `http://` are not hosted remotes.
+
+- **Credentials** in URLs are removed before anything is stored or shown. An ssh user name
+  such as `git@` is kept.
+- **Provider hosts:**
+  - GitHub: `github.com`, `ssh.github.com`, `www.github.com`;
+  - Bitbucket Cloud: `bitbucket.org`, `altssh.bitbucket.org`, `www.bitbucket.org`.
+
+  Enterprise and Data Center hosts are reported as other hosts.
+
+- **SSH aliases.** ATLAS reads `~/.ssh/config` itself and inlines its `Include` files where
+  they appear.
+  - `ssh -G` is never run, because it executes `Match exec` and other commands of the
+    configuration.
+  - Host patterns follow ssh: `*`, `?` and `!` negation, and the first value wins.
+  - `HostName` supports `%h` and `%%`. Any other token, and every `Match` block, is not
+    evaluated.
+  - `Include` accepts `~`, absolute and `~/.ssh`-relative paths, with wildcards only in the
+    file name.
+  - Limits: 256 KB per file, 32 files, depth 4.
+- **An alias an account declares** names the provider even without a `HostName`.
+- **Remote kinds:**
+  - Supported;
+  - Unknown SSH alias: choosing an account sets its provider;
+  - Other host;
+  - Not a hosted repository: also used for paths that are not exactly `owner/repo`.
+- **Removed remotes** stay listed as removed until dismissed.
+- **Repository identity** is `PROVIDER:host/owner/repo` in lower case. The same repository
+  reached by several remotes or projects is checked once.
+
+### Accounts (FR-002, FR-003)
+
+- There can be several accounts per provider. Each has:
+  - a name;
+  - for Bitbucket, the Atlassian email;
+  - optional SSH aliases, which are unique across accounts and ignore case.
+- `git user.email` is never used to pick an account.
+- **Testing an account** calls `GET /user` (GitHub) or `GET /2.0/user` (Bitbucket). It stores
+  the login, display name, state and a short message:
+
+| State              | When                                                        |
+| ------------------ | ----------------------------------------------------------- |
+| Not tested         | Created or email changed, not tested since                  |
+| Connected          | The provider returned the user                              |
+| No token           | No token is stored for the account                          |
+| Token rejected     | 401; the message names what each provider needs             |
+| Missing permission | 403 that is not a rate limit                                |
+| Rate limited       | 429, or 403 with `x-ratelimit-remaining: 0`                 |
+| Unreachable        | Network error, timeout (15 s) or 5xx                        |
+| Error              | Anything else, including an answer ATLAS did not understand |
+
+### Which account a remote uses (FR-004)
+
+For a supported remote, the first rule that applies decides:
+
+1. **Chosen by you:** a manual choice of an account of the same provider.
+2. **From its SSH alias:** exactly one account declares the remote's alias.
+3. **Only account:** the provider has exactly one account.
+4. **Only account with access:** exactly one account was found able to read the repository
+   by **Check access**.
+
+Otherwise the remote is ambiguous (several accounts) or has no account. Choosing
+"Automatic" removes a manual choice.
+
+**Check access:**
+
+- It asks `GET /repos/{owner}/{repo}` or `GET /2.0/repositories/{workspace}/{repo}` with
+  every candidate account that has a token. A manual account is the only candidate of its
+  remote.
+- It checks at most 50 repositories per click.
+- An account that is rate limited or unreachable is not asked again in the same click.
+- 404, and 403 without a rate limit, mean "No access": providers hide private repositories.
+
+### Credentials (FR-020)
+
+```text
+ Accounts tab ─► atlas.hosting.saveCredential(accountId, token) ─► main process
+        HostingCredentialVault: safeStorage.encryptString ─► <data>/credentials/
+          hosting-<accountId>.bin (0600, folder 0700; temporary file + rename)
+        ─► Engine host over the private parent port ('hosting-credential' message)
+        ─► Engine memory (Map) ─► Authorization header of provider requests
+```
+
+- **The renderer** sends the token once; the field is cleared and no method returns it.
+  Accounts only report `hasCredential`.
+- **SQLite** stores metadata only. Its tables have no token column, and a test checks it.
+- **Startup.** The main process decrypts the files when the Engine host starts or restarts
+  and sends them before `start`. A file that cannot be decrypted (another computer or user)
+  is skipped and logged without content; the account shows "No token".
+- **Removing an account** deletes its file and its in-memory token. The token stays valid at
+  the provider, and the dialog says so.
+- **Requests.**
+  - They are read-only, with a 15 s timeout and a 1 MB answer limit.
+  - Answers are validated with zod.
+  - Redirects are followed only on the API's own origin, at most three, so the
+    `Authorization` header never leaves the provider.
+  - Tokens never appear in URLs, logs or messages.
+- **The CLI** cannot call `hosting.*`. It has no access to the tokens, which only the desktop
+  main process can decrypt.
+- **Tests only:** `ATLAS_GITHUB_API_URL` and `ATLAS_BITBUCKET_API_URL` point the Engine at a
+  fake provider. Only loopback addresses are accepted, so a token cannot be sent elsewhere by
+  changing the environment.
+
+### Data (migration v24)
+
+- `hosting_accounts`: provider, label, email, login, display name, SSH aliases (JSON),
+  state, message, test and update times.
+- `hosting_remotes`: one row per project and remote name.
+  - What discovery found: kind, provider, alias, host, owner, name and repository key.
+  - The manual account, and the removal time.
+  - Rows are deleted with their project. Removing an account clears the manual choices
+    that point at it.
+- `hosting_repository_access`: one row per repository key and account, with the result and
+  its time. Rows are deleted with their account.
+
+Rolling back to 0.44.x needs a database copy taken before 0.45.0 first ran. The
+`credentials` folder can be deleted.
+
+### Contracts
+
+- **Engine methods** (desktop only):
+  - `hosting.accounts`, `createAccount`, `updateAccount`, `removeAccount` and `testAccount`;
+  - `hosting.repositories`, `setRemoteAccount`, `dismissRemote` and `checkAccess`.
+- **Renderer bridge:** `atlas.hosting` has the same operations, plus `credentialStatus` and
+  `saveCredential`. `saveCredential` and `removeAccount` are handled by the main process,
+  which also updates the vault.
+- **New error codes:**
+  - `HOSTING_ACCOUNT_NOT_FOUND`;
+  - `HOSTING_REPOSITORY_NOT_FOUND`;
+  - `HOSTING_ACCOUNT_MISMATCH`;
+  - `HOSTING_CREDENTIAL_STORE_UNAVAILABLE`.
+
+### Tests
+
+- **`packages/hosting/tests/hosting.test.ts`:**
+  - URL forms and non-hosted remotes;
+  - credential removal;
+  - classification;
+  - SSH patterns, negation, first value, `%h`, and `Match` and unknown tokens not evaluated;
+  - discovery without network;
+  - missing folders;
+  - the assignment precedence (alias, only account, access check, manual, after removal);
+  - unknown aliases resolved by an account;
+  - provider mismatch;
+  - removed remotes and dismiss;
+  - account states without the token;
+  - rate-limit skip;
+  - validation.
+- **`packages/persistence/tests/hosting.test.ts`:**
+  - the v23 → v24 migration, with no token column;
+  - manual choices kept on rescans;
+  - account removal effects;
+  - writes for removed projects or accounts;
+  - cascade with the project.
+- **`apps/engine/tests/hosting.test.ts`:**
+  - Bearer and Basic authentication;
+  - status mapping;
+  - access results;
+  - same-origin redirects only;
+  - size limit, invalid answers and unreachable hosts;
+  - loopback-only overrides;
+  - `Include` expansion;
+  - the Engine with real Git remotes and a fake provider: one request per repository,
+    `hosting.*` refused to the CLI.
+- **`apps/desktop/tests/credential-vault.test.ts`:**
+  - private encrypted files;
+  - refusal without a secret store (Linux `basic_text`);
+  - undecryptable and unrelated files;
+  - identifiers that are not UUIDs.
+- **`apps/desktop/tests/ipc.test.ts`:** tokens stored through the vault and never returned,
+  unknown accounts, removal and store status.
+- **`tests/e2e/pull-requests.spec.ts`** (Linux and Xvfb, fake GitHub, stubbed `safeStorage`):
+  - discovery with an alias and another host;
+  - two accounts, one rejected, then a new token;
+  - alias assignment, Check access, manual choice;
+  - tokens absent from the database and the credential files;
+  - removal;
+  - without a secret store, adding is disabled.
+- **`security.spec`** pins the `hosting` bridge.
+
+### Known limitations
+
+- **Hosts:** only `github.com` and `bitbucket.org`. GitHub Enterprise and Bitbucket Data
+  Center are not supported.
+- **Teams:** team-based review responsibilities, pull requests, synchronization and
+  notifications come with Milestones B–D.
+- **SSH configuration:** `Match` blocks and tokens other than `%h` are not evaluated. Such an
+  alias is shown as unknown and can be assigned by hand.
+- **Moving computers:** tokens are not portable. On another computer or user account they
+  must be entered again.
+- **Linux:** without a running secret service, accounts cannot be added.
+- **Proxies:** provider requests do not use `HTTPS_PROXY`; behind a mandatory proxy, tests
+  and access checks report the provider as unreachable.

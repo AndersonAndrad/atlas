@@ -6,8 +6,16 @@ import type {
 import type { SerializedError } from '@atlas/shared';
 
 /** Messages from the Electron main process to the Engine host utility process. */
+/** A hosting token decrypted by the main process; null removes it (SDD-024 Task 04). */
+export interface HostingCredentialMessage {
+  type: 'hosting-credential';
+  accountId: string;
+  token: string | null;
+}
+
 export type MainToHostMessage =
   | { type: 'start'; dataDir: string; appVersion: string }
+  | HostingCredentialMessage
   | EngineRequestMessage
   | { type: 'shutdown' };
 

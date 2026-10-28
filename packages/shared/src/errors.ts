@@ -59,6 +59,10 @@ export const ERROR_CODES = [
   'DOCKER_COMMAND_FAILED',
   'DOCKER_CONFIRMATION_REQUIRED',
   'DOCKER_SHELL_UNAVAILABLE',
+  'HOSTING_ACCOUNT_NOT_FOUND',
+  'HOSTING_REPOSITORY_NOT_FOUND',
+  'HOSTING_ACCOUNT_MISMATCH',
+  'HOSTING_CREDENTIAL_STORE_UNAVAILABLE',
   'HTTP_COLLECTION_NOT_FOUND',
   'HTTP_REQUEST_NOT_FOUND',
   'HTTP_EXECUTION_NOT_FOUND',
@@ -195,6 +199,12 @@ export const USER_MESSAGES: Record<ErrorCode, string> = {
   DOCKER_COMMAND_FAILED: 'Docker could not complete the operation.',
   DOCKER_CONFIRMATION_REQUIRED: 'Review the warnings and confirm to continue.',
   DOCKER_SHELL_UNAVAILABLE: 'No supported shell was found in this container.',
+  HOSTING_ACCOUNT_NOT_FOUND: 'The hosting account could not be found. It may have been removed.',
+  HOSTING_REPOSITORY_NOT_FOUND:
+    'The repository could not be found among the remotes of registered projects.',
+  HOSTING_ACCOUNT_MISMATCH: 'This account belongs to another provider than the repository.',
+  HOSTING_CREDENTIAL_STORE_UNAVAILABLE:
+    'Tokens cannot be stored securely on this computer, so ATLAS does not save them.',
   HTTP_COLLECTION_NOT_FOUND: 'The collection could not be found. It may have been deleted.',
   HTTP_REQUEST_NOT_FOUND: 'The request could not be found. It may have been deleted.',
   HTTP_EXECUTION_NOT_FOUND:

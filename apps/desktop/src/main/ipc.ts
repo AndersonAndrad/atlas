@@ -67,6 +67,10 @@ import {
   WatchFilesSchema,
   OpenContainerLogsSchema,
   type OpenContainerLogsInput,
+  HostingAccountIdSchema,
+  SaveHostingCredentialSchema,
+  type HostingCredentialStoreStatus,
+  type SaveHostingCredentialInput,
   HttpExecutionIdSchema,
   SaveHttpRequestSchema,
   SendHttpRequestSchema,
@@ -125,6 +129,14 @@ export interface IpcDependencies {
   setTerminalShortcuts: (enabled: boolean) => void;
   /** Editor tabs with unsaved changes, so quitting or closing the window asks first. */
   setUnsavedFiles: (count: number) => void;
+  /** Encrypted hosting tokens (SDD-024 Task 04); plain tokens only go to the Engine host. */
+  hostingVault: {
+    status(): HostingCredentialStoreStatus;
+    save(accountId: string, token: string): Promise<void>;
+    remove(accountId: string): Promise<void>;
+  };
+  /** Hands a hosting token to the Engine host over its private port; null removes it. */
+  setHostingCredential: (accountId: string, token: string | null) => Promise<void>;
 }
 
 const NoArgs = z.tuple([]);
@@ -606,6 +618,43 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     [IPC_CHANNELS.dockerLogsClose, 'docker.logsClose'],
     [IPC_CHANNELS.dockerOpenTerminal, 'docker.openTerminal'],
   ];
+  // Hosting accounts (SDD-024 Task 04 Milestone A). Tokens arrive only here, are encrypted
+  // by the vault and handed to the Engine host; no channel returns them.
+  const hostingChannels: [string, EngineMethod][] = [
+    [IPC_CHANNELS.hostingAccounts, 'hosting.accounts'],
+    [IPC_CHANNELS.hostingCreateAccount, 'hosting.createAccount'],
+    [IPC_CHANNELS.hostingUpdateAccount, 'hosting.updateAccount'],
+    [IPC_CHANNELS.hostingTestAccount, 'hosting.testAccount'],
+    [IPC_CHANNELS.hostingRepositories, 'hosting.repositories'],
+    [IPC_CHANNELS.hostingSetRemoteAccount, 'hosting.setRemoteAccount'],
+    [IPC_CHANNELS.hostingDismissRemote, 'hosting.dismissRemote'],
+    [IPC_CHANNELS.hostingCheckAccess, 'hosting.checkAccess'],
+  ];
+  handle(IPC_CHANNELS.hostingCredentialStatus, NoArgs, async () => deps.hostingVault.status());
+  handle(
+    IPC_CHANNELS.hostingSaveCredential,
+    z.tuple([SaveHostingCredentialSchema]),
+    async ([input]) => {
+      const { accountId, token } = input as SaveHostingCredentialInput;
+      const accounts = await engine.call('hosting.accounts');
+      if (!accounts.some((account) => account.id === accountId)) {
+        throw new AtlasError('HOSTING_ACCOUNT_NOT_FOUND');
+      }
+      await deps.hostingVault.save(accountId, token);
+      await deps.setHostingCredential(accountId, token);
+      return engine.call('hosting.testAccount', accountId);
+    },
+  );
+  handle(
+    IPC_CHANNELS.hostingRemoveAccount,
+    z.tuple([HostingAccountIdSchema]),
+    async ([accountId]) => {
+      await engine.call('hosting.removeAccount', accountId as string);
+      await deps.hostingVault.remove(accountId as string);
+      await deps.setHostingCredential(accountId as string, null);
+      return null;
+    },
+  );
   // Watches and log streams belong to the window; the main process names it.
   handle(IPC_CHANNELS.dockerWatch, z.tuple([z.boolean()]), async ([enabled]) => {
     await engine.call('docker.watch', deps.subscriberId(), enabled as boolean);
@@ -757,6 +806,7 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     ...noteChannels,
     ...jobChannels,
     ...dockerChannels,
+    ...hostingChannels,
     ...fileChannels,
   ]) {
     handle(channel, ENGINE_METHOD_PARAMS[method] as unknown as z.ZodType<unknown[]>, (args) =>

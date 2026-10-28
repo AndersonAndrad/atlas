@@ -581,6 +581,23 @@ stored: SQLite, history, logs and saved responses hold none. Response bodies liv
 private files while a window shows them and are removed with it, at shutdown and at
 start-up.
 
+### Pull Request Center (SDD-024 Task 04 Milestone A)
+
+Full description: `docs/sdd/SDD-024-git-intelligence-and-project-sync.md`, Task 04.
+
+```text
+ Pull requests view ─► atlas.hosting (preload) ─► main IPC
+        saveCredential / removeAccount ─► HostingCredentialVault (safeStorage, private files)
+          ─► Engine host 'hosting-credential' message (tokens in Engine memory only)
+        ─► Engine `hosting.*` (not offered to the CLI)
+             HostingService (packages/hosting): remote discovery and classification,
+               SSH alias resolution (read-only, nothing executed), accounts, assignment
+               precedence (manual, alias, only account, access check)
+             HttpHostingApi (adapter): GitHub and Bitbucket Cloud REST, read-only, timeouts,
+               size limit, same-origin redirects · FileSshConfigSource (Include inlined)
+             SqliteHostingRepository (migration v24): metadata only
+```
+
 ### Extensions Hub (SDD-015 Milestone A)
 
 Full description: `docs/sdd/SDD-015-vscode-extension-compatibility.md`.

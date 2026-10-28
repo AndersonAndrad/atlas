@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-28 — PLAN-058 (SDD-023 Task A05: project navigation and toolbar).
+Last updated: 2026-10-28 — PLAN-059 (SDD-024 Task 04 Milestone A: Pull Request Center accounts and repositories).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -73,6 +73,26 @@ teams run as sequential members in terminals) is implemented and awaits approval
 daily flow in the Project Hub) is implemented and awaits approval. Version 0.42.0 (schema v23). PLAN-057 (SDD-023 Task A04: terminal Actions menu) is implemented
 and awaits approval. Version 0.43.0 (schema v23). PLAN-058 (SDD-023 Task A05: project
 navigation and toolbar) is implemented and awaits approval. Version 0.44.0 (schema v23).
+PLAN-059 (SDD-024 Task 04 Milestone A: Pull Request Center accounts and repositories) is
+implemented and awaits approval. Version 0.45.0 (schema v24).
+
+## PLAN-059 — SDD-024 Task 04 Milestone A: Pull Request Center accounts and repositories
+
+- Approved 2026-10-28 by Anderson Andrade ("pode seguir aprovado"), with the presented
+  recommendations for Q1–Q5. R1–R9 were presented but not acknowledged by ID. Details:
+  SDD-024, Task 04.
+- What was built:
+  - **Pull requests view** with Repositories and Accounts tabs.
+  - **Discovery:** remotes of every project, with SSH aliases resolved from `~/.ssh/config`
+    and nothing executed.
+  - **Accounts:** several GitHub and Bitbucket Cloud accounts, with a connection test.
+  - **Assignment:** automatic or manual, plus an explicit access check.
+- **Tokens:**
+  - encrypted by the system secret store in the main process;
+  - handed to the Engine in memory;
+  - never in SQLite, and never returned to the window.
+- New package `packages/hosting`, migration v24, ADR-072.
+- Rolling back to 0.44.x needs a database copy taken before 0.45.0 first ran.
 
 ## PLAN-058 — SDD-023 Task A05: project navigation and toolbar
 

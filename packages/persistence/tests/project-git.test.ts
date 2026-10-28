@@ -80,7 +80,7 @@ describe('project Git monitoring in SQLite (SDD-024)', () => {
     db.close();
 
     db = openDatabase({ filePath: v16Path });
-    expect(getSchemaVersion(db)).toBe(23);
+    expect(getSchemaVersion(db)).toBe(24);
     return expect(new SqliteProjectGitRepository(db).list()).resolves.toEqual([
       { projectId: B, monitoringEnabled: true, snapshot: null, refreshedAt: null, error: null },
     ]);
@@ -98,7 +98,7 @@ describe('project Git monitoring in SQLite (SDD-024)', () => {
     db.close();
 
     db = openDatabase({ filePath: v17Path });
-    expect(getSchemaVersion(db)).toBe(23);
+    expect(getSchemaVersion(db)).toBe(24);
     expect((await new SqliteProjectGitRepository(db).get(B))?.snapshot).toMatchObject({
       state: 'repository',
       branch: 'main',

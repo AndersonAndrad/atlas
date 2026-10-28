@@ -45,6 +45,7 @@
 | M24a      | SDD-024 T01   | Per-project Git monitoring, stored Git snapshots, project badges and manual refresh             | Implemented — awaiting approval       |
 | M24b      | SDD-024 T02   | Pending Push sidebar: unpushed commits per project, details, Load more, push with confirmation  | Implemented — awaiting approval       |
 | M24c      | SDD-024 T03   | Git identity: global and per-project user.name/user.email with their effective source           | Implemented — awaiting approval       |
+| M24d      | SDD-024 T04 A | Pull Request Center A: remotes, SSH aliases, GitHub/Bitbucket accounts, encrypted tokens        | Implemented — awaiting approval       |
 | M25a      | SDD-025 T01   | Non-blocking background operations: push, pull and fetch as GIT jobs, View in Operations        | Implemented — awaiting approval       |
 | M25b      | SDD-025 T02   | Task execution: run a task with Claude Code or Codex in a new or existing terminal, history     | Implemented — awaiting approval       |
 | M25c      | SDD-025 T02 C | ATLAS team execution of a task (sequential minimal integration in SDD-026 T02)                  | Implemented — awaiting approval       |

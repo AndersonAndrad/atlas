@@ -13,12 +13,14 @@ import {
   clipboard,
   dialog,
   ipcMain,
+  safeStorage,
   session,
   shell,
   utilityProcess,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from 'electron';
+import { HostingCredentialVault } from './credential-vault';
 import { EngineHostClient } from './engine-client';
 import { registerIpcHandlers } from './ipc';
 import { buildMenuTemplate, setTerminalShortcutsEnabled } from './menu';
@@ -195,7 +197,15 @@ async function bootstrap(): Promise<void> {
     callback(false),
   );
 
+  // Hosting tokens (SDD-024 Task 04): encrypted here, handed to each Engine host that starts.
+  const hostingVault = new HostingCredentialVault({
+    directory: path.join(dataDir, 'credentials'),
+    safeStorage: () => safeStorage,
+    platform: process.platform,
+    logger,
+  });
   engine = new EngineHostClient({
+    hostingCredentials: async () => (hostingVault.status().available ? hostingVault.readAll() : []),
     fork: () =>
       utilityProcess.fork(engineHostEntry, [], {
         serviceName: 'ATLAS Engine',
@@ -273,6 +283,8 @@ async function bootstrap(): Promise<void> {
     setUnsavedFiles: (count) => {
       unsavedEditorFiles = count;
     },
+    hostingVault,
+    setHostingCredential: (accountId, token) => engine!.setHostingCredential(accountId, token),
     setTerminalShortcuts: (enabled) => {
       const menu = Menu.getApplicationMenu();
       if (menu !== null) setTerminalShortcutsEnabled(menu, enabled);

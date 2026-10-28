@@ -23,6 +23,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       noteKeys: Object.keys((w.atlas as { notes: object }).notes).sort(),
       jobKeys: Object.keys((w.atlas as { jobs: object }).jobs).sort(),
       dockerKeys: Object.keys((w.atlas as { docker: object }).docker).sort(),
+      hostingKeys: Object.keys((w.atlas as { hosting: object }).hosting).sort(),
       httpKeys: Object.keys((w.atlas as { http: object }).http).sort(),
       extensionKeys: Object.keys((w.atlas as { extensions: object }).extensions).sort(),
       projectFileKeys: Object.keys((w.atlas as { projectFiles: object }).projectFiles).sort(),
@@ -46,6 +47,7 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'files',
       'git',
       'groups',
+      'hosting',
       'http',
       'jobs',
       'notes',
@@ -92,6 +94,20 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
     // Notifications are read, marked read or deleted by id; nothing else crosses the bridge.
     notificationKeys: ['clear', 'list', 'markAllRead', 'markRead', 'remove'],
     // Docker operations are typed and name their context; no socket, API or command text.
+    // Hosting tokens only go in with saveCredential; nothing returns them (SDD-024 Task 04).
+    hostingKeys: [
+      'accounts',
+      'checkAccess',
+      'createAccount',
+      'credentialStatus',
+      'dismissRemote',
+      'removeAccount',
+      'repositories',
+      'saveCredential',
+      'setRemoteAccount',
+      'testAccount',
+      'updateAccount',
+    ],
     dockerKeys: [
       'container',
       'containers',

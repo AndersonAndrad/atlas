@@ -641,6 +641,23 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
       return null;
     },
     'docker.openTerminal': ([input]: [unknown]) => engine.openContainerTerminal(input),
+    // Hosting accounts and repositories (SDD-024 Task 04 Milestone A); validated again by
+    // the service. Tokens never pass here: the desktop main process hands them over.
+    'hosting.accounts': () => engine.hosting.accounts(),
+    'hosting.createAccount': ([input]: [unknown]) => engine.hosting.createAccount(input),
+    'hosting.updateAccount': ([input]: [unknown]) => engine.hosting.updateAccount(input),
+    'hosting.removeAccount': async ([accountId]: [unknown]) => {
+      await engine.hosting.removeAccount(accountId);
+      return null;
+    },
+    'hosting.testAccount': ([accountId]: [unknown]) => engine.hosting.testAccount(accountId),
+    'hosting.repositories': () => engine.hosting.repositories(),
+    'hosting.setRemoteAccount': ([input]: [unknown]) => engine.hosting.setRemoteAccount(input),
+    'hosting.dismissRemote': async ([input]: [unknown]) => {
+      await engine.hosting.dismissRemote(input);
+      return null;
+    },
+    'hosting.checkAccess': ([input]: [unknown]) => engine.hosting.checkAccess(input),
     // API Workbench (SDD-014 Milestone A); the service validates every input again.
     'http.collections': ([input]: [unknown]) => engine.http.listCollections(input),
     'http.createCollection': ([input]: [unknown]) => engine.http.createCollection(input),

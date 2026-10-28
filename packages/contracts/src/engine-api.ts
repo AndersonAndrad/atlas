@@ -244,6 +244,17 @@ import {
   type DockerStatus,
 } from './docker.js';
 import {
+  CheckHostingAccessSchema,
+  CreateHostingAccountSchema,
+  HostingAccountIdSchema,
+  HostingRemoteRefSchema,
+  SetHostingRemoteAccountSchema,
+  UpdateHostingAccountSchema,
+  type HostingAccount,
+  type HostingRemote,
+  type HostingRepositoryScan,
+} from './hosting.js';
+import {
   ContributionsQuerySchema,
   ExtensionDetailsSchema,
   ExtensionIdSchema,
@@ -631,6 +642,17 @@ export const ENGINE_METHOD_PARAMS = {
   /** Stops the watch and the log streams of a window that went away. */
   'docker.detach': z.tuple([SubscriberIdSchema]),
   'docker.openTerminal': z.tuple([OpenContainerTerminalSchema]),
+  // Hosting accounts and repositories (SDD-024 Task 04 Milestone A): desktop only. Tokens
+  // never travel through these methods; the main process hands them to the Engine host.
+  'hosting.accounts': z.tuple([]),
+  'hosting.createAccount': z.tuple([CreateHostingAccountSchema]),
+  'hosting.updateAccount': z.tuple([UpdateHostingAccountSchema]),
+  'hosting.removeAccount': z.tuple([HostingAccountIdSchema]),
+  'hosting.testAccount': z.tuple([HostingAccountIdSchema]),
+  'hosting.repositories': z.tuple([]),
+  'hosting.setRemoteAccount': z.tuple([SetHostingRemoteAccountSchema]),
+  'hosting.dismissRemote': z.tuple([HostingRemoteRefSchema]),
+  'hosting.checkAccess': z.tuple([CheckHostingAccessSchema]),
   // API Workbench (SDD-014 Milestone A): desktop only. The main process adds the window
   // and the files picked in it; renderer-supplied paths are never trusted alone.
   'http.collections': z.tuple([ListHttpCollectionsSchema]),
@@ -976,6 +998,15 @@ export interface EngineMethodResults {
   'docker.logsClose': null;
   'docker.detach': null;
   'docker.openTerminal': TerminalSession;
+  'hosting.accounts': HostingAccount[];
+  'hosting.createAccount': HostingAccount;
+  'hosting.updateAccount': HostingAccount;
+  'hosting.removeAccount': null;
+  'hosting.testAccount': HostingAccount;
+  'hosting.repositories': HostingRepositoryScan;
+  'hosting.setRemoteAccount': HostingRemote;
+  'hosting.dismissRemote': null;
+  'hosting.checkAccess': HostingRepositoryScan;
   'http.collections': HttpCollection[];
   'http.createCollection': HttpCollection;
   'http.updateCollection': HttpCollection;

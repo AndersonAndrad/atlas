@@ -1086,4 +1086,55 @@ export const MIGRATIONS: readonly Migration[] = [
       ) STRICT;
     `,
   },
+  {
+    version: 24,
+    name: 'hosting_accounts_and_remotes',
+    // Pull Request Center repositories and hosting accounts (SDD-024 Task 04 Milestone A).
+    // Additive. Metadata only: tokens are encrypted by the main process in their own files
+    // and never stored here (FR-020). Remotes go with their project; a removed account
+    // clears manual choices pointing at it and its access results.
+    sql: `
+      CREATE TABLE hosting_accounts (
+        id TEXT PRIMARY KEY CHECK (length(id) = 36),
+        provider TEXT NOT NULL CHECK (provider IN ('GITHUB', 'BITBUCKET')),
+        label TEXT NOT NULL CHECK (length(label) BETWEEN 1 AND 60),
+        email TEXT CHECK (email IS NULL OR length(email) <= 254),
+        login TEXT CHECK (login IS NULL OR length(login) <= 255),
+        display_name TEXT CHECK (display_name IS NULL OR length(display_name) <= 255),
+        ssh_aliases TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(ssh_aliases)),
+        state TEXT NOT NULL,
+        state_message TEXT CHECK (state_message IS NULL OR length(state_message) <= 300),
+        checked_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) STRICT;
+
+      CREATE TABLE hosting_remotes (
+        project_id TEXT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+        remote_name TEXT NOT NULL CHECK (length(remote_name) BETWEEN 1 AND 255),
+        remote_url TEXT NOT NULL CHECK (length(remote_url) <= 2048),
+        kind TEXT NOT NULL
+          CHECK (kind IN ('SUPPORTED', 'UNRESOLVED_ALIAS', 'UNSUPPORTED_HOST', 'INVALID_URL')),
+        provider TEXT CHECK (provider IS NULL OR provider IN ('GITHUB', 'BITBUCKET')),
+        ssh_alias TEXT,
+        host TEXT,
+        owner TEXT,
+        name TEXT,
+        repository_key TEXT,
+        manual_account_id TEXT REFERENCES hosting_accounts (id) ON DELETE SET NULL,
+        removed_at TEXT,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, remote_name)
+      ) STRICT;
+      CREATE INDEX hosting_remotes_repository ON hosting_remotes (repository_key);
+
+      CREATE TABLE hosting_repository_access (
+        repository_key TEXT NOT NULL,
+        account_id TEXT NOT NULL REFERENCES hosting_accounts (id) ON DELETE CASCADE,
+        access TEXT NOT NULL CHECK (access IN ('UNKNOWN', 'ACCESSIBLE', 'NOT_FOUND', 'ERROR')),
+        checked_at TEXT NOT NULL,
+        PRIMARY KEY (repository_key, account_id)
+      ) STRICT;
+    `,
+  },
 ];

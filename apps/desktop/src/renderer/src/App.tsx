@@ -15,6 +15,7 @@ import { onOpenInEditor, type EditorOpenTarget } from './editor/navigation';
 import { onHubNavigation, type HubNavigation } from './audit/navigation';
 import { SettingsView } from './components/SettingsView';
 import { GitView, type GitOpenRequest } from './git/components/GitView';
+import { PullRequestsView } from './hosting/components/PullRequestsView';
 import { ContextView, type ContextOpenRequest } from './context/components/ContextView';
 import { SkillsView } from './skills/components/SkillsView';
 import { UsageView } from './usage/components/UsageView';
@@ -429,6 +430,7 @@ export function App() {
                 onOpenPreflight={(projectId) => openPreflight({ projectId })}
               />
             )}
+            {view === 'pull-requests' && <PullRequestsView />}
             {view === 'preflight' && (
               <PreflightView
                 projects={projects.items ?? []}

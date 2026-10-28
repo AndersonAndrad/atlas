@@ -17,6 +17,7 @@ export * from './notes.js';
 export * from './files.js';
 export * from './jobs.js';
 export * from './docker.js';
+export * from './hosting.js';
 export * from './http.js';
 export * from './extensions.js';
 export * from './debug.js';

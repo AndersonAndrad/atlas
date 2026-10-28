@@ -52,6 +52,7 @@ import {
   SqliteNotificationRepository,
   SqliteNoteRepository,
   SqliteHttpWorkbenchRepository,
+  SqliteHostingRepository,
   SqliteExtensionRepository,
   SqliteJobRepository,
   SqliteProjectGitRepository,
@@ -130,6 +131,9 @@ import {
 import { NotesService } from '@atlas/notes';
 import { JobService } from '@atlas/jobs';
 import { DockerService } from '@atlas/docker';
+import { HostingService } from '@atlas/hosting';
+import { HttpHostingApi, hostingApiOverrides } from './adapters/hosting-api.js';
+import { FileSshConfigSource } from './adapters/ssh-config-reader.js';
 import { DockerCliRunner } from './adapters/docker-cli.js';
 import { HttpWorkbenchService } from '@atlas/api-workbench';
 import { ExtensionsService, TESTED_EXTENSIONS } from '@atlas/extensions';
@@ -234,6 +238,13 @@ export interface Engine {
   projectWorkflow(projectId: string): Promise<ProjectWorkflowSummary>;
   /** Docker through the Docker CLI (SDD-013 Milestone A); optional, never required. */
   readonly docker: DockerService;
+  /** Hosting accounts and repositories of the Pull Request Center (SDD-024 Task 04). */
+  readonly hosting: HostingService;
+  /**
+   * Hosting tokens for this run, handed over by the desktop main process, which keeps them
+   * encrypted (FR-020). Never persisted, logged or returned by any method.
+   */
+  setHostingCredential(accountId: string, token: string | null): void;
   /** HTTP requests, collections and history (SDD-014 Milestone A); desktop only. */
   readonly http: HttpWorkbenchService;
   /** Extensions Hub and declarative contributions (SDD-015 Milestone A); desktop only. */
@@ -1155,6 +1166,34 @@ export function createEngine(options: EngineOptions = {}): Engine {
     onChange: (context, containerId) =>
       terminals?.publish({ type: 'docker', context, containerId }),
   });
+  const hostingCredentials = new Map<string, string>();
+  const hostingStore = new SqliteHostingRepository(db);
+  const hosting = new HostingService({
+    accounts: hostingStore.accounts,
+    remotes: hostingStore.remotes,
+    access: hostingStore.access,
+    projects: {
+      list: async () =>
+        (await projects.listDetails()).map((item) => ({
+          id: item.project.id,
+          name: item.project.name,
+          workspacePath: item.project.workspacePath,
+          available: item.availability.status === 'available',
+          repository: item.git.isRepository,
+        })),
+    },
+    remoteReader: { remotes: (workspacePath) => gitWorkspace.remotes(workspacePath) },
+    sshConfig: new FileSshConfigSource(homeDirectory),
+    credentials: { get: (accountId) => hostingCredentials.get(accountId) ?? null },
+    api: new HttpHostingApi({
+      userAgent: `ATLAS/${engineVersion}`,
+      logger,
+      baseUrls: hostingApiOverrides(env, logger),
+    }),
+    clock,
+    generateId: randomUUID,
+    logger,
+  });
   const http = new HttpWorkbenchService({
     repository: new SqliteHttpWorkbenchRepository(db),
     transport: new NodeHttpTransport(),
@@ -1689,6 +1728,11 @@ export function createEngine(options: EngineOptions = {}): Engine {
     jobs,
     audits,
     docker,
+    hosting,
+    setHostingCredential: (accountId, token) => {
+      if (token === null) hostingCredentials.delete(accountId);
+      else hostingCredentials.set(accountId, token);
+    },
     http,
     extensions,
     debug,

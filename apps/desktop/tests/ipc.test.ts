@@ -57,6 +57,8 @@ describe('desktop IPC handlers', () => {
   let shortcuts: boolean[] = [];
   let unsaved: number[] = [];
   let savePath: string | null = null;
+  let vault: Map<string, string>;
+  let vaultAvailable: boolean;
 
   const trustedEvent = {} as IpcMainInvokeEvent;
   const invoke = <T>(channel: string, ...args: unknown[]) =>
@@ -79,6 +81,8 @@ describe('desktop IPC handlers', () => {
     spawner = new FakePtySpawner();
     engine = createEngine({
       dataDir: path.join(temp.dir, 'data'),
+      // Hosting tests never reach a real provider: this port refuses connections.
+      env: { ...process.env, ATLAS_GITHUB_API_URL: 'http://127.0.0.1:1' },
       terminals: {
         spawner,
         mirrors: new FakeMirrorFactory(),
@@ -93,6 +97,8 @@ describe('desktop IPC handlers', () => {
     trashed = [];
     shortcuts = [];
     unsaved = [];
+    vault = new Map();
+    vaultAvailable = true;
     engine.terminals!.onEvent((event, subscriberId) => events.push({ event, subscriberId }));
     const dispatcher = createEngineDispatcher(engine);
     const caller: EngineCaller = {
@@ -132,6 +138,16 @@ describe('desktop IPC handlers', () => {
       },
       setTerminalShortcuts: (enabled: boolean) => shortcuts.push(enabled),
       setUnsavedFiles: (count: number) => unsaved.push(count),
+      hostingVault: {
+        status: () => ({ available: vaultAvailable, reason: vaultAvailable ? null : 'No store.' }),
+        save: async (accountId: string, token: string) => {
+          if (!vaultAvailable) throw new Error('unavailable');
+          vault.set(accountId, token);
+        },
+        remove: async (accountId: string) => void vault.delete(accountId),
+      },
+      setHostingCredential: async (accountId: string, token: string | null) =>
+        engine.setHostingCredential(accountId, token),
       isTrustedSender: () => trusted,
       showOpenDialog: async () =>
         pickedPath === undefined
@@ -147,6 +163,46 @@ describe('desktop IPC handlers', () => {
   it('registers exactly the declared channels', () => {
     expect([...handlers.keys()].sort()).toEqual(Object.values(IPC_CHANNELS).sort());
     expect([...listeners.keys()].sort()).toEqual(Object.values(IPC_SEND_CHANNELS).sort());
+  });
+
+  it('stores hosting tokens through the vault and never returns them (SDD-024 Task 04)', async () => {
+    const created = await invoke<{ id: string }>(IPC_CHANNELS.hostingCreateAccount, {
+      provider: 'GITHUB',
+      label: 'Work',
+    });
+    expect(created.ok).toBe(true);
+    const accountId = (created as { data: { id: string } }).data.id;
+    // A token for an unknown account is refused before anything is stored.
+    expect(
+      await invoke(IPC_CHANNELS.hostingSaveCredential, {
+        accountId: '00000000-0000-4000-8000-0000000000ff',
+        token: 'ghp_x',
+      }),
+    ).toMatchObject({ ok: false, error: { code: 'HOSTING_ACCOUNT_NOT_FOUND' } });
+    expect(
+      await invoke(IPC_CHANNELS.hostingSaveCredential, { accountId, token: 'has space' }),
+    ).toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+    // The Engine tests the account with the handed token; no provider answers here.
+    const saved = await invoke(IPC_CHANNELS.hostingSaveCredential, {
+      accountId,
+      token: 'ghp_secret_value',
+    });
+    expect(saved).toMatchObject({ ok: true, data: { hasCredential: true, state: 'UNREACHABLE' } });
+    expect(vault.get(accountId)).toBe('ghp_secret_value');
+    const listed = await invoke(IPC_CHANNELS.hostingAccounts);
+    expect(JSON.stringify([saved, listed])).not.toContain('ghp_secret_value');
+
+    expect(await invoke(IPC_CHANNELS.hostingRemoveAccount, accountId)).toEqual({
+      ok: true,
+      data: null,
+    });
+    expect(vault.has(accountId)).toBe(false);
+    expect(await invoke(IPC_CHANNELS.hostingAccounts)).toEqual({ ok: true, data: [] });
+    vaultAvailable = false;
+    expect(await invoke(IPC_CHANNELS.hostingCredentialStatus)).toEqual({
+      ok: true,
+      data: { available: false, reason: 'No store.' },
+    });
   });
 
   it('creates a project from a directory chosen in the native picker', async () => {

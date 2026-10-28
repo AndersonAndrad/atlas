@@ -6,6 +6,7 @@ import {
   Database,
   FolderGit2,
   GitBranch,
+  GitPullRequest,
   KeyRound,
   ListChecks,
   NotebookTabs,
@@ -29,6 +30,7 @@ export type AppView =
   | 'terminals'
   | 'editor'
   | 'git'
+  | 'pull-requests'
   | 'preflight'
   | 'operations'
   | 'containers'
@@ -54,6 +56,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'terminals', label: 'Terminals', icon: SquareTerminal, view: 'terminals' },
   { id: 'editor', label: 'Editor', icon: SquareCode, view: 'editor' },
   { id: 'git', label: 'Git', icon: GitBranch, view: 'git' },
+  { id: 'pull-requests', label: 'Pull requests', icon: GitPullRequest, view: 'pull-requests' },
   { id: 'preflight', label: 'Preflight', icon: ShieldCheck, view: 'preflight' },
   { id: 'operations', label: 'Operations', icon: Activity, view: 'operations' },
   { id: 'containers', label: 'Containers', icon: Boxes, view: 'containers' },

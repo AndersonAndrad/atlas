@@ -13,6 +13,11 @@ export interface EngineHostClientOptions {
   appVersion: string;
   logger: Logger;
   onEvent: (message: EngineEventMessage) => void;
+  /**
+   * Hosting tokens to hand to every Engine host that starts, including after a crash; they
+   * are decrypted by the main process and only travel over the private parent port.
+   */
+  hostingCredentials?: () => Promise<{ accountId: string; token: string }[]>;
   /** Called after the host crashed and a new one is ready. */
   onRestarted: () => void;
   /** Called when the host crashed too often and is no longer restarted. */
@@ -94,13 +99,34 @@ export class EngineHostClient implements EngineCaller {
         }
         if (!this.stopping) this.handleCrash(code);
       });
-      this.post({
-        type: 'start',
-        dataDir: this.options.dataDir,
-        appVersion: this.options.appVersion,
-      });
+      void (async () => {
+        // Sent before `start`: the host keeps them until its Engine is ready.
+        const credentials = await this.options.hostingCredentials?.().catch((error: unknown) => {
+          this.options.logger.warn('Hosting tokens could not be read', {
+            error: error instanceof Error ? error.name : 'unknown',
+          });
+          return [];
+        });
+        for (const { accountId, token } of credentials ?? []) {
+          this.post({ type: 'hosting-credential', accountId, token });
+        }
+        this.post({
+          type: 'start',
+          dataDir: this.options.dataDir,
+          appVersion: this.options.appVersion,
+        });
+      })();
     });
     return this.ready;
+  }
+
+  /** Hands a hosting token to the running Engine host, or removes it (null). */
+  async setHostingCredential(accountId: string, token: string | null): Promise<void> {
+    await this.ready;
+    if (this.child === undefined) {
+      throw new AtlasError('ENGINE_UNAVAILABLE', 'The Engine process is not running.');
+    }
+    this.post({ type: 'hosting-credential', accountId, token });
   }
 
   async call<M extends EngineMethod>(

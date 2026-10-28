@@ -13,6 +13,8 @@ declare const __ATLAS_ENGINE_VERSION__: string;
 
 const parentPort = process.parentPort;
 let host: EngineHost | undefined;
+/** Hosting tokens received before the Engine was ready; applied once it is. */
+const pendingCredentials = new Map<string, string | null>();
 /** Available once main sent the data directory; used for crash diagnostics. */
 let crashLogger: Logger = noopLogger;
 const send = (message: HostToMainMessage) => parentPort.postMessage(message);
@@ -50,6 +52,10 @@ async function start(dataDir: string, appVersion: string): Promise<void> {
       ),
     );
     host.onSessionChanged((event) => send({ type: 'event', event }));
+    for (const [accountId, token] of pendingCredentials) {
+      host.engine.setHostingCredential(accountId, token);
+    }
+    pendingCredentials.clear();
     send({ type: 'ready' });
   } catch (error) {
     crashLogger.error('Engine host failed to start', { error: describeError(error) });
@@ -74,6 +80,12 @@ parentPort.on('message', (event: Electron.MessageEvent) => {
   }
   if (message.type === 'shutdown') {
     void shutdown();
+    return;
+  }
+  // Tokens stay in this process's memory only; they are never logged or echoed.
+  if (message.type === 'hosting-credential') {
+    if (host === undefined) pendingCredentials.set(message.accountId, message.token);
+    else host.engine.setHostingCredential(message.accountId, message.token);
     return;
   }
   if (!isRequestMessage(message) || host === undefined) return;

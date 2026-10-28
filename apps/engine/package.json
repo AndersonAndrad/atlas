@@ -1,6 +1,6 @@
 {
   "name": "@atlas/engine",
-  "version": "0.44.0",
+  "version": "0.45.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -27,6 +27,7 @@
     "@atlas/git": "workspace:*",
     "@atlas/jobs": "workspace:*",
     "@atlas/notes": "workspace:*",
+    "@atlas/hosting": "workspace:*",
     "@atlas/audit": "workspace:*",
     "@atlas/notifications": "workspace:*",
     "@atlas/persistence": "workspace:*",

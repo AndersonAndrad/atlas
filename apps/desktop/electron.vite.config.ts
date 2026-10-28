@@ -25,6 +25,7 @@ const workspaceSources: Record<string, string> = {
   '@atlas/preflight': 'packages/preflight/src/index.ts',
   '@atlas/notifications': 'packages/notifications/src/index.ts',
   '@atlas/notes': 'packages/notes/src/index.ts',
+  '@atlas/hosting': 'packages/hosting/src/index.ts',
   '@atlas/audit': 'packages/audit/src/index.ts',
   '@atlas/jobs': 'packages/jobs/src/index.ts',
   '@atlas/docker': 'packages/docker/src/index.ts',

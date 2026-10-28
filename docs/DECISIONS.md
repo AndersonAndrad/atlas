@@ -896,3 +896,26 @@ superseded decisions are marked, not deleted.
   - Green no longer marks a running shell.
   - Shell commands have no execution status.
   - Rolling back to 0.35.x needs a database copy taken before 0.36.0 first ran (schema v19).
+
+## ADR-072 — Hosting tokens are encrypted by the main process and live in Engine memory (PLAN-059)
+
+- **Decision**:
+  - Hosting tokens (SDD-024 Task 04) are encrypted with Electron `safeStorage` in the main
+    process. Each is stored as its own private file under `<data>/credentials`, never in
+    SQLite.
+  - The main process hands them to the Engine host over the private parent port when the
+    host starts and when they change. The Engine keeps them in memory only.
+  - The renderer sends a token once and never receives it back.
+  - Without a real secret store (Linux `basic_text`), tokens are refused.
+- **Alternatives**:
+  - A token column in SQLite, plain or app-encrypted: rejected (FR-020).
+  - Provider calls in the main process: rejected; the Engine owns domain logic and data.
+  - `keytar` or a native keychain module: rejected; it is a new native dependency and
+    `safeStorage` already ships with Electron.
+  - Tokens through the generic RPC: rejected; its parameters reach error paths and the CLI
+    socket.
+- **Consequences**:
+  - The CLI has no hosting access.
+  - Tokens are not portable between computers or users.
+  - E2E tests stub `safeStorage`.
+  - A later vault for the API Workbench (SDD-014 Q1) can reuse this path.

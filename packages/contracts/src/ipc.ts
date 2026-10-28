@@ -127,6 +127,18 @@ import type {
   SelectDockerContextInput,
 } from './docker.js';
 import type {
+  CheckHostingAccessInput,
+  CreateHostingAccountInput,
+  HostingAccount,
+  HostingCredentialStoreStatus,
+  HostingRemote,
+  HostingRemoteRef,
+  HostingRepositoryScan,
+  SaveHostingCredentialInput,
+  SetHostingRemoteAccountInput,
+  UpdateHostingAccountInput,
+} from './hosting.js';
+import type {
   CreateHttpCollectionInput,
   CreateHttpFolderInput,
   HttpBodyPage,
@@ -513,6 +525,17 @@ export const IPC_CHANNELS = {
   dockerLogsRead: 'atlas:docker:logs-read',
   dockerLogsClose: 'atlas:docker:logs-close',
   dockerOpenTerminal: 'atlas:docker:open-terminal',
+  hostingCredentialStatus: 'atlas:hosting:credential-status',
+  hostingAccounts: 'atlas:hosting:accounts',
+  hostingCreateAccount: 'atlas:hosting:create-account',
+  hostingUpdateAccount: 'atlas:hosting:update-account',
+  hostingRemoveAccount: 'atlas:hosting:remove-account',
+  hostingSaveCredential: 'atlas:hosting:save-credential',
+  hostingTestAccount: 'atlas:hosting:test-account',
+  hostingRepositories: 'atlas:hosting:repositories',
+  hostingSetRemoteAccount: 'atlas:hosting:set-remote-account',
+  hostingDismissRemote: 'atlas:hosting:dismiss-remote',
+  hostingCheckAccess: 'atlas:hosting:check-access',
   httpCollections: 'atlas:http:collections',
   httpCreateCollection: 'atlas:http:create-collection',
   httpUpdateCollection: 'atlas:http:update-collection',
@@ -1084,6 +1107,29 @@ export interface AtlasApi {
     logsClose(sessionId: string): Promise<IpcResult<null>>;
     /** A new ATLAS terminal running a shell in the container. */
     openTerminal(input: OpenContainerTerminalInput): Promise<IpcResult<TerminalSession>>;
+  };
+  /**
+   * Hosting accounts and repositories of the Pull Request Center (SDD-024 Task 04
+   * Milestone A). Tokens only travel in `saveCredential`; nothing returns them.
+   */
+  hosting: {
+    credentialStatus(): Promise<IpcResult<HostingCredentialStoreStatus>>;
+    accounts(): Promise<IpcResult<HostingAccount[]>>;
+    createAccount(input: CreateHostingAccountInput): Promise<IpcResult<HostingAccount>>;
+    updateAccount(input: UpdateHostingAccountInput): Promise<IpcResult<HostingAccount>>;
+    /** Removes the account and its stored token; remotes return to automatic assignment. */
+    removeAccount(accountId: string): Promise<IpcResult<null>>;
+    /** Encrypts and stores the token in the main process, then tests the connection. */
+    saveCredential(input: SaveHostingCredentialInput): Promise<IpcResult<HostingAccount>>;
+    /** Calls the provider with the stored token. */
+    testAccount(accountId: string): Promise<IpcResult<HostingAccount>>;
+    /** Reads the remotes of every registered project; no network access. */
+    repositories(): Promise<IpcResult<HostingRepositoryScan>>;
+    setRemoteAccount(input: SetHostingRemoteAccountInput): Promise<IpcResult<HostingRemote>>;
+    /** Forgets a remote that no longer exists in its project. */
+    dismissRemote(input: HostingRemoteRef): Promise<IpcResult<null>>;
+    /** Asks the providers which accounts can read each repository (explicit only). */
+    checkAccess(input: CheckHostingAccessInput): Promise<IpcResult<HostingRepositoryScan>>;
   };
   /**
    * API Workbench (SDD-014 Milestone A). Requests run in the Engine, never in the window;

@@ -19,3 +19,4 @@ export * from './sqlite-terminal-activity-repository.js';
 export * from './sqlite-task-execution-repository.js';
 export * from './sqlite-audit-repository.js';
 export * from './sqlite-team-execution-repository.js';
+export * from './sqlite-hosting-repository.js';
