@@ -1137,4 +1137,114 @@ export const MIGRATIONS: readonly Migration[] = [
       ) STRICT;
     `,
   },
+  {
+    version: 25,
+    name: 'quick_command_scopes',
+    // Quick commands available in every project or in selected ones (SDD-025 Task 03).
+    // Moves the PLAN-023 library out of application_settings, keeping order and meaning:
+    //   - prioritized, hidden nowhere: every project (ALL);
+    //   - prioritized, hidden somewhere: the current projects that did not hide it
+    //     (PLAN-060 Q2);
+    //   - not prioritized: the projects that enabled it, possibly none (available nowhere,
+    //     never everywhere).
+    // The old keys are removed only when the library was readable; an unreadable library
+    // is left untouched, as it was already ignored. CASE guards keep invalid JSON from
+    // reaching the JSON functions.
+    sql: `
+      CREATE TABLE quick_commands (
+        id TEXT PRIMARY KEY CHECK (length(id) = 36),
+        name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 60),
+        command TEXT NOT NULL CHECK (length(command) BETWEEN 1 AND 1000),
+        scope TEXT NOT NULL CHECK (scope IN ('ALL', 'PROJECTS')),
+        position INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) STRICT;
+
+      CREATE TABLE quick_command_projects (
+        command_id TEXT NOT NULL REFERENCES quick_commands (id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        PRIMARY KEY (command_id, project_id)
+      ) STRICT;
+      CREATE INDEX quick_command_projects_project ON quick_command_projects (project_id);
+
+      CREATE TEMP TABLE quick_command_library AS
+        SELECT json_extract(c.value, '$.id') AS id,
+               json_extract(c.value, '$.name') AS name,
+               json_extract(c.value, '$.command') AS command,
+               json_extract(c.value, '$.prioritized') AS prioritized,
+               CAST(c.key AS INTEGER) AS position
+        FROM application_settings s,
+             json_each(
+               CASE WHEN json_valid(s.value)
+                 THEN CASE WHEN json_extract(s.value, '$.version') = 1 THEN s.value ELSE '{}' END
+                 ELSE '{}' END,
+               '$.commands') c
+        WHERE s.key = 'quickCommands.library' AND c.type = 'object';
+
+      CREATE TEMP TABLE quick_command_flags AS
+        SELECT p.id AS project_id, e.value AS command_id, 'hidden' AS kind
+        FROM projects p
+        JOIN application_settings ps ON ps.key = 'quickCommands.project.' || p.id,
+             json_each(
+               CASE WHEN json_valid(ps.value)
+                 THEN CASE WHEN json_type(ps.value, '$.hidden') = 'array'
+                   THEN ps.value ELSE '{"hidden":[]}' END
+                 ELSE '{"hidden":[]}' END,
+               '$.hidden') e
+        UNION ALL
+        SELECT p.id, e.value, 'enabled'
+        FROM projects p
+        JOIN application_settings ps ON ps.key = 'quickCommands.project.' || p.id,
+             json_each(
+               CASE WHEN json_valid(ps.value)
+                 THEN CASE WHEN json_type(ps.value, '$.enabled') = 'array'
+                   THEN ps.value ELSE '{"enabled":[]}' END
+                 ELSE '{"enabled":[]}' END,
+               '$.enabled') e;
+
+      INSERT OR IGNORE INTO quick_commands
+        (id, name, command, scope, position, created_at, updated_at)
+      SELECT l.id, l.name, l.command,
+             CASE WHEN l.prioritized = 1 AND NOT EXISTS (
+                    SELECT 1 FROM quick_command_flags f
+                    WHERE f.kind = 'hidden' AND f.command_id = l.id)
+               THEN 'ALL' ELSE 'PROJECTS' END,
+             l.position,
+             strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+             strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      FROM quick_command_library l
+      WHERE typeof(l.id) = 'text' AND length(l.id) = 36
+        AND typeof(l.name) = 'text' AND length(l.name) BETWEEN 1 AND 60
+        AND typeof(l.command) = 'text' AND length(l.command) BETWEEN 1 AND 1000
+      ORDER BY l.position;
+
+      INSERT OR IGNORE INTO quick_command_projects (command_id, project_id, position)
+      SELECT q.id, p.id, 0
+      FROM quick_commands q
+      JOIN quick_command_library l ON l.id = q.id
+      CROSS JOIN projects p
+      WHERE q.scope = 'PROJECTS' AND (
+        (l.prioritized = 1 AND NOT EXISTS (
+          SELECT 1 FROM quick_command_flags f
+          WHERE f.kind = 'hidden' AND f.command_id = q.id AND f.project_id = p.id))
+        OR (l.prioritized IS NOT 1 AND EXISTS (
+          SELECT 1 FROM quick_command_flags f
+          WHERE f.kind = 'enabled' AND f.command_id = q.id AND f.project_id = p.id))
+      );
+
+      DELETE FROM application_settings
+      WHERE (key = 'quickCommands.library' OR key LIKE 'quickCommands.project.%')
+        AND NOT EXISTS (
+          SELECT 1 FROM application_settings s
+          WHERE s.key = 'quickCommands.library'
+            AND CASE WHEN json_valid(s.value)
+                  THEN json_extract(s.value, '$.version') IS NOT 1 ELSE 1 END
+        );
+
+      DROP TABLE temp.quick_command_library;
+      DROP TABLE temp.quick_command_flags;
+    `,
+  },
 ];

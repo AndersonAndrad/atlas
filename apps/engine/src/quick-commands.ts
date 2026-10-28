@@ -1,61 +1,60 @@
 import {
-  ProjectQuickCommandSettingsSchema,
   QUICK_COMMANDS_MAX_COUNT,
+  QuickCommandAssignmentSchema,
   QuickCommandInputSchema,
-  QuickCommandSchema,
+  parseInput,
+  quickCommandAvailableIn,
   type ProjectAction,
-  type ProjectQuickCommandSettings,
   type QuickCommand,
-  type QuickCommandInput,
   type QuickCommandMove,
 } from '@atlas/contracts';
 import { AtlasError, noopLogger, type Logger } from '@atlas/shared';
 
-export const QUICK_COMMANDS_KEY = 'quickCommands.library';
-const projectKey = (projectId: string) => `quickCommands.project.${projectId}`;
-
-interface StoredLibrary {
-  version: 1;
-  commands: QuickCommand[];
+/** What a command stores (see SqliteQuickCommandRepository). */
+interface StoredQuickCommand {
+  id: string;
+  name: string;
+  command: string;
+  scope: QuickCommand['scope'];
+  projectIds: string[];
 }
 
-/** The stored library, or null when it is not a valid version-1 library. */
-function parseLibrary(value: unknown): QuickCommand[] | null {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
-  const { version, commands } = value as Record<string, unknown>;
-  if (version !== 1 || !Array.isArray(commands) || commands.length > QUICK_COMMANDS_MAX_COUNT) {
-    return null;
-  }
-  const parsed = commands.map((command) => QuickCommandSchema.safeParse(command));
-  return parsed.every((result) => result.success) ? parsed.map((result) => result.data!) : null;
-}
-
-export interface QuickCommandSettingsStore {
-  get(key: string): Promise<string | null>;
-  set(key: string, value: string): Promise<void>;
-  delete(key: string): Promise<void>;
+/** Persistence of quick commands; implemented by SqliteQuickCommandRepository. */
+export interface QuickCommandRepository {
+  list(): Promise<QuickCommand[]>;
+  count(): Promise<number>;
+  insert(command: StoredQuickCommand, now: string): Promise<void>;
+  update(command: StoredQuickCommand, now: string): Promise<boolean>;
+  remove(id: string): Promise<boolean>;
+  swap(first: string, second: string): Promise<void>;
+  setAssignment(
+    commandId: string,
+    projectId: string,
+    assigned: boolean,
+    now: string,
+  ): Promise<void>;
 }
 
 export interface QuickCommandStoreOptions {
-  store: QuickCommandSettingsStore;
+  repository: QuickCommandRepository;
+  /** The ids among `ids` that are not registered projects. */
+  unknownProjects: (ids: string[]) => Promise<string[]>;
+  clock: { now(): Date };
   generateId: () => string;
   logger?: Logger;
 }
 
 const notFound = () => new AtlasError('QUICK_COMMAND_NOT_FOUND', 'Quick command not found.');
 
-function parseJson(raw: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
+const notOffered = () =>
+  new AtlasError('VALIDATION_FAILED', 'This quick command is not offered here.', {
+    issues: [{ field: 'commandId', message: 'This quick command is not offered here.' }],
+  });
 
 /**
- * The user's quick commands (PLAN-023), in the application settings: an ordered library
- * and, per project, the prioritized commands hidden there and the other commands enabled
- * there. Writes are serialized.
+ * The user's quick commands (PLAN-023, SDD-025 Task 03): an ordered list, each available in
+ * every project (no project selected) or only in the projects selected for it, by id.
+ * Writes are serialized; projects are checked against the registry, never trusted.
  */
 export class QuickCommandStore {
   private readonly logger: Logger;
@@ -65,111 +64,94 @@ export class QuickCommandStore {
     this.logger = options.logger ?? noopLogger;
   }
 
-  /** The library in the user's order; empty when nothing (readable) is stored. */
-  async list(): Promise<QuickCommand[]> {
-    const raw = await this.options.store.get(QUICK_COMMANDS_KEY);
-    if (raw === null) return [];
-    const commands = parseLibrary(parseJson(raw));
-    if (commands === null) {
-      this.logger.warn('Stored quick commands are invalid; showing none');
-      return [];
-    }
-    return commands;
+  /** Every command in the user's order. */
+  list(): Promise<QuickCommand[]> {
+    return this.options.repository.list();
   }
 
-  create(input: QuickCommandInput): Promise<QuickCommand> {
-    return this.change(async (commands) => {
-      if (commands.length >= QUICK_COMMANDS_MAX_COUNT) {
+  create(input: unknown): Promise<QuickCommand> {
+    const value = parseInput(QuickCommandInputSchema, input);
+    return this.serialized(async () => {
+      if ((await this.options.repository.count()) >= QUICK_COMMANDS_MAX_COUNT) {
         throw new AtlasError(
           'VALIDATION_FAILED',
           `At most ${QUICK_COMMANDS_MAX_COUNT} quick commands can be kept.`,
           { issues: [{ field: 'name', message: 'Remove a quick command first.' }] },
         );
       }
-      const command = { id: this.options.generateId(), ...QuickCommandInputSchema.parse(input) };
-      return { commands: [...commands, command], result: command };
+      const stored = await this.toStored(this.options.generateId(), value);
+      await this.options.repository.insert(stored, this.now());
+      this.logger.info('Quick command created', { commandId: stored.id, scope: stored.scope });
+      return this.require(stored.id);
     });
   }
 
-  update(id: string, input: QuickCommandInput): Promise<QuickCommand> {
-    return this.change(async (commands) => {
-      const index = commands.findIndex((command) => command.id === id);
-      if (index === -1) throw notFound();
-      const command = { id, ...QuickCommandInputSchema.parse(input) };
-      return { commands: commands.with(index, command), result: command };
+  update(id: string, input: unknown): Promise<QuickCommand> {
+    const value = parseInput(QuickCommandInputSchema, input);
+    return this.serialized(async () => {
+      const stored = await this.toStored(id, value);
+      if (!(await this.options.repository.update(stored, this.now()))) throw notFound();
+      return this.require(id);
     });
   }
 
   remove(id: string): Promise<null> {
-    return this.change(async (commands) => {
-      if (!commands.some((command) => command.id === id)) throw notFound();
-      return { commands: commands.filter((command) => command.id !== id), result: null };
+    return this.serialized(async () => {
+      if (!(await this.options.repository.remove(id))) throw notFound();
+      return null;
     });
   }
 
   /** Moves a command one place; the first and last stay where they are. */
   move(id: string, direction: QuickCommandMove): Promise<QuickCommand[]> {
-    return this.change(async (commands) => {
+    return this.serialized(async () => {
+      const commands = await this.list();
       const index = commands.findIndex((command) => command.id === id);
       if (index === -1) throw notFound();
-      const target = direction === 'up' ? index - 1 : index + 1;
-      if (target < 0 || target >= commands.length) return { commands, result: commands };
-      const next = [...commands];
-      [next[index], next[target]] = [next[target]!, next[index]!];
-      return { commands: next, result: next };
+      const target = commands[direction === 'up' ? index - 1 : index + 1];
+      if (target === undefined) return commands;
+      await this.options.repository.swap(id, target.id);
+      return this.list();
     });
   }
 
-  async projectSettings(projectId: string): Promise<ProjectQuickCommandSettings> {
-    const raw = await this.options.store.get(projectKey(projectId));
-    if (raw === null) return { hidden: [], enabled: [] };
-    const stored = parseJson(raw);
-    // Settings saved before `enabled` existed (PLAN-023 revision 1) enable nothing.
-    const parsed = ProjectQuickCommandSettingsSchema.safeParse(
-      stored !== null && typeof stored === 'object' && !Array.isArray(stored)
-        ? { enabled: [], ...stored }
-        : stored,
-    );
-    if (!parsed.success) {
-      this.logger.warn('Stored project quick command settings are invalid; using the defaults');
-      return { hidden: [], enabled: [] };
-    }
-    return parsed.data;
-  }
-
-  async setProjectSettings(
-    projectId: string,
-    settings: ProjectQuickCommandSettings,
-  ): Promise<ProjectQuickCommandSettings> {
-    const parsed = ProjectQuickCommandSettingsSchema.parse(settings);
-    // Ids of removed commands are dropped, so they never accumulate up to the limit.
-    const known = new Set((await this.list()).map((command) => command.id));
-    const kept = (ids: string[]) => [...new Set(ids)].filter((id) => known.has(id));
-    const value = { hidden: kept(parsed.hidden), enabled: kept(parsed.enabled) };
-    await this.serialized(() =>
-      this.options.store.set(projectKey(projectId), JSON.stringify(value)),
-    );
-    return value;
-  }
-
-  async removeProject(projectId: string): Promise<void> {
-    await this.serialized(() => this.options.store.delete(projectKey(projectId)));
+  /**
+   * Adds this project to a command limited to projects, or removes it (project details).
+   * A command of every project is edited in Quick commands instead; removing a command's
+   * last project leaves it available nowhere, never everywhere.
+   */
+  setAssignment(input: unknown): Promise<QuickCommand> {
+    const value = parseInput(QuickCommandAssignmentSchema, input);
+    return this.serialized(async () => {
+      const command = await this.require(value.commandId);
+      if (command.scope === 'ALL') {
+        throw new AtlasError(
+          'VALIDATION_FAILED',
+          'This quick command is available in every project. Edit it in Quick commands.',
+          { issues: [{ field: 'commandId', message: 'Available in every project.' }] },
+        );
+      }
+      if (value.assigned) await this.assertProjects([value.projectId]);
+      await this.options.repository.setAssignment(
+        value.commandId,
+        value.projectId,
+        value.assigned,
+        this.now(),
+      );
+      return this.require(value.commandId);
+    });
   }
 
   /**
-   * The project's actions: open a terminal, then, in library order, each prioritized
-   * command not hidden in the project and each other command enabled in it.
+   * The project's actions: open a terminal, then, in the user's order, each command
+   * available in the project.
    */
   async projectActions(projectId: string): Promise<ProjectAction[]> {
-    const [commands, settings] = await Promise.all([this.list(), this.projectSettings(projectId)]);
-    const hidden = new Set(settings.hidden);
-    const enabled = new Set(settings.enabled);
+    const commands = await this.list();
     return [
       { kind: 'open-terminal' },
       ...commands
-        .filter((command) =>
-          command.prioritized ? !hidden.has(command.id) : enabled.has(command.id),
-        )
+        .filter((command) => quickCommandAvailableIn(command, projectId))
         .map((command) => ({
           kind: 'run-command' as const,
           commandId: command.id,
@@ -179,38 +161,50 @@ export class QuickCommandStore {
     ];
   }
 
-  /** A command the project offers; refused when unknown or not offered there. */
-  async forProject(projectId: string, commandId: string): Promise<QuickCommand> {
-    const actions = await this.projectActions(projectId);
-    const offered = actions.some(
-      (action) => action.kind === 'run-command' && action.commandId === commandId,
-    );
+  /**
+   * A command that may run with this project (null: without a project, only commands of
+   * every project); refused when unknown or not offered there.
+   */
+  async forProject(projectId: string | null, commandId: string): Promise<QuickCommand> {
     const command = (await this.list()).find((item) => item.id === commandId);
-    if (!offered || command === undefined) {
-      throw new AtlasError(
-        'VALIDATION_FAILED',
-        'This quick command is not offered for the project.',
-        {
-          issues: [
-            { field: 'commandId', message: 'This quick command is not offered for the project.' },
-          ],
-        },
-      );
+    if (command === undefined || !quickCommandAvailableIn(command, projectId)) {
+      throw notOffered();
     }
     return command;
   }
 
-  private change<T>(
-    apply: (commands: QuickCommand[]) => Promise<{ commands: QuickCommand[]; result: T }>,
-  ): Promise<T> {
-    return this.serialized(async () => {
-      const { commands, result } = await apply(await this.list());
-      await this.options.store.set(
-        QUICK_COMMANDS_KEY,
-        JSON.stringify({ version: 1, commands } satisfies StoredLibrary),
-      );
-      return result;
-    });
+  private async toStored(
+    id: string,
+    value: { name: string; command: string; projectIds: string[] },
+  ): Promise<StoredQuickCommand> {
+    await this.assertProjects(value.projectIds);
+    return {
+      id,
+      name: value.name,
+      command: value.command,
+      scope: value.projectIds.length === 0 ? 'ALL' : 'PROJECTS',
+      projectIds: value.projectIds,
+    };
+  }
+
+  private async assertProjects(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const unknown = await this.options.unknownProjects(ids);
+    if (unknown.length > 0) {
+      throw new AtlasError('VALIDATION_FAILED', 'A selected project is no longer registered.', {
+        issues: [{ field: 'projectIds', message: 'A selected project is no longer registered.' }],
+      });
+    }
+  }
+
+  private async require(id: string): Promise<QuickCommand> {
+    const command = (await this.list()).find((item) => item.id === id);
+    if (command === undefined) throw notFound();
+    return command;
+  }
+
+  private now(): string {
+    return this.options.clock.now().toISOString();
   }
 
   private serialized<T>(task: () => Promise<T>): Promise<T> {

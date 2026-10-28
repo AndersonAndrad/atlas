@@ -64,7 +64,8 @@ interface TerminalsViewProps {
 
 export type TerminalOpenRequest =
   | { projectId: string; nonce: number }
-  | { projectId: string; commandId: string; nonce: number }
+  /** A quick command; without a project (null) only one of all projects runs. */
+  | { projectId: string | null; commandId: string; nonce: number }
   | { terminalId: string; nonce: number }
   | { action: 'create-group'; nonce: number };
 
@@ -184,14 +185,17 @@ export function TerminalsView({
     [run, showTerminal, terminals],
   );
 
-  /** Opens a terminal in the project that runs the quick command (PLAN-023). */
+  /**
+   * Opens a terminal that runs the quick command (PLAN-023): in the project, or in the
+   * default folder for a command of all projects run without one (SDD-025 Task 03).
+   */
   const runQuickCommand = useCallback(
-    async (projectId: string, commandId: string) => {
-      markProjectRecent(projectId);
+    async (projectId: string | null, commandId: string) => {
+      if (projectId !== null) markProjectRecent(projectId);
       const session = await run(() =>
         unwrap(
           api().quickCommands.run({
-            projectId,
+            ...(projectId !== null ? { projectId } : {}),
             commandId,
             ...(activeGroup ? { groupId: activeGroup.id } : {}),
           }),

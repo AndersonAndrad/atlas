@@ -153,10 +153,10 @@ test('runs the selected project quick commands from the toolbar', async ({ atlas
   atlas.cli('project', 'add', atlas.workspace('web'));
   const { page } = await atlas.launch();
 
-  // Without a project there is nothing to run, but the commands stay reachable.
+  // Without a project only commands of all projects are offered; none exist yet.
   await page.getByTestId('toolbar-quick-commands').click();
   const menu = page.getByTestId('toolbar-quick-commands-menu');
-  await expect(menu).toContainText('Select a project to see its quick commands.');
+  await expect(menu).toContainText('No quick commands for all projects.');
   await menu.getByTestId('toolbar-quick-commands-manage').click();
   const view = page.getByTestId('quick-commands-view');
   await expect(view).toBeVisible();

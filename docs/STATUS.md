@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-28 — PLAN-059 (SDD-024 Task 04 Milestone A: Pull Request Center accounts and repositories).
+Last updated: 2026-10-28 — PLAN-060 (SDD-025 Task 03: quick commands in several projects).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -74,7 +74,23 @@ daily flow in the Project Hub) is implemented and awaits approval. Version 0.42.
 and awaits approval. Version 0.43.0 (schema v23). PLAN-058 (SDD-023 Task A05: project
 navigation and toolbar) is implemented and awaits approval. Version 0.44.0 (schema v23).
 PLAN-059 (SDD-024 Task 04 Milestone A: Pull Request Center accounts and repositories) is
-implemented and awaits approval. Version 0.45.0 (schema v24).
+implemented and awaits approval. Version 0.45.0 (schema v24). PLAN-060 (SDD-025 Task 03:
+quick commands in several projects) is implemented and awaits approval. Version 0.46.0
+(schema v25).
+
+## PLAN-060 — SDD-025 Task 03: quick commands in several projects
+
+- Approved 2026-10-28 by Anderson Andrade ("aprovo pode seguir q1 a q5 com a reomendação").
+  R1–R6 were presented but not acknowledged by ID. Details: SDD-025, Task 03.
+- What changed:
+  - **Availability:** each quick command is available in all projects (no project selected)
+    or only in the selected projects. It is one record, edited in place.
+  - **Migration v25:** moves the PLAN-023 settings to `quick_commands` and
+    `quick_command_projects`, keeping each command's meaning.
+  - **Removing a project** never makes a command global.
+  - **No project selected:** the toolbar offers the commands of all projects, which open a
+    terminal in the default folder.
+- Rolling back to 0.45.x needs a database copy taken before 0.46.0 first ran.
 
 ## PLAN-059 — SDD-024 Task 04 Milestone A: Pull Request Center accounts and repositories
 

@@ -127,6 +127,9 @@ size).
 
 # Part I-C — Quick commands, project actions and project tabs (PLAN-023)
 
+> Superseded for availability by SDD-025 Task 03 (PLAN-060): commands are now available in
+> all projects or in selected ones; "prioritized", "hidden" and "enabled" were migrated.
+
 - **Quick commands** (navigation → Quick commands): name (≤ 60 characters) and a one-line
   command (≤ 1,000 characters, no control characters), at most 100, in the user's order
   (move up/down). **Prioritized** commands appear in every project's action menu; the

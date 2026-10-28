@@ -29,8 +29,8 @@ import type { AppInfo } from './app-info.js';
 export { APP_DISPLAY_NAME } from './app-info.js';
 import type {
   ProjectAction,
-  ProjectQuickCommandSettings,
   QuickCommand,
+  QuickCommandAssignmentInput,
   QuickCommandInput,
   QuickCommandMove,
   RunQuickCommandInput,
@@ -625,8 +625,7 @@ export const IPC_CHANNELS = {
   quickCommandsUpdate: 'atlas:quick-commands:update',
   quickCommandsRemove: 'atlas:quick-commands:remove',
   quickCommandsMove: 'atlas:quick-commands:move',
-  quickCommandsProjectSettings: 'atlas:quick-commands:project-settings',
-  quickCommandsSetProjectSettings: 'atlas:quick-commands:set-project-settings',
+  quickCommandsSetAssignment: 'atlas:quick-commands:set-assignment',
   quickCommandsRun: 'atlas:quick-commands:run',
   projectsActions: 'atlas:projects:actions',
   aiAttach: 'atlas:ai:attach',
@@ -1245,19 +1244,22 @@ export interface AtlasApi {
     openLink(url: string): Promise<IpcResult<null>>;
   };
   /** Individual AI CLI sessions started or tracked by ATLAS. */
-  /** Named shell commands run in a new project terminal (PLAN-023). */
+  /**
+   * Named shell commands run in a new terminal (PLAN-023), available in every project or in
+   * selected ones (SDD-025 Task 03).
+   */
   quickCommands: {
     list(): Promise<IpcResult<QuickCommand[]>>;
     create(input: QuickCommandInput): Promise<IpcResult<QuickCommand>>;
     update(id: string, input: QuickCommandInput): Promise<IpcResult<QuickCommand>>;
     remove(id: string): Promise<IpcResult<null>>;
     move(id: string, direction: QuickCommandMove): Promise<IpcResult<QuickCommand[]>>;
-    projectSettings(projectId: string): Promise<IpcResult<ProjectQuickCommandSettings>>;
-    setProjectSettings(
-      projectId: string,
-      settings: ProjectQuickCommandSettings,
-    ): Promise<IpcResult<ProjectQuickCommandSettings>>;
-    /** Opens a terminal in the project and runs the command there. */
+    /** Adds or removes a project of a command limited to projects. */
+    setAssignment(input: QuickCommandAssignmentInput): Promise<IpcResult<QuickCommand>>;
+    /**
+     * Opens a terminal in the project (or, for a command of every project, in the default
+     * folder when no project is given) and runs the command there.
+     */
     run(input: RunQuickCommandInput): Promise<IpcResult<TerminalSession>>;
     /** What the project's action menus offer: open a terminal, then its commands. */
     projectActions(projectId: string): Promise<IpcResult<ProjectAction[]>>;

@@ -180,7 +180,7 @@ export function App() {
   };
 
   /** Runs a project's quick command in a new terminal (upper toolbar). */
-  const runQuickCommand = (projectId: string, commandId: string) => {
+  const runQuickCommand = (projectId: string | null, commandId: string) => {
     setOpenRequest({ projectId, commandId, nonce: Date.now() });
     setView('terminals');
   };
@@ -508,7 +508,7 @@ export function App() {
               />
             )}
             {view === 'skills' && <SkillsView projects={projects.items ?? []} />}
-            {view === 'quick-commands' && <QuickCommandsView />}
+            {view === 'quick-commands' && <QuickCommandsView projects={projects.items ?? []} />}
             {view === 'usage' && <UsageView />}
             {view === 'settings' && <SettingsView preferences={preferences} />}
           </div>

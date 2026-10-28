@@ -234,10 +234,7 @@ const api: AtlasApi = {
     update: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.quickCommandsUpdate, id, input),
     remove: (id) => ipcRenderer.invoke(IPC_CHANNELS.quickCommandsRemove, id),
     move: (id, direction) => ipcRenderer.invoke(IPC_CHANNELS.quickCommandsMove, id, direction),
-    projectSettings: (projectId) =>
-      ipcRenderer.invoke(IPC_CHANNELS.quickCommandsProjectSettings, projectId),
-    setProjectSettings: (projectId, settings) =>
-      ipcRenderer.invoke(IPC_CHANNELS.quickCommandsSetProjectSettings, projectId, settings),
+    setAssignment: (input) => ipcRenderer.invoke(IPC_CHANNELS.quickCommandsSetAssignment, input),
     run: (input) => ipcRenderer.invoke(IPC_CHANNELS.quickCommandsRun, input),
     projectActions: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.projectsActions, projectId),
   },

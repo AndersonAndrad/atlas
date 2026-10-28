@@ -252,10 +252,9 @@ test('renderer has no Node.js access and only the scoped bridge', async ({ atlas
       'list',
       'move',
       'projectActions',
-      'projectSettings',
       'remove',
       'run',
-      'setProjectSettings',
+      'setAssignment',
       'update',
     ],
     // Lifecycle changes go through named actions; there is no way to set a status.

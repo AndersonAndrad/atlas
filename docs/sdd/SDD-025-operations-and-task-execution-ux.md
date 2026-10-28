@@ -3,7 +3,153 @@
 Status: Task 01 implemented (PLAN-049 revision 1). Task 02 Milestones A and B implemented
 (PLAN-053 revision 1). Milestone C (the ATLAS team option) is provided by SDD-026 Task 02
 (PLAN-055) as a sequential minimal integration, since SDD-005 Milestone B does not exist.
-Later tasks need their own plans.
+Task 03 implemented (PLAN-060 revision 1). Later tasks need their own plans.
+
+## Task 03 (C03) — Quick commands in several projects
+
+Approved 2026-10-28 by Anderson Andrade ("aprovo pode seguir q1 a q5 com a reomendação"),
+PLAN-060 revision 1. R1–R6 were presented but not acknowledged by ID. Version 0.46.0, schema
+v25. It replaces the per-project "prioritized / hidden / enabled" choice of PLAN-023
+(SDD-003, Part I-C).
+
+### Decisions (Q1–Q5)
+
+- **Q1:** commands live in normalized tables, `quick_commands` and `quick_command_projects`,
+  instead of JSON in `application_settings`.
+- **Q2:** a prioritized command that some projects had hidden becomes limited to the current
+  projects that did not hide it. Projects added later do not get it.
+- **Q3:** running still always opens a **new** terminal, on an explicit action. Running in an
+  existing terminal, with busy and compatibility checks, needs its own plan.
+- **Q4:** the project details' Quick commands tab adds or removes that project from a
+  command limited to projects.
+- **Q5:** a command left without projects is offered nowhere. Quick commands shows it with a
+  warning.
+
+### Scope
+
+| Scope      | Projects  | Offered                                              |
+| ---------- | --------- | ---------------------------------------------------- |
+| `ALL`      | none      | In every project, and also when no project is chosen |
+| `PROJECTS` | 1 or more | Only in those projects (stable ids)                  |
+| `PROJECTS` | none      | Nowhere, shown as **No project**; never everywhere   |
+
+- **One record per command**, whatever its number of projects. Changing between all projects
+  and some projects edits that record in place.
+- **Where a command is offered:**
+  - the project's menus (Projects drawer and palette, filtered by `projects.actions`);
+  - the upper toolbar for the selected project;
+  - with no project selected, the toolbar offers only `ALL` commands.
+- **Ids, not names.** The selected projects are stored by id. A project rename changes
+  nothing.
+- **Duplicate names.** Projects with the same name are listed with their folder.
+
+### Editor
+
+- **Fields:** the add and edit dialog has Name, Command, and **Available in projects**.
+- **The project list:**
+  - checkboxes, reached with Tab and toggled with Space;
+  - a search field when there are more than 6 projects;
+  - "Folder missing" on unavailable projects;
+  - **Clear selection**.
+- **The summary under the title:**
+  - "No projects selected: this command is available in all projects.";
+  - or "Available in N project(s)."
+- **A command left without projects:** editing it says that saving without projects makes it
+  available in all projects. Nothing becomes global without that save.
+- **The list:** each command shows **All projects**, **N projects** (with their names) or **No
+  project**, with an explanation.
+- **The project details tab:**
+  - commands for all projects are shown checked and cannot be changed there;
+  - checking another command adds the project to it, and unchecking removes it.
+
+### Execution
+
+- **Unchanged otherwise:** the command is typed into a new terminal, by id; the renderer never
+  sends the command text.
+- **With a project:** the Engine checks the project exists and that the command is offered
+  there. If the folder is missing, the terminal creation refuses it.
+- **Without a project:** only an `ALL` command runs, in a terminal in the default folder of
+  the terminal group shown.
+- **What never happens:** a command never runs in several projects, never changes the folder
+  of an open terminal, and nothing starts by itself.
+
+### Migration v25
+
+The PLAN-023 settings `quickCommands.library` and `quickCommands.project.<id>` are converted in
+the same transaction, keeping order and meaning:
+
+| Before                                    | After                                                    |
+| ----------------------------------------- | -------------------------------------------------------- |
+| Prioritized, hidden nowhere               | `ALL`                                                    |
+| Prioritized, hidden in some projects      | `PROJECTS`: current projects that did not hide it (Q2)   |
+| Not prioritized, enabled in some projects | `PROJECTS`: those projects                               |
+| Not prioritized, enabled nowhere          | `PROJECTS` without projects (offered nowhere, as before) |
+
+- **Settings of removed projects** are ignored. Settings saved before `enabled` existed still
+  read.
+- **Invalid entries** are skipped. These are a bad id, an empty or too long name or command,
+  or a non-object.
+- **The old keys** are removed only when the library was readable. An unreadable library
+  (already ignored) is left untouched.
+- **A migration failure** rolls everything back (existing migration transaction).
+
+### Projects removed
+
+`quick_command_projects` rows go with their project (`ON DELETE CASCADE`). The command keeps
+`PROJECTS`, so losing its last project leaves it offered nowhere, never everywhere.
+
+### Contracts
+
+- **`QuickCommandInput`:** `{ name, command, projectIds }`, with unique ids, at most 200.
+- **`QuickCommand`:** adds `scope` and `projectIds`. `prioritized` was removed.
+- **Methods:**
+  - `quickCommands.projectSettings` and `setProjectSettings` were replaced by
+    `quickCommands.setAssignment({ commandId, projectId, assigned })`, refused for `ALL`
+    commands;
+  - `quickCommands.run` takes an optional `projectId`.
+- **Validation:** project ids are checked against the registry (`VALIDATION_FAILED` for one no
+  longer registered). Writes are serialized; editing a removed command gives
+  `QUICK_COMMAND_NOT_FOUND`.
+
+### Tests
+
+- **`packages/persistence/tests/quick-commands.test.ts`** (migration from a v24 database):
+  - every conversion row above;
+  - settings of a removed project;
+  - settings without `enabled`;
+  - invalid JSON and entries;
+  - an unreadable library left untouched;
+  - cascade on project removal without broadening;
+  - order and assignment.
+- **`apps/engine/tests/quick-commands.test.ts`:**
+  - all, one and several projects;
+  - switching scope in place;
+  - assignment from the project, with the last project removed;
+  - runs refused in another project or without a project;
+  - an `ALL` command run without a project (one terminal, default folder);
+  - rename, missing folder and removal;
+  - validation, unknown ids and the limit;
+  - order after a restart.
+- **`tests/e2e/quick-commands.spec.ts`:**
+  - the editor with the keyboard, Clear selection and the summary;
+  - all, one and several projects;
+  - filtering per project in the drawer;
+  - a run;
+  - the toolbar without a project;
+  - the project tab;
+  - a removed project's command shown as No project with the save warning;
+  - project to all projects.
+- **`app-toolbar.spec`** and **`security.spec`** were updated.
+
+### Known limitations
+
+- **Running in an existing terminal** is not offered (Q3). The spec's "busy terminal" and
+  "incompatible terminal" checks do not arise: every run gets a new terminal.
+- **Excluding one project** from a command of all projects is not possible. Limit it to the
+  others instead.
+- **Two windows editing the same command:** writes are serialized and the last save wins.
+  Editing a command removed meanwhile reports it as not found.
+- **Rolling back** to 0.45.x needs a database copy taken before 0.46.0 first ran.
 
 ## Task 02 — Unified task execution
 

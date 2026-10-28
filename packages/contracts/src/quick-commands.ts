@@ -3,12 +3,23 @@ import { ProjectIdSchema } from './project.js';
 import { TERMINAL_TITLE_MAX_LENGTH, TerminalGroupIdSchema } from './terminal.js';
 
 /**
- * Quick commands (PLAN-023): named shell commands the user keeps in ATLAS. Prioritized
- * ones become project actions, which open a terminal in the project and run them.
+ * Quick commands (PLAN-023, SDD-025 Task 03): named shell commands the user keeps in ATLAS.
+ * Each is available in every project, or only in the projects selected for it; running one
+ * opens a terminal and types it.
  */
 export const QUICK_COMMAND_NAME_MAX_LENGTH = TERMINAL_TITLE_MAX_LENGTH;
 export const QUICK_COMMAND_MAX_LENGTH = 1000;
 export const QUICK_COMMANDS_MAX_COUNT = 100;
+/** Projects one command can be limited to. */
+export const QUICK_COMMAND_PROJECTS_MAX = 200;
+
+/**
+ * Where a command is available (SDD-025 Task 03). `ALL`: every project, and without a
+ * project. `PROJECTS`: only the listed ones; with none left (its projects were removed) it
+ * is available nowhere until projects are chosen again, never everywhere.
+ */
+export const QUICK_COMMAND_SCOPES = ['ALL', 'PROJECTS'] as const;
+export type QuickCommandScope = (typeof QUICK_COMMAND_SCOPES)[number];
 
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
@@ -38,34 +49,46 @@ export const QuickCommandInputSchema = z.strictObject({
       (value) => !CONTROL_CHARACTERS.test(value),
       'Command must be a single line without control characters.',
     ),
-  /**
-   * Prioritized commands appear in every project's action menu (each project can hide
-   * them); the others only in projects that enable them.
-   */
-  prioritized: z.boolean(),
+  /** Stable project ids; none selected makes the command available in every project. */
+  projectIds: z
+    .array(ProjectIdSchema)
+    .max(QUICK_COMMAND_PROJECTS_MAX)
+    .refine((ids) => new Set(ids).size === ids.length, 'Each project can be selected once.'),
 });
 export type QuickCommandInput = z.infer<typeof QuickCommandInputSchema>;
 
-export const QuickCommandSchema = QuickCommandInputSchema.extend({ id: QuickCommandIdSchema });
-export type QuickCommand = z.infer<typeof QuickCommandSchema>;
+export interface QuickCommand {
+  id: string;
+  name: string;
+  command: string;
+  scope: QuickCommandScope;
+  /** The projects of a `PROJECTS` command, in the user's selection order; empty for `ALL`. */
+  projectIds: string[];
+}
+
+/** Whether a command is offered with this project selected (null: no project). */
+export function quickCommandAvailableIn(command: QuickCommand, projectId: string | null): boolean {
+  if (command.scope === 'ALL') return true;
+  return projectId !== null && command.projectIds.includes(projectId);
+}
 
 export const QuickCommandMoveSchema = z.enum(['up', 'down']);
 export type QuickCommandMove = z.infer<typeof QuickCommandMoveSchema>;
 
-/**
- * A project's choice of quick commands: prioritized commands appear in every project
- * unless hidden there; other commands appear only in projects that enable them.
- */
-export const ProjectQuickCommandSettingsSchema = z.strictObject({
-  /** Prioritized commands not offered in this project. */
-  hidden: z.array(QuickCommandIdSchema).max(QUICK_COMMANDS_MAX_COUNT),
-  /** Commands that are not prioritized, offered in this project only. */
-  enabled: z.array(QuickCommandIdSchema).max(QUICK_COMMANDS_MAX_COUNT),
+/** Adds a project to a command limited to projects, or removes it (project details). */
+export const QuickCommandAssignmentSchema = z.strictObject({
+  commandId: QuickCommandIdSchema,
+  projectId: ProjectIdSchema,
+  assigned: z.boolean(),
 });
-export type ProjectQuickCommandSettings = z.infer<typeof ProjectQuickCommandSettingsSchema>;
+export type QuickCommandAssignmentInput = z.infer<typeof QuickCommandAssignmentSchema>;
 
 export const RunQuickCommandSchema = z.strictObject({
-  projectId: ProjectIdSchema,
+  /**
+   * The project to open the terminal in. Without one, only a command available in every
+   * project runs, in a terminal in the default folder.
+   */
+  projectId: ProjectIdSchema.optional(),
   commandId: QuickCommandIdSchema,
   /** Terminal group to open the terminal in; the default group otherwise. */
   groupId: TerminalGroupIdSchema.optional(),

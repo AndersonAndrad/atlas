@@ -483,8 +483,7 @@ export function registerIpcHandlers(deps: IpcDependencies): () => void {
     [IPC_CHANNELS.quickCommandsUpdate, 'quickCommands.update'],
     [IPC_CHANNELS.quickCommandsRemove, 'quickCommands.remove'],
     [IPC_CHANNELS.quickCommandsMove, 'quickCommands.move'],
-    [IPC_CHANNELS.quickCommandsProjectSettings, 'quickCommands.projectSettings'],
-    [IPC_CHANNELS.quickCommandsSetProjectSettings, 'quickCommands.setProjectSettings'],
+    [IPC_CHANNELS.quickCommandsSetAssignment, 'quickCommands.setAssignment'],
     [IPC_CHANNELS.quickCommandsRun, 'quickCommands.run'],
     [IPC_CHANNELS.projectsActions, 'projects.actions'],
   ];

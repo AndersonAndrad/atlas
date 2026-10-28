@@ -62,8 +62,6 @@ import {
   type GitPushInput,
   type GitReflogInput,
   type GitCommitFilesInput,
-  type ProjectQuickCommandSettings,
-  type QuickCommandInput,
   type QuickCommandMove,
   type RunQuickCommandInput,
   type UpdateGitOperationLogSettings,
@@ -450,23 +448,14 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     'ai.reviewTeamExecution': ([target, id]: [ContextTarget, string]) =>
       engine.teamExecutions.review(target, id),
     'quickCommands.list': () => engine.quickCommands.list(),
-    'quickCommands.create': ([input]: [QuickCommandInput]) => engine.quickCommands.create(input),
-    'quickCommands.update': ([id, input]: [string, QuickCommandInput]) =>
+    'quickCommands.create': ([input]: [unknown]) => engine.quickCommands.create(input),
+    'quickCommands.update': ([id, input]: [string, unknown]) =>
       engine.quickCommands.update(id, input),
     'quickCommands.remove': ([id]: [string]) => engine.quickCommands.remove(id),
     'quickCommands.move': ([id, direction]: [string, QuickCommandMove]) =>
       engine.quickCommands.move(id, direction),
-    'quickCommands.projectSettings': async ([projectId]: [string]) => {
-      await projects.getDetails(projectId);
-      return engine.quickCommands.projectSettings(projectId);
-    },
-    'quickCommands.setProjectSettings': async ([projectId, settings]: [
-      string,
-      ProjectQuickCommandSettings,
-    ]) => {
-      await projects.getDetails(projectId);
-      return engine.quickCommands.setProjectSettings(projectId, settings);
-    },
+    'quickCommands.setAssignment': ([input]: [unknown]) =>
+      engine.quickCommands.setAssignment(input),
     'quickCommands.run': ([input]: [RunQuickCommandInput]) => engine.runQuickCommand(input),
     'projects.actions': async ([projectId]: [string]) => {
       await projects.getDetails(projectId);

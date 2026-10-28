@@ -6,7 +6,7 @@ import {
   type QuickCommand,
   type QuickCommandInput,
 } from '@atlas/contracts';
-import { ArrowDown, ArrowUp, Pencil, Plus, Star, Trash2, Zap } from 'lucide-react';
+import { ArrowDown, ArrowUp, Pencil, Plus, Trash2, Zap } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, api, errorMessage, unwrap } from '@/api';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -20,7 +20,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -32,14 +31,20 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import type { ProjectDetails } from '@/types';
+import { projectLabels, scopeSummary } from '../scope';
+import { ProjectScopePicker } from './ProjectScopePicker';
 
-type FieldErrors = Partial<Record<'name' | 'command', string>>;
+type Field = 'name' | 'command' | 'projectIds';
+type FieldErrors = Partial<Record<Field, string>>;
 
 function fieldErrors(issues: { field: string; message: string }[]): FieldErrors {
   const errors: FieldErrors = {};
   for (const issue of issues) {
-    const field = issue.field.split('.').at(-1);
-    if ((field === 'name' || field === 'command') && !errors[field]) errors[field] = issue.message;
+    const field = issue.field
+      .split('.')
+      .find((part): part is Field => ['name', 'command', 'projectIds'].includes(part));
+    if (field !== undefined && !errors[field]) errors[field] = issue.message;
   }
   return errors;
 }
@@ -47,22 +52,26 @@ function fieldErrors(issues: { field: string; message: string }[]): FieldErrors 
 /** Adds or edits a quick command; validated here and again by the Engine. */
 function QuickCommandDialog({
   command,
+  projects,
   onClose,
   onSaved,
 }: {
   command: QuickCommand | null;
+  projects: ProjectDetails[];
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [name, setName] = useState(command?.name ?? '');
   const [text, setText] = useState(command?.command ?? '');
-  const [prioritized, setPrioritized] = useState(command?.prioritized ?? true);
+  const [projectIds, setProjectIds] = useState<string[]>(command?.projectIds ?? []);
+  // A command whose projects were all removed must not become global without notice.
+  const wasUnassigned = command?.scope === 'PROJECTS' && command.projectIds.length === 0;
   const [errors, setErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function save() {
-    const parsed = QuickCommandInputSchema.safeParse({ name, command: text, prioritized });
+    const parsed = QuickCommandInputSchema.safeParse({ name, command: text, projectIds });
     if (!parsed.success) {
       setErrors(
         fieldErrors(
@@ -97,7 +106,7 @@ function QuickCommandDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent data-testid="quick-command-dialog">
+      <DialogContent className="max-h-[90vh] overflow-y-auto" data-testid="quick-command-dialog">
         <form
           className="flex min-w-0 flex-col gap-4"
           onSubmit={(event) => {
@@ -157,20 +166,20 @@ function QuickCommandDialog({
               </p>
             )}
           </div>
-          <label className="flex items-start gap-2 text-sm">
-            <Checkbox
-              className="mt-0.5"
-              checked={prioritized}
-              onCheckedChange={(checked) => setPrioritized(checked === true)}
-            />
-            <span className="flex flex-col">
-              <span>Prioritized</span>
-              <span className="text-muted-foreground text-xs">
-                Shown in every project's Actions menu (each project can hide it). Otherwise, enable
-                it in the projects that use it.
-              </span>
-            </span>
-          </label>
+          <ProjectScopePicker projects={projects} selected={projectIds} onChange={setProjectIds} />
+          {errors.projectIds && (
+            <p className="text-destructive text-xs" role="alert">
+              {errors.projectIds}
+            </p>
+          )}
+          {wasUnassigned && projectIds.length === 0 && (
+            <Alert role="status">
+              <AlertDescription>
+                Its projects were removed. Saving without projects makes it available in all
+                projects.
+              </AlertDescription>
+            </Alert>
+          )}
           {error && (
             <Alert variant="destructive" role="alert">
               <AlertDescription>{error}</AlertDescription>
@@ -191,10 +200,10 @@ function QuickCommandDialog({
 }
 
 /**
- * Quick commands (PLAN-023): named commands that open a terminal in a project and run
- * there. Prioritized ones appear in the project action menus.
+ * Quick commands (PLAN-023, SDD-025 Task 03): named commands that open a terminal and run
+ * there, available in every project or only in the projects selected for them.
  */
-export function QuickCommandsView() {
+export function QuickCommandsView({ projects }: { projects: ProjectDetails[] }) {
   const [commands, setCommands] = useState<QuickCommand[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<QuickCommand | 'new' | null>(null);
@@ -227,6 +236,7 @@ export function QuickCommandsView() {
   }
 
   const full = (commands?.length ?? 0) >= QUICK_COMMANDS_MAX_COUNT;
+  const labels = projectLabels(projects);
 
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="quick-commands-view">
@@ -240,9 +250,9 @@ export function QuickCommandsView() {
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         <div className="mx-auto flex max-w-3xl flex-col gap-4">
           <p className="text-muted-foreground text-sm">
-            A quick command opens a terminal in a project and runs there. Prioritized commands
-            appear in the Actions menu of every project in Terminals; the others appear only in
-            projects that enable them. Choose per project in the project&apos;s Quick commands tab.
+            A quick command opens a new terminal in a project and runs there. Without selected
+            projects it is available in all projects, and also when no project is selected;
+            otherwise only in its projects.
           </p>
           {error && (
             <Alert variant="destructive" role="alert">
@@ -263,95 +273,93 @@ export function QuickCommandsView() {
               className="bg-card flex flex-col divide-y rounded-lg border"
               aria-label="Quick commands"
             >
-              {commands.map((command, index) => (
-                <li
-                  key={command.id}
-                  className="flex min-w-0 flex-wrap items-center gap-2 p-3"
-                  data-testid="quick-command"
-                  data-prioritized={command.prioritized}
-                >
-                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <span className="truncate text-sm font-medium">{command.name}</span>
-                      {command.prioritized && (
-                        <span className="bg-primary/15 text-primary rounded px-1.5 py-0.5 text-[10px] font-medium">
-                          Prioritized
+              {commands.map((command, index) => {
+                const scope = scopeSummary(command, labels);
+                return (
+                  <li
+                    key={command.id}
+                    className="flex min-w-0 flex-wrap items-center gap-2 p-3"
+                    data-testid="quick-command"
+                    data-scope={command.scope}
+                  >
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate text-sm font-medium">{command.name}</span>
+                        <span
+                          className={cn(
+                            'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium',
+                            scope.unassigned
+                              ? 'bg-destructive/15 text-destructive'
+                              : command.scope === 'ALL'
+                                ? 'bg-primary/15 text-primary'
+                                : 'bg-muted text-muted-foreground',
+                          )}
+                          title={scope.detail ?? undefined}
+                          data-testid="quick-command-scope"
+                        >
+                          {scope.label}
+                        </span>
+                      </span>
+                      <code className="text-muted-foreground font-mono text-xs break-all">
+                        {command.command}
+                      </code>
+                      {scope.detail && (
+                        <span
+                          className={cn(
+                            'truncate text-xs',
+                            scope.unassigned ? 'text-destructive' : 'text-muted-foreground',
+                          )}
+                          data-testid="quick-command-projects"
+                        >
+                          {scope.detail}
                         </span>
                       )}
-                    </span>
-                    <code className="text-muted-foreground font-mono text-xs break-all">
-                      {command.command}
-                    </code>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-0.5">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={
-                        command.prioritized
-                          ? `Stop prioritizing ${command.name}`
-                          : `Prioritize ${command.name}`
-                      }
-                      aria-pressed={command.prioritized}
-                      title={command.prioritized ? 'Prioritized' : 'Not prioritized'}
-                      disabled={busy}
-                      onClick={() =>
-                        void act(() =>
-                          unwrap(
-                            api().quickCommands.update(command.id, {
-                              name: command.name,
-                              command: command.command,
-                              prioritized: !command.prioritized,
-                            }),
-                          ),
-                        )
-                      }
-                    >
-                      <Star className={cn(command.prioritized && 'fill-current')} />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Move ${command.name} up`}
-                      disabled={busy || index === 0}
-                      onClick={() =>
-                        void act(() => unwrap(api().quickCommands.move(command.id, 'up')))
-                      }
-                    >
-                      <ArrowUp />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Move ${command.name} down`}
-                      disabled={busy || index === commands.length - 1}
-                      onClick={() =>
-                        void act(() => unwrap(api().quickCommands.move(command.id, 'down')))
-                      }
-                    >
-                      <ArrowDown />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Edit ${command.name}`}
-                      disabled={busy}
-                      onClick={() => setEditing(command)}
-                    >
-                      <Pencil />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Remove ${command.name}`}
-                      disabled={busy}
-                      onClick={() => setRemoving(command)}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
-                </li>
-              ))}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Move ${command.name} up`}
+                        disabled={busy || index === 0}
+                        onClick={() =>
+                          void act(() => unwrap(api().quickCommands.move(command.id, 'up')))
+                        }
+                      >
+                        <ArrowUp />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Move ${command.name} down`}
+                        disabled={busy || index === commands.length - 1}
+                        onClick={() =>
+                          void act(() => unwrap(api().quickCommands.move(command.id, 'down')))
+                        }
+                      >
+                        <ArrowDown />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Edit ${command.name}`}
+                        disabled={busy}
+                        onClick={() => setEditing(command)}
+                      >
+                        <Pencil />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Remove ${command.name}`}
+                        disabled={busy}
+                        onClick={() => setRemoving(command)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
+                  </li>
+                );
+              })}
             </ol>
           )}
           {full && (
@@ -365,6 +373,7 @@ export function QuickCommandsView() {
       {editing !== null && (
         <QuickCommandDialog
           command={editing === 'new' ? null : editing}
+          projects={projects}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -379,8 +388,7 @@ export function QuickCommandsView() {
               <AlertDialogTitle>Remove quick command</AlertDialogTitle>
               <AlertDialogDescription>
                 Remove <strong className="text-foreground wrap-anywhere">{removing.name}</strong>?
-                It disappears from every project&apos;s Actions menu. Running terminals are not
-                affected.
+                It disappears from every project&apos;s menus. Running terminals are not affected.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

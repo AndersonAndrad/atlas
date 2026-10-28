@@ -1,4 +1,4 @@
-import type { ProjectAction } from '@atlas/contracts';
+import { quickCommandAvailableIn, type ProjectAction } from '@atlas/contracts';
 import { Play, Settings2, Zap } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { api, errorMessage, unwrap } from '@/api';
@@ -18,33 +18,50 @@ type ProjectCommandAction = Extract<ProjectAction, { kind: 'run-command' }>;
 
 interface QuickCommandsMenuProps {
   selected: ProjectDetails | null;
-  /** Runs the command in a new terminal of the project, as the Projects drawer does. */
-  onRun: (projectId: string, commandId: string) => void;
+  /**
+   * Runs the command in a new terminal of the project, as the Projects drawer does; without
+   * a project (null), a command of all projects runs in a terminal in the default folder.
+   */
+  onRun: (projectId: string | null, commandId: string) => void;
   onManage: () => void;
 }
 
 /**
- * The selected project's quick commands in the upper toolbar (SDD-023 Task A05). They are
- * read from the Engine each time the menu opens, so they are never outdated; opening the
- * menu runs nothing.
+ * The selected project's quick commands in the upper toolbar (SDD-023 Task A05); without a
+ * project, the commands of all projects (SDD-025 Task 03). They are read from the Engine
+ * each time the menu opens, so they are never outdated; opening the menu runs nothing.
  */
 export function QuickCommandsMenu({ selected, onRun, onManage }: QuickCommandsMenuProps) {
   const [commands, setCommands] = useState<ProjectCommandAction[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pending = useRef<(() => void) | null>(null);
   const loadToken = useRef(0);
-  const reason = projectTerminalReason(selected);
+  const reason = selected === null ? null : projectTerminalReason(selected);
 
-  const load = (projectId: string) => {
+  const load = (projectId: string | null) => {
     const token = ++loadToken.current;
     setCommands(null);
     setError(null);
-    unwrap(api().quickCommands.projectActions(projectId)).then(
-      (actions) => {
-        if (token !== loadToken.current) return;
-        setCommands(
-          actions.filter((action): action is ProjectCommandAction => action.kind === 'run-command'),
-        );
+    const request: Promise<ProjectCommandAction[]> =
+      projectId === null
+        ? unwrap(api().quickCommands.list()).then((list) =>
+            list
+              .filter((command) => quickCommandAvailableIn(command, null))
+              .map((command) => ({
+                kind: 'run-command' as const,
+                commandId: command.id,
+                name: command.name,
+                command: command.command,
+              })),
+          )
+        : unwrap(api().quickCommands.projectActions(projectId)).then((actions) =>
+            actions.filter(
+              (action): action is ProjectCommandAction => action.kind === 'run-command',
+            ),
+          );
+    request.then(
+      (list) => {
+        if (token === loadToken.current) setCommands(list);
       },
       (caught: unknown) => {
         if (token === loadToken.current) setError(errorMessage(caught));
@@ -55,7 +72,7 @@ export function QuickCommandsMenu({ selected, onRun, onManage }: QuickCommandsMe
   return (
     <DropdownMenu
       onOpenChange={(open) => {
-        if (open && selected) load(selected.project.id);
+        if (open) load(selected?.project.id ?? null);
       }}
     >
       <DropdownMenuTrigger asChild>
@@ -85,11 +102,12 @@ export function QuickCommandsMenu({ selected, onRun, onManage }: QuickCommandsMe
         <DropdownMenuLabel className="text-muted-foreground truncate text-xs">
           {selected ? selected.project.name : 'No project selected'}
         </DropdownMenuLabel>
-        {selected === null ? (
+        {selected === null && (
           <p className="text-muted-foreground px-2 py-1.5 text-xs">
-            Select a project to see its quick commands.
+            Commands for all projects; they open a terminal in the default folder.
           </p>
-        ) : error !== null ? (
+        )}
+        {error !== null ? (
           <p className="text-destructive px-2 py-1.5 text-xs" role="alert">
             {error}
           </p>
@@ -97,7 +115,9 @@ export function QuickCommandsMenu({ selected, onRun, onManage }: QuickCommandsMe
           <p className="text-muted-foreground px-2 py-1.5 text-xs">Loading…</p>
         ) : commands.length === 0 ? (
           <p className="text-muted-foreground px-2 py-1.5 text-xs">
-            No quick commands for this project.
+            {selected === null
+              ? 'No quick commands for all projects.'
+              : 'No quick commands for this project.'}
           </p>
         ) : (
           commands.map((command) => (
@@ -105,7 +125,7 @@ export function QuickCommandsMenu({ selected, onRun, onManage }: QuickCommandsMe
               key={command.commandId}
               disabled={reason !== null}
               onSelect={() => {
-                pending.current = () => onRun(selected.project.id, command.commandId);
+                pending.current = () => onRun(selected?.project.id ?? null, command.commandId);
               }}
               className="items-start"
               data-testid="toolbar-quick-command"

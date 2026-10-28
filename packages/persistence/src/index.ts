@@ -20,3 +20,4 @@ export * from './sqlite-task-execution-repository.js';
 export * from './sqlite-audit-repository.js';
 export * from './sqlite-team-execution-repository.js';
 export * from './sqlite-hosting-repository.js';
+export * from './sqlite-quick-command-repository.js';

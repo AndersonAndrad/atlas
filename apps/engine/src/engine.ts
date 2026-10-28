@@ -53,6 +53,7 @@ import {
   SqliteNoteRepository,
   SqliteHttpWorkbenchRepository,
   SqliteHostingRepository,
+  SqliteQuickCommandRepository,
   SqliteExtensionRepository,
   SqliteJobRepository,
   SqliteProjectGitRepository,
@@ -1225,7 +1226,16 @@ export function createEngine(options: EngineOptions = {}): Engine {
   });
   debug.onEvent((ownerId, event) => terminals?.publish({ type: 'debug', ownerId, event }));
   const projectGitSettings = new ProjectGitSettingsStore(settings, logger);
-  const quickCommands = new QuickCommandStore({ store: settings, generateId: randomUUID, logger });
+  const quickCommands = new QuickCommandStore({
+    repository: new SqliteQuickCommandRepository(db),
+    unknownProjects: async (ids) => {
+      const found = await Promise.all(ids.map((id) => projects.findById(id)));
+      return ids.filter((_, index) => found[index] === null);
+    },
+    clock,
+    generateId: randomUUID,
+    logger,
+  });
 
   // Roots resolved by the Engine itself; client-supplied paths are only accepted
   // when they match one of them.
@@ -1860,11 +1870,12 @@ export function createEngine(options: EngineOptions = {}): Engine {
       };
     },
     runQuickCommand: async (input) => {
-      await projects.getDetails(input.projectId);
-      const command = await quickCommands.forProject(input.projectId, input.commandId);
+      // Without a project only a command of every project runs, in the default folder.
+      if (input.projectId !== undefined) await projects.getDetails(input.projectId);
+      const command = await quickCommands.forProject(input.projectId ?? null, input.commandId);
       const service = requireTerminals();
       const terminal = await service.create({
-        projectId: input.projectId,
+        ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
         title: command.name,
         ...(input.groupId ? { groupId: input.groupId } : {}),
       });
@@ -2037,7 +2048,6 @@ export function createEngine(options: EngineOptions = {}): Engine {
       await projects.remove(project.id);
       projectGitMonitor.projectRemoved(project.id);
       await projectGitSettings.remove(project.id);
-      await quickCommands.removeProject(project.id);
       await skills.projectRemoved(project.id);
       await preflight.projectRemoved(project.id);
       // A refresh that started before the removal finishes first, then the files go.

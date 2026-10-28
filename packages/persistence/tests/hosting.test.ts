@@ -75,7 +75,7 @@ describe('hosting accounts and remotes in SQLite (migration v24)', () => {
     expect(getSchemaVersion(db)).toBe(23);
     db.close();
     db = openDatabase({ filePath: file });
-    expect(getSchemaVersion(db)).toBe(24);
+    expect(getSchemaVersion(db)).toBe(25);
     expect(db.prepare('SELECT COUNT(*) AS n FROM hosting_accounts').get()).toEqual({ n: 0 });
   });
 

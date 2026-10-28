@@ -18,13 +18,12 @@ import {
 import type { TerminalActivitySummary } from './terminal-activity.js';
 import { z } from 'zod';
 import {
-  ProjectQuickCommandSettingsSchema,
+  QuickCommandAssignmentSchema,
   QuickCommandIdSchema,
   QuickCommandInputSchema,
   QuickCommandMoveSchema,
   RunQuickCommandSchema,
   type ProjectAction,
-  type ProjectQuickCommandSettings,
   type QuickCommand,
 } from './quick-commands.js';
 import {
@@ -530,8 +529,7 @@ export const ENGINE_METHOD_PARAMS = {
   'quickCommands.update': z.tuple([QuickCommandIdSchema, QuickCommandInputSchema]),
   'quickCommands.remove': z.tuple([QuickCommandIdSchema]),
   'quickCommands.move': z.tuple([QuickCommandIdSchema, QuickCommandMoveSchema]),
-  'quickCommands.projectSettings': z.tuple([Id]),
-  'quickCommands.setProjectSettings': z.tuple([Id, ProjectQuickCommandSettingsSchema]),
+  'quickCommands.setAssignment': z.tuple([QuickCommandAssignmentSchema]),
   'quickCommands.run': z.tuple([RunQuickCommandSchema]),
   'projects.actions': z.tuple([Id]),
   'ai.attach': z.tuple([AttachTerminalSchema]),
@@ -891,8 +889,7 @@ export interface EngineMethodResults {
   'quickCommands.update': QuickCommand;
   'quickCommands.remove': null;
   'quickCommands.move': QuickCommand[];
-  'quickCommands.projectSettings': ProjectQuickCommandSettings;
-  'quickCommands.setProjectSettings': ProjectQuickCommandSettings;
+  'quickCommands.setAssignment': QuickCommand;
   'quickCommands.run': TerminalSession;
   'projects.actions': ProjectAction[];
   'ai.attach': AiSession;

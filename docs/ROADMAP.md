@@ -49,6 +49,7 @@
 | M25a      | SDD-025 T01   | Non-blocking background operations: push, pull and fetch as GIT jobs, View in Operations        | Implemented — awaiting approval       |
 | M25b      | SDD-025 T02   | Task execution: run a task with Claude Code or Codex in a new or existing terminal, history     | Implemented — awaiting approval       |
 | M25c      | SDD-025 T02 C | ATLAS team execution of a task (sequential minimal integration in SDD-026 T02)                  | Implemented — awaiting approval       |
+| M25d      | SDD-025 T03   | Quick commands in all projects or in selected ones; migration from prioritized/hidden/enabled   | Implemented — awaiting approval       |
 | M26a      | SDD-026 T01 A | AI project audit: read-only Claude Code/Codex runs as jobs, validated structured findings       | Implemented — awaiting approval       |
 | M26b      | SDD-026 T01 B | Findings review, filters, decision memory, tasks from findings, Hub workflow steps (PLAN-056)   | Implemented — awaiting approval       |
 | M26c      | SDD-026 T01 C | Approved findings → tasks, idempotent bulk creation, Task Execution Hub integration             | Not started (after B)                 |
