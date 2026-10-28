@@ -34,6 +34,9 @@ class MemoryStore implements TeamExecutionStore {
   async listForTask(taskId: string) {
     return [...this.rows.values()].filter((row) => row.taskId === taskId).reverse();
   }
+  async listForProject(projectId: string) {
+    return [...this.rows.values()].filter((row) => row.projectId === projectId).reverse();
+  }
   async listActive() {
     return [...this.rows.values()].filter((row) =>
       ['RUNNING', 'PAUSED', 'CHECKING'].includes(row.status),
@@ -59,6 +62,8 @@ function harness(options: Options = {}) {
   const reviewed: string[] = [];
   const notifications: CreateNotificationInput[] = [];
   const jobs: { input: unknown }[] = [];
+  const groups: string[] = [];
+  const runOptions: { groupId?: string }[] = [];
   const task: ContextTask = {
     id: TASK,
     projectId: PROJECT,
@@ -138,7 +143,8 @@ function harness(options: Options = {}) {
     context,
     resolveContextTarget: async () => target,
     runs: {
-      execute: async (input) => {
+      execute: async (input, runOption) => {
+        runOptions.push(runOption);
         if (options.launchFails) throw new AtlasError('TASK_EXECUTION_PROVIDER_UNAVAILABLE');
         const created = run(input);
         runs.push({ ...input, id: created.id });
@@ -191,6 +197,13 @@ function harness(options: Options = {}) {
       },
       cancel: async () => undefined,
     },
+    terminalGroups: {
+      create: async (name) => {
+        groups.push(name);
+        return id(400);
+      },
+      exists: async () => true,
+    },
     publishNotification: async (input) => {
       notifications.push(input);
     },
@@ -213,7 +226,19 @@ function harness(options: Options = {}) {
       endedAt: 'y',
     });
   };
-  return { service, store, runs, cancelled, reviewed, notifications, jobs, latest, settle };
+  return {
+    service,
+    store,
+    runs,
+    cancelled,
+    reviewed,
+    notifications,
+    jobs,
+    groups,
+    runOptions,
+    latest,
+    settle,
+  };
 }
 
 const approve = (
@@ -281,6 +306,18 @@ describe('TeamExecutionService approval and execution (Milestones B and C)', () 
     expect(runs[0]).toMatchObject({ mode: 'new-terminal', agentRole: 'developer' });
     expect(runs[0]?.objective).toContain('You are the Engineer of an ATLAS team');
     expect(service.isStage(runs[0]!.id)).toBe(true);
+  });
+
+  it('opens every member in one terminal group named after the task', async () => {
+    const { service, groups, runOptions, settle, latest } = harness();
+    await approve(service, [
+      { role: 'backend', provider: 'claude' },
+      { role: 'frontend', provider: 'claude' },
+    ]);
+    await settle('REVIEW_REQUIRED');
+    expect(groups).toEqual(['ATLAS · Login']);
+    expect(runOptions).toEqual([{ groupId: id(400) }, { groupId: id(400) }]);
+    expect((await latest()).terminalGroupId).toBe(id(400));
   });
 
   it('returns the same team for a repeated approval and blocks a second one', async () => {

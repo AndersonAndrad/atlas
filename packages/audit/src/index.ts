@@ -4,3 +4,4 @@ export * from './prompt.js';
 export * from './report.js';
 export * from './service.js';
 export * from './validation.js';
+export * from './task.js';

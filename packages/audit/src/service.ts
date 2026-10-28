@@ -9,6 +9,14 @@ import {
   DEFAULT_AUDIT_CATEGORIES,
   JOB_ERROR_MAX,
   StartAuditSchema,
+  DecideFindingsSchema,
+  CreateFindingTasksSchema,
+  type AuditDecisionView,
+  type AuditFindingDecision,
+  type CreatedFindingTasks,
+  type CreateFindingTasksInput,
+  type DecideFindingsInput,
+  type ProjectWorkflowSummary,
   auditPlainText,
   parseInput,
   type AiProvider,
@@ -30,6 +38,7 @@ import { AtlasError, describeError, type FieldIssue, type Logger } from '@atlas/
 import { auditFingerprint } from './fingerprint.js';
 import type { AuditProject, AuditServiceDependencies, AuditWorkspaceSnapshot } from './ports.js';
 import { buildAuditPrompt } from './prompt.js';
+import { findingTaskObjective, findingTaskTitle } from './task.js';
 import { parseAuditReport } from './report.js';
 import {
   validateFinding,
@@ -117,6 +126,8 @@ export function compareSnapshots(
 export class ProjectAuditService {
   /** One start at a time: duplicate checks and job submissions never interleave. */
   private starting: Promise<unknown> = Promise.resolve();
+  /** One decision or task creation at a time: a double click never creates two tasks. */
+  private reviews: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly deps: AuditServiceDependencies & { logger: Logger }) {}
 
@@ -163,7 +174,142 @@ export class ProjectAuditService {
 
   async get(auditId: string): Promise<AuditDetails> {
     const audit = await this.requireAudit(auditId);
-    return { audit, findings: await this.deps.store.findings(audit.id) };
+    const findings = await this.deps.store.findings(audit.id);
+    return {
+      audit,
+      findings,
+      decisions: await this.decisionViews(
+        audit.projectId,
+        findings.map((finding) => finding.fingerprint),
+      ),
+    };
+  }
+
+  /** Rejects, defers or clears findings; the decision is remembered by fingerprint (FR-009). */
+  decide(raw: DecideFindingsInput): Promise<AuditDecisionView[]> {
+    return this.reviewing(async () => {
+      const input = parseInput(DecideFindingsSchema, raw);
+      const { audit, findings } = await this.chosenFindings(input.auditId, input.findingIds);
+      const existing = await this.decisionMap(audit.projectId, findings);
+      for (const finding of findings) {
+        const previous = existing.get(finding.fingerprint);
+        const task = previous?.taskId
+          ? await this.deps.tasks.get(audit.projectId, previous.taskId)
+          : null;
+        if (task?.status === 'open') {
+          throw new AtlasError('VALIDATION_FAILED', undefined, {
+            issues: [
+              {
+                field: 'findingIds',
+                message: `“${finding.title}” already has an open task; finish or abandon it first.`,
+              },
+            ],
+          });
+        }
+        await this.deps.store.saveDecision({
+          projectId: audit.projectId,
+          fingerprint: finding.fingerprint,
+          decision: input.decision,
+          note: input.decision === 'NEEDS_REVIEW' ? null : (input.note ?? null) || null,
+          taskId: task === null ? null : task.id,
+          auditId: audit.id,
+          findingId: finding.id,
+          decidedAt: this.now(),
+        });
+      }
+      // Clients reload what depends on decisions (the review and the workflow steps).
+      this.changed(audit);
+      return this.decisionViews(
+        audit.projectId,
+        findings.map((finding) => finding.fingerprint),
+      );
+    });
+  }
+
+  /**
+   * One task per finding (FR-012). Idempotent: a finding whose task is still open gets
+   * that task back instead of a new one. Tasks are only created, never started.
+   */
+  createTasks(raw: CreateFindingTasksInput): Promise<CreatedFindingTasks> {
+    return this.reviewing(async () => {
+      const input = parseInput(CreateFindingTasksSchema, raw);
+      const { audit, findings } = await this.chosenFindings(input.auditId, input.findingIds);
+      const existing = await this.decisionMap(audit.projectId, findings);
+      const results: CreatedFindingTasks['results'] = [];
+      for (const finding of findings) {
+        const previous = existing.get(finding.fingerprint);
+        const task = previous?.taskId
+          ? await this.deps.tasks.get(audit.projectId, previous.taskId)
+          : null;
+        if (task?.status === 'open') {
+          results.push({ findingId: finding.id, taskId: task.id, created: false });
+          continue;
+        }
+        const created = await this.deps.tasks.create(audit.projectId, {
+          title: findingTaskTitle(finding),
+          objective: findingTaskObjective(finding, audit),
+        });
+        await this.deps.store.saveDecision({
+          projectId: audit.projectId,
+          fingerprint: finding.fingerprint,
+          decision: 'APPROVED',
+          note: null,
+          taskId: created.id,
+          auditId: audit.id,
+          findingId: finding.id,
+          decidedAt: this.now(),
+        });
+        existing.set(finding.fingerprint, { taskId: created.id } as AuditFindingDecision);
+        results.push({ findingId: finding.id, taskId: created.id, created: true });
+      }
+      this.changed(audit);
+      this.deps.logger.info('Audit findings turned into tasks', {
+        auditId: audit.id,
+        created: results.filter((result) => result.created).length,
+      });
+      return { results };
+    });
+  }
+
+  /**
+   * The latest audit and how many of its findings still wait for a decision: none, or a
+   * task that no longer exists. Rejected and deferred ones are decided.
+   */
+  async reviewSummary(
+    projectId: string,
+  ): Promise<Pick<ProjectWorkflowSummary, 'latestAudit' | 'findingsToReview'>> {
+    const audits = await this.deps.store.listForProject(projectId, AUDITS_LISTED);
+    const latest = audits[0] ?? null;
+    const completed = audits.find((audit) => audit.status === 'COMPLETED') ?? null;
+    let findingsToReview = 0;
+    if (completed !== null) {
+      const findings = await this.deps.store.findings(completed.id);
+      const views = new Map(
+        (
+          await this.decisionViews(
+            projectId,
+            findings.map((finding) => finding.fingerprint),
+          )
+        ).map((view) => [view.fingerprint, view]),
+      );
+      findingsToReview = findings.filter((finding) => {
+        const view = views.get(finding.fingerprint);
+        if (view === undefined || view.decision === 'NEEDS_REVIEW') return true;
+        return view.decision === 'APPROVED' && view.task === null;
+      }).length;
+    }
+    return {
+      latestAudit:
+        latest === null
+          ? null
+          : {
+              id: latest.id,
+              status: latest.status,
+              findingCount: latest.findingCount,
+              createdAt: latest.createdAt,
+            },
+      findingsToReview,
+    };
   }
 
   /** Cancels a queued audit at once; asks a running one to stop through its job. */
@@ -262,6 +408,48 @@ export class ProjectAuditService {
   }
 
   // -------------------------------------------------------------------------
+
+  private reviewing<T>(action: () => Promise<T>): Promise<T> {
+    const result = this.reviews.then(action);
+    this.reviews = result.catch(() => undefined);
+    return result;
+  }
+
+  private async chosenFindings(auditId: string, findingIds: readonly string[]) {
+    const audit = await this.requireAudit(auditId);
+    const all = await this.deps.store.findings(audit.id);
+    const findings = findingIds.map((findingId) => all.find((finding) => finding.id === findingId));
+    if (findings.some((finding) => finding === undefined)) {
+      throw new AtlasError('VALIDATION_FAILED', undefined, {
+        issues: [{ field: 'findingIds', message: 'A finding does not belong to this audit.' }],
+      });
+    }
+    return { audit, findings: findings as AuditFinding[] };
+  }
+
+  private async decisionMap(projectId: string, findings: readonly AuditFinding[]) {
+    const decisions = await this.deps.store.decisions(
+      projectId,
+      findings.map((finding) => finding.fingerprint),
+    );
+    return new Map(decisions.map((decision) => [decision.fingerprint, decision]));
+  }
+
+  private async decisionViews(
+    projectId: string,
+    fingerprints: readonly string[],
+  ): Promise<AuditDecisionView[]> {
+    const decisions = await this.deps.store.decisions(projectId, [...new Set(fingerprints)]);
+    return Promise.all(
+      decisions.map(async (decision) => ({
+        ...decision,
+        task:
+          decision.taskId === null
+            ? null
+            : await this.deps.tasks.get(projectId, decision.taskId).catch(() => null),
+      })),
+    );
+  }
 
   private async queue(raw: StartAuditInput): Promise<ProjectAudit> {
     const input = parseInput(StartAuditSchema, raw);

@@ -2,31 +2,22 @@ import {
   ACTIVE_AUDIT_STATUSES,
   AUDIT_CATEGORY_LABELS,
   AUDIT_SEVERITIES,
-  type AuditFinding,
   type AuditMetrics,
   type AuditScope,
   type ProjectAudit,
 } from '@atlas/contracts';
-import { FileCode, ScanSearch, SquareTerminal, TriangleAlert } from 'lucide-react';
+import { ScanSearch, SquareTerminal, TriangleAlert } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api, errorMessage, unwrap } from '@/api';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatDateTime } from '@/context/format';
 import { useKeyedLoad } from '@/context/hooks/useContextData';
-import { openInEditor } from '@/editor/navigation';
 import { cn } from '@/lib/utils';
 import { openOperationsJob } from '@/operations/navigation';
 import { onTerminalLifecycle } from '@/terminal/state/terminal-events';
-import {
-  AUDIT_PROVIDER_LABELS,
-  AUDIT_STATUS_LABELS,
-  LOCATION_LABELS,
-  SEVERITY_CLASSES,
-  VALIDATION_LABELS,
-  WORKSPACE_CHECK_LABELS,
-} from './audit-labels';
+import { AUDIT_PROVIDER_LABELS, AUDIT_STATUS_LABELS, WORKSPACE_CHECK_LABELS } from './audit-labels';
+import { FindingsReview } from './FindingsReview';
 
 const SEVERITY_ORDER = new Map(AUDIT_SEVERITIES.map((severity, index) => [severity, index]));
 
@@ -75,13 +66,15 @@ function metricsLabel(metrics: AuditMetrics | null): string {
 interface AuditsPanelProps {
   projectId: string;
   onAnalyze: () => void;
+  /** Shows a task created from a finding; `execute` opens Execute with ATLAS for it. */
+  onOpenTask: (taskId: string, options: { execute: boolean }) => void;
 }
 
 /**
- * Audits of a project (SDD-026 Milestone A): history and the validated findings of each
- * run, read-only. Approving findings and creating tasks arrive with Milestones B and C.
+ * Audits of a project (SDD-026 Task 01): history and the validated findings of each run,
+ * which the user turns into tasks, rejects or defers (PLAN-056).
  */
-export function AuditsPanel({ projectId, onAnalyze }: AuditsPanelProps) {
+export function AuditsPanel({ projectId, onAnalyze, onOpenTask }: AuditsPanelProps) {
   const { audits, loading, error } = useProjectAudits(projectId);
   const [chosenId, setChosenId] = useState<string | null>(null);
   const selected = audits.find((audit) => audit.id === chosenId) ?? audits[0] ?? null;
@@ -135,12 +128,20 @@ export function AuditsPanel({ projectId, onAnalyze }: AuditsPanelProps) {
           ))}
         </ul>
       </section>
-      {selected !== null && <AuditDetailsView key={selected.id} audit={selected} />}
+      {selected !== null && (
+        <AuditDetailsView key={selected.id} audit={selected} onOpenTask={onOpenTask} />
+      )}
     </div>
   );
 }
 
-function AuditDetailsView({ audit }: { audit: ProjectAudit }) {
+function AuditDetailsView({
+  audit,
+  onOpenTask,
+}: {
+  audit: ProjectAudit;
+  onOpenTask: AuditsPanelProps['onOpenTask'];
+}) {
   // Findings are stored once, when the audit completes.
   const details = useKeyedLoad(audit.status === 'COMPLETED' ? `audit:${audit.id}` : null, () =>
     api().audit.get(audit.id),
@@ -267,129 +268,15 @@ function AuditDetailsView({ audit }: { audit: ProjectAudit }) {
           <AlertDescription>{details.error}</AlertDescription>
         </Alert>
       )}
-      <ul className="flex flex-col gap-2" data-testid="audit-findings">
-        {findings.map((finding) => (
-          <FindingItem key={finding.id} finding={finding} />
-        ))}
-      </ul>
+      {details.value !== null && (
+        <FindingsReview
+          auditId={audit.id}
+          findings={findings}
+          decisions={details.value.decisions}
+          onChanged={() => void details.reload()}
+          onOpenTask={onOpenTask}
+        />
+      )}
     </section>
-  );
-}
-
-function FindingItem({ finding }: { finding: AuditFinding }) {
-  return (
-    <li>
-      <details className="rounded-md border p-3" data-testid="audit-finding">
-        <summary className="flex cursor-pointer flex-wrap items-center gap-2 text-sm">
-          <Badge
-            variant="outline"
-            className={SEVERITY_CLASSES[finding.severity]}
-            data-testid="audit-finding-severity"
-          >
-            {finding.severity}
-          </Badge>
-          <span className="min-w-0 flex-1 font-medium break-words">{finding.title}</span>
-          <Badge variant="outline" data-testid="audit-finding-validation">
-            {VALIDATION_LABELS[finding.validation]}
-          </Badge>
-        </summary>
-        <div className="mt-3 flex min-w-0 flex-col gap-2 text-sm">
-          <p className="text-muted-foreground text-xs">
-            {AUDIT_CATEGORY_LABELS[finding.category]} ·{' '}
-            {finding.kind === 'hypothesis' ? 'Hypothesis (not confirmed)' : 'Observation'} ·{' '}
-            {finding.confidence.toLowerCase()} confidence
-            {finding.effort ? ` · ${finding.effort} effort` : ''}
-          </p>
-          {finding.validationNotes.length > 0 && (
-            <ul className="text-warning list-disc pl-5 text-xs" aria-label="Validation notes">
-              {finding.validationNotes.map((note) => (
-                <li key={note} className="break-words">
-                  {note}
-                </li>
-              ))}
-            </ul>
-          )}
-          {finding.containsCommands && (
-            <p className="text-muted-foreground text-xs" data-testid="audit-finding-commands">
-              This finding mentions shell commands. They are shown as text; ATLAS never runs them.
-            </p>
-          )}
-          <Field label="Description" value={finding.description} />
-          <Field label="Evidence" value={finding.evidence} />
-          {finding.excerpt && (
-            <pre className="bg-muted/50 max-h-48 overflow-auto rounded border p-2 font-mono text-xs whitespace-pre-wrap">
-              {finding.excerpt}
-            </pre>
-          )}
-          {finding.locations.length > 0 && (
-            <ul className="flex flex-col gap-1" aria-label="Locations">
-              {finding.locations.map((location, index) => {
-                const openable =
-                  location.status === 'located' || location.status === 'line-out-of-range';
-                const lines =
-                  location.startLine === null
-                    ? ''
-                    : `:${location.startLine}${location.endLine && location.endLine !== location.startLine ? `-${location.endLine}` : ''}`;
-                return (
-                  <li key={index} className="flex min-w-0 flex-wrap items-center gap-2">
-                    <span className="font-mono text-xs break-all">
-                      {location.path}
-                      {lines}
-                    </span>
-                    {location.symbol && (
-                      <span className="text-muted-foreground text-xs">{location.symbol}</span>
-                    )}
-                    <span className="text-muted-foreground text-xs">
-                      ({LOCATION_LABELS[location.status]})
-                    </span>
-                    {openable && (
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        onClick={() =>
-                          openInEditor({
-                            projectId: finding.projectId,
-                            path: location.path,
-                            ...(location.startLine === null ? {} : { line: location.startLine }),
-                          })
-                        }
-                        data-testid="audit-finding-open"
-                      >
-                        <FileCode />
-                        Open
-                      </Button>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          <Field label="Impact" value={finding.impact} />
-          <Field label="Recommendation" value={finding.recommendation} />
-          <Field label="Suggested task" value={finding.suggestedTaskTitle} />
-          {finding.acceptanceCriteria.length > 0 && (
-            <div>
-              <span className="text-muted-foreground text-xs">Acceptance criteria</span>
-              <ul className="list-disc pl-5">
-                {finding.acceptanceCriteria.map((criterion) => (
-                  <li key={criterion} className="break-words">
-                    {criterion}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      </details>
-    </li>
-  );
-}
-
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <span className="text-muted-foreground text-xs">{label}</span>
-      <p className="break-words whitespace-pre-wrap">{value}</p>
-    </div>
   );
 }

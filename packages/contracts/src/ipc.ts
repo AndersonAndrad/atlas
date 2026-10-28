@@ -4,7 +4,17 @@ import type {
   TeamExecution,
   TeamProposal,
 } from './team.js';
-import type { AuditDetails, AuditOptions, ProjectAudit, StartAuditInput } from './audit.js';
+import type {
+  AuditDecisionView,
+  AuditDetails,
+  AuditOptions,
+  CreatedFindingTasks,
+  CreateFindingTasksInput,
+  DecideFindingsInput,
+  ProjectAudit,
+  ProjectWorkflowSummary,
+  StartAuditInput,
+} from './audit.js';
 import type { TerminalActivitySummary } from './terminal-activity.js';
 import type { SerializedError } from '@atlas/shared';
 import type {
@@ -485,6 +495,9 @@ export const IPC_CHANNELS = {
   auditList: 'atlas:audit:list',
   auditGet: 'atlas:audit:get',
   auditCancel: 'atlas:audit:cancel',
+  auditDecide: 'atlas:audit:decide',
+  auditCreateTasks: 'atlas:audit:create-tasks',
+  auditWorkflow: 'atlas:audit:workflow',
   dockerStatus: 'atlas:docker:status',
   dockerContexts: 'atlas:docker:contexts',
   dockerSelectContext: 'atlas:docker:select-context',
@@ -1039,6 +1052,12 @@ export interface AtlasApi {
     list(projectId: string): Promise<IpcResult<ProjectAudit[]>>;
     get(id: string): Promise<IpcResult<AuditDetails>>;
     cancel(id: string): Promise<IpcResult<ProjectAudit>>;
+    /** Rejects, defers or clears findings; remembered for later audits by fingerprint. */
+    decide(input: DecideFindingsInput): Promise<IpcResult<AuditDecisionView[]>>;
+    /** One task per finding; a finding whose task is still open returns that task. */
+    createTasks(input: CreateFindingTasksInput): Promise<IpcResult<CreatedFindingTasks>>;
+    /** The project's progress through Analyze → Review → Tasks → Execute → Review. */
+    workflow(projectId: string): Promise<IpcResult<ProjectWorkflowSummary>>;
   };
   /**
    * Docker (SDD-013 Milestone A). Typed operations only: the renderer never reaches the

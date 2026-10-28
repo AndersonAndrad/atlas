@@ -10,6 +10,8 @@ import {
   type UpdateProjectInput,
   parseInput,
   isFinalJobStatus,
+  ACTIVE_TEAM_EXECUTION_STATUSES,
+  type ProjectWorkflowSummary,
   type AiSession,
   type AttachTerminalInput,
   type BackgroundWork,
@@ -228,6 +230,8 @@ export interface Engine {
   readonly jobs: JobService;
   /** AI project audits (SDD-026 Task 01); they run as AGENT jobs in the Engine host. */
   readonly audits: ProjectAuditService;
+  /** Where a project is in Analyze → Review → Tasks → Execute → Review (PLAN-056). */
+  projectWorkflow(projectId: string): Promise<ProjectWorkflowSummary>;
   /** Docker through the Docker CLI (SDD-013 Milestone A); optional, never required. */
   readonly docker: DockerService;
   /** HTTP requests, collections and history (SDD-014 Milestone A); desktop only. */
@@ -1090,6 +1094,24 @@ export function createEngine(options: EngineOptions = {}): Engine {
         await jobs.cancel(jobId);
       },
     },
+    tasks: {
+      create: async (projectId, input) => {
+        const target = await resolveContextTarget({ projectId });
+        const task = await context.createTask(target, input);
+        await contextChanged(target);
+        return { id: task.id };
+      },
+      get: async (projectId, taskId) => {
+        try {
+          const task = await context.getTask(await resolveContextTarget({ projectId }), taskId);
+          return { id: task.id, title: task.title, status: task.status };
+        } catch (error) {
+          // The context service reports a missing task as a validation failure.
+          if (error instanceof AtlasError && error.code === 'VALIDATION_FAILED') return null;
+          throw error;
+        }
+      },
+    },
     profiles: () => usage.profiles(),
     onChanged: (audit) => terminals?.publish({ type: 'audit', audit }),
     clock,
@@ -1601,12 +1623,13 @@ export function createEngine(options: EngineOptions = {}): Engine {
   });
 
   // Execute with ATLAS (SDD-026 Task 02): approved teams run as a sequence of task runs.
+  const teamRepository = new SqliteTeamExecutionRepository(db);
   const teamExecutions: TeamExecutionService = new TeamExecutionService({
-    store: new SqliteTeamExecutionRepository(db),
+    store: teamRepository,
     context,
     resolveContextTarget,
     runs: {
-      execute: (input) => taskExecutions.execute(input),
+      execute: (input, options) => taskExecutions.execute(input, options),
       cancel: (target, id) => taskExecutions.cancel(target, id),
       review: (target, id) => taskExecutions.review(target, id),
       activeForTask: (taskId) => taskExecutionTracker.activeForTask(taskId),
@@ -1617,6 +1640,10 @@ export function createEngine(options: EngineOptions = {}): Engine {
     jobs: {
       create: (input) => jobs.create(input, 'desktop'),
       cancel: (id) => jobs.cancel(id),
+    },
+    terminalGroups: {
+      create: async (name) => (terminalGroups ? (await terminalGroups.create(name)).id : null),
+      exists: async (groupId) => (terminalGroups ? terminalGroups.exists(groupId) : false),
     },
     publishNotification: (input) => notifications.publish(input).then(() => undefined),
     onChange: (execution) => terminals?.publish({ type: 'team-execution', execution }),
@@ -1770,6 +1797,24 @@ export function createEngine(options: EngineOptions = {}): Engine {
     cancelTaskExecution: (target, id) => taskExecutions.cancel(target, id),
     reviewTaskExecution: (target, id) => taskExecutions.review(target, id),
     teamExecutions,
+    projectWorkflow: async (projectId) => {
+      const target = await resolveContextTarget({ projectId });
+      const [review, tasks, teams] = await Promise.all([
+        audits.reviewSummary(projectId),
+        context.listTasks(target),
+        teamRepository.listForProject(projectId, 50),
+      ]);
+      return {
+        projectId,
+        ...review,
+        openTasks: tasks.filter((task) => task.status === 'open').length,
+        teamsRunning: teams.filter((team) => ACTIVE_TEAM_EXECUTION_STATUSES.includes(team.status))
+          .length,
+        teamsToReview: teams.filter(
+          (team) => team.status === 'REVIEW_REQUIRED' && team.reviewedAt === null,
+        ).length,
+      };
+    },
     runQuickCommand: async (input) => {
       await projects.getDetails(input.projectId);
       const command = await quickCommands.forProject(input.projectId, input.commandId);

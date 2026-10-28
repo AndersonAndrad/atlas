@@ -1,11 +1,12 @@
 import {
   parseNoteLink,
+  type AiProvider,
   type NoteScope,
   type NoteSummary,
   type ProjectNote,
 } from '@atlas/contracts';
 import { ListChecks, NotebookPen, Pin, Plug, X } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api, errorMessage, unwrap } from '@/api';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -23,13 +24,20 @@ import { scopeFromKey, scopeKey, useNoteList } from '../hooks/useNotes';
 import { NotesPanel } from './NotesPanel';
 import { AnalyzeProjectDialog } from '@/audit/components/AnalyzeProjectDialog';
 import { AuditsPanel } from '@/audit/components/AuditsPanel';
+import { WorkflowSteps } from '@/audit/components/WorkflowSteps';
+import { TasksTab } from '@/context/components/TasksTab';
 
 type HubTab = 'overview' | 'notes' | 'audits' | 'tasks' | 'jira';
 const TABS: { id: HubTab; label: string; available: boolean; hint?: string }[] = [
   { id: 'overview', label: 'Overview', available: true },
   { id: 'notes', label: 'Notes', available: true },
   { id: 'audits', label: 'Audits', available: true, hint: 'AI audits of the selected project.' },
-  { id: 'tasks', label: 'Tasks', available: false, hint: 'Local tasks arrive in a later release.' },
+  {
+    id: 'tasks',
+    label: 'Tasks',
+    available: true,
+    hint: 'Tasks of the selected project, ready to execute with ATLAS.',
+  },
   {
     id: 'jira',
     label: 'Jira',
@@ -38,10 +46,29 @@ const TABS: { id: HubTab; label: string; available: boolean; hint?: string }[] =
   },
 ];
 
+/**
+ * The Hub's project and tab while the app runs: coming back from a terminal (e.g. after
+ * watching an ATLAS team) shows the same place (PLAN-056).
+ */
+const remembered: { scope: string | null; tab: HubTab; auditNonce: number | null } = {
+  scope: null,
+  tab: 'overview',
+  auditNonce: null,
+};
+
 interface ProjectHubViewProps {
   projects: ReturnType<typeof useProjects>;
   onOpenSession: (sessionId: string) => void;
   onOpenGit: (projectId: string) => void;
+  /** Shows a terminal, e.g. the one a member of an ATLAS team works in. */
+  onOpenTerminal: (terminalId: string) => void;
+  /** Continue with a provider or prepare a handoff for a task, in the Context view. */
+  onContextAction: (request: {
+    projectId: string;
+    action: 'continue' | 'handoff';
+    taskId: string;
+    provider?: AiProvider;
+  }) => void;
   /** Shows the project's audits and opens the Analyze Project dialog (SDD-026). */
   auditRequest: { projectId: string; nonce: number } | null;
 }
@@ -54,23 +81,38 @@ export function ProjectHubView({
   projects,
   onOpenSession,
   onOpenGit,
+  onOpenTerminal,
+  onContextAction,
   auditRequest,
 }: ProjectHubViewProps) {
   const items = projects.items ?? [];
-  const [chosenScope, setChosenScope] = useState<string | null>(null);
+  const [chosenScope, setChosenScope] = useState<string | null>(() => remembered.scope);
   // Until the user chooses, follow the selected project (or global notes without one).
   const key =
     chosenScope ?? (projects.selectedId === null ? 'global' : `project:${projects.selectedId}`);
   const known =
     !key.startsWith('project:') || items.some((item) => `project:${item.project.id}` === key);
   const scope: NoteScope = known ? scopeFromKey(key) : { kind: 'global' };
-  const [tab, setTab] = useState<HubTab>('overview');
+  const [tab, setTab] = useState<HubTab>(() => remembered.tab);
   const [openRequest, setOpenRequest] = useState<{ noteId: string; nonce: number } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const clearOpenRequest = useCallback(() => setOpenRequest(null), []);
   const [analyzing, setAnalyzing] = useState<string | null>(null);
+  /** A task to show in Tasks, optionally opening Execute with ATLAS for it (PLAN-056). */
+  const [taskFocus, setTaskFocus] = useState<{
+    taskId: string;
+    execute: boolean;
+    nonce: number;
+  } | null>(null);
+  const [tasksVersion, setTasksVersion] = useState(0);
   // A request from the Projects drawer or palette: adjusted while rendering, once per nonce.
-  const [handledAudit, setHandledAudit] = useState<number | null>(null);
+  // Remembered too: coming back to the Hub must not replay a request already handled.
+  const [handledAudit, setHandledAudit] = useState<number | null>(() => remembered.auditNonce);
+  useEffect(() => {
+    remembered.scope = chosenScope;
+    remembered.tab = tab;
+    remembered.auditNonce = handledAudit;
+  }, [chosenScope, tab, handledAudit]);
   if (auditRequest !== null && auditRequest.nonce !== handledAudit) {
     setHandledAudit(auditRequest.nonce);
     setChosenScope(`project:${auditRequest.projectId}`);
@@ -159,10 +201,13 @@ export function ProjectHubView({
             className="rounded-full"
             variant={tab === option.id ? 'secondary' : 'ghost'}
             aria-current={tab === option.id ? 'page' : undefined}
-            disabled={!option.available || (option.id === 'audits' && scope.kind !== 'project')}
+            disabled={
+              !option.available ||
+              ((option.id === 'audits' || option.id === 'tasks') && scope.kind !== 'project')
+            }
             title={
-              option.id === 'audits' && scope.kind !== 'project'
-                ? 'Choose a project to audit it.'
+              (option.id === 'audits' || option.id === 'tasks') && scope.kind !== 'project'
+                ? 'Choose a project first.'
                 : option.hint
             }
             onClick={() => setTab(option.id)}
@@ -204,12 +249,59 @@ export function ProjectHubView({
           onShowNotes={() => setTab('notes')}
         />
       )}
+      {(tab === 'audits' || tab === 'tasks') && scope.kind === 'project' && (
+        <WorkflowSteps
+          projectId={scope.projectId}
+          onNavigate={(target) => {
+            if (target === 'analyze') setAnalyzing(scope.projectId);
+            else setTab(target);
+          }}
+        />
+      )}
       {tab === 'audits' && scope.kind === 'project' && (
         <AuditsPanel
           key={scope.projectId}
           projectId={scope.projectId}
           onAnalyze={() => setAnalyzing(scope.projectId)}
+          onOpenTask={(taskId, { execute }) => {
+            setTaskFocus({ taskId, execute, nonce: Date.now() });
+            setTasksVersion((value) => value + 1);
+            setTab('tasks');
+          }}
         />
+      )}
+      {tab === 'tasks' && scope.kind === 'project' && (
+        <div className="min-h-0 flex-1 overflow-y-auto p-4" data-testid="hub-tasks">
+          <div className="mx-auto flex max-w-4xl flex-col gap-2">
+            <p className="text-muted-foreground text-sm">
+              Pick a task and choose <strong>Execute with ATLAS</strong>: ATLAS proposes a team, you
+              approve it, and the members work in a terminal group you can watch.
+            </p>
+            <TasksTab
+              key={`${scope.projectId}:${tasksVersion}`}
+              target={{ projectId: scope.projectId }}
+              targetKey={`project:${scope.projectId}`}
+              label={selectedProject?.project.name ?? 'Project'}
+              {...(taskFocus ? { focusTaskId: taskFocus.taskId } : {})}
+              {...(taskFocus?.execute
+                ? { openTeamFor: `${taskFocus.taskId}:${taskFocus.nonce}` }
+                : {})}
+              onChanged={() => undefined}
+              onContinue={(provider, taskId) =>
+                onContextAction({
+                  projectId: scope.projectId,
+                  action: 'continue',
+                  taskId,
+                  provider,
+                })
+              }
+              onHandoff={(taskId) =>
+                onContextAction({ projectId: scope.projectId, action: 'handoff', taskId })
+              }
+              onOpenTerminal={onOpenTerminal}
+            />
+          </div>
+        </div>
       )}
       {analyzing !== null && (
         <AnalyzeProjectDialog

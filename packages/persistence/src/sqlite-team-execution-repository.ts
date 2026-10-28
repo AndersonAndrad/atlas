@@ -126,6 +126,12 @@ export class SqliteTeamExecutionRepository implements TeamExecutionStore {
     );
   }
 
+  async listForProject(projectId: string, limit: number): Promise<TeamExecution[]> {
+    return this.run('listForProject', () =>
+      this.select('project_id = ? ORDER BY approved_at DESC, rowid DESC LIMIT ?', projectId, limit),
+    );
+  }
+
   async listActive(): Promise<TeamExecution[]> {
     return this.run('listActive', () => this.select(`${ACTIVE} ORDER BY approved_at, rowid`));
   }

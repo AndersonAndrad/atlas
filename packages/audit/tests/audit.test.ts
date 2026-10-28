@@ -1,4 +1,9 @@
-import type { AuditFinding, ProjectAudit, UsageProfile } from '@atlas/contracts';
+import type {
+  AuditFinding,
+  AuditFindingDecision,
+  ProjectAudit,
+  UsageProfile,
+} from '@atlas/contracts';
 import {
   AUDIT_REPORT_JSON_SCHEMA,
   ProjectAuditService,
@@ -373,6 +378,15 @@ class MemoryAuditStore implements AuditStore {
   async findings(auditId: string) {
     return this.saved.get(auditId) ?? [];
   }
+  readonly decided = new Map<string, AuditFindingDecision>();
+  async decisions(projectId: string, fingerprints: readonly string[]) {
+    return fingerprints
+      .map((fingerprint) => this.decided.get(`${projectId}:${fingerprint}`))
+      .filter((decision): decision is AuditFindingDecision => decision !== undefined);
+  }
+  async saveDecision(decision: AuditFindingDecision) {
+    this.decided.set(`${decision.projectId}:${decision.fingerprint}`, { ...decision });
+  }
 }
 
 interface Harness {
@@ -382,6 +396,10 @@ interface Harness {
   submitted: string[];
   cancelled: string[];
   changes: ProjectAudit[];
+  tasks: Map<
+    string,
+    { id: string; title: string; status: 'open' | 'done' | 'abandoned'; objective: string }
+  >;
 }
 
 function harness(
@@ -402,6 +420,10 @@ function harness(
   const submitted: string[] = [];
   const cancelled: string[] = [];
   const changes: ProjectAudit[] = [];
+  const tasks = new Map<
+    string,
+    { id: string; title: string; status: 'open' | 'done' | 'abandoned'; objective: string }
+  >();
   const snapshots = [...(options.snapshots ?? [])];
   let next = 0;
   const project: AuditProject | null =
@@ -450,13 +472,24 @@ function harness(
         cancelled.push(jobId);
       },
     },
+    tasks: {
+      create: async (_projectId, input) => {
+        const task = { id: id(600 + tasks.size), title: input.title, status: 'open' as const };
+        tasks.set(task.id, { ...task, objective: input.objective });
+        return { id: task.id };
+      },
+      get: async (_projectId, taskId) => {
+        const task = tasks.get(taskId);
+        return task === undefined ? null : { id: task.id, title: task.title, status: task.status };
+      },
+    },
     profiles: async () => options.profiles ?? [],
     onChanged: (audit) => changes.push(audit),
     clock: { now: () => new Date(Date.UTC(2026, 9, 27, 12, 0, 0)) },
     generateId: () => id(++next),
     logger: noopLogger,
   });
-  return { service, store, runs, submitted, cancelled, changes };
+  return { service, store, runs, submitted, cancelled, changes, tasks };
 }
 
 const context = (signal = new AbortController().signal) => {
@@ -810,5 +843,126 @@ describe('ProjectAuditService (SDD-026 Milestone A)', () => {
       errorSummary: 'The account profile chosen for the audit no longer exists.',
     });
     expect(runs).toHaveLength(0);
+  });
+});
+
+describe('Finding review and tasks (SDD-026 Task 01 Milestone B, PLAN-056)', () => {
+  async function completedAudit(
+    findings = [
+      rawFinding(),
+      rawFinding({
+        title: 'Other',
+        category: 'testing',
+        excerpt: null,
+        description: 'No tests for getUser at all.',
+      }),
+    ],
+  ) {
+    const h = harness({
+      outcome: async () => ({
+        kind: 'completed',
+        answer: { summary: 's', findings },
+        metrics: { inputTokens: null, outputTokens: null, costUsd: null, durationMs: null },
+      }),
+    });
+    const audit = await h.service.start(start);
+    await h.service.execute(audit.id, context().context);
+    const details = await h.service.get(audit.id);
+    return { ...h, audit, details };
+  }
+
+  it('creates one task per finding with criteria, files and its source, idempotently', async () => {
+    const { service, audit, details, tasks } = await completedAudit();
+    const finding = details.findings[0]!;
+    const first = await service.createTasks({ auditId: audit.id, findingIds: [finding.id] });
+    expect(first.results).toEqual([{ findingId: finding.id, taskId: id(600), created: true }]);
+    const task = tasks.get(id(600))!;
+    expect(task.title).toBe('Parameterize the user query');
+    expect(task.objective).toContain('Recommendation: Use a parameterized query.');
+    expect(task.objective).toContain('- The query uses placeholders');
+    expect(task.objective).toContain('Files: src/users.ts:2');
+    expect(task.objective).toContain(`finding ${finding.id}`);
+    expect(task.objective.length).toBeLessThanOrEqual(4000);
+    expect(task.objective).not.toContain('mentions shell commands');
+    // Again (double click, second audit): the open task is returned, not duplicated.
+    const again = await service.createTasks({ auditId: audit.id, findingIds: [finding.id] });
+    expect(again.results).toEqual([{ findingId: finding.id, taskId: id(600), created: false }]);
+    expect(tasks.size).toBe(1);
+    const view = (await service.get(audit.id)).decisions[0]!;
+    expect(view).toMatchObject({ decision: 'APPROVED', taskId: id(600), task: { status: 'open' } });
+  });
+
+  it('creates tasks in bulk, and a new one when the earlier task was finished', async () => {
+    const { service, audit, details, tasks } = await completedAudit();
+    const ids = details.findings.map((finding) => finding.id);
+    const bulk = await service.createTasks({ auditId: audit.id, findingIds: ids });
+    expect(bulk.results.map((result) => result.created)).toEqual([true, true]);
+    tasks.get(bulk.results[0]!.taskId)!.status = 'done';
+    const reopened = await service.createTasks({ auditId: audit.id, findingIds: [ids[0]!] });
+    expect(reopened.results[0]?.created).toBe(true);
+    expect(tasks.size).toBe(3);
+  });
+
+  it('remembers rejections and deferrals, and refuses them while a task is open', async () => {
+    const { service, audit, details } = await completedAudit();
+    const [first, second] = details.findings;
+    const views = await service.decide({
+      auditId: audit.id,
+      findingIds: [first!.id],
+      decision: 'REJECTED',
+      note: 'False positive: the id is validated upstream.',
+    });
+    expect(views[0]).toMatchObject({
+      decision: 'REJECTED',
+      note: 'False positive: the id is validated upstream.',
+    });
+    await service.decide({ auditId: audit.id, findingIds: [first!.id], decision: 'NEEDS_REVIEW' });
+    expect((await service.get(audit.id)).decisions[0]).toMatchObject({
+      decision: 'NEEDS_REVIEW',
+      note: null,
+    });
+    await service.createTasks({ auditId: audit.id, findingIds: [second!.id] });
+    await expect(
+      service.decide({ auditId: audit.id, findingIds: [second!.id], decision: 'DEFERRED' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await expect(
+      service.decide({ auditId: audit.id, findingIds: [id(999)], decision: 'REJECTED' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+  });
+
+  it('applies earlier decisions to the same finding in a later audit', async () => {
+    const h = await completedAudit();
+    await h.service.decide({
+      auditId: h.audit.id,
+      findingIds: [h.details.findings[0]!.id],
+      decision: 'REJECTED',
+    });
+    const later = await h.service
+      .start({ ...start, scope: { kind: 'files', paths: ['x.ts'] } })
+      .catch(() => null);
+    // The scope check of this harness refuses the path; reuse the first scope instead.
+    expect(later).toBeNull();
+    const second = await h.service.start({ ...start, categories: ['security', 'testing'] });
+    await h.service.execute(second.id, context().context);
+    const details = await h.service.get(second.id);
+    // Same fingerprint, other audit: the rejection is shown with it.
+    expect(details.decisions.map((view) => view.decision)).toEqual(['REJECTED']);
+    expect(details.findings[0]!.fingerprint).toBe(h.details.findings[0]!.fingerprint);
+  });
+
+  it('counts the findings that still need a decision', async () => {
+    const { service, audit, details } = await completedAudit();
+    expect((await service.reviewSummary(PROJECT)).findingsToReview).toBe(2);
+    await service.decide({
+      auditId: audit.id,
+      findingIds: [details.findings[0]!.id],
+      decision: 'DEFERRED',
+    });
+    await service.createTasks({ auditId: audit.id, findingIds: [details.findings[1]!.id] });
+    const summary = await service.reviewSummary(PROJECT);
+    expect(summary).toMatchObject({
+      findingsToReview: 0,
+      latestAudit: { id: audit.id, status: 'COMPLETED' },
+    });
   });
 });

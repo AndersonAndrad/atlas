@@ -63,6 +63,11 @@ interface TasksTabProps {
   label: string;
   /** A task to show first and highlight (e.g. from a notification). */
   focusTaskId?: string;
+  /**
+   * `<taskId>:<nonce>`: opens Execute with ATLAS for that task once it is loaded, e.g.
+   * right after it was created from an audit finding (PLAN-056 Q4).
+   */
+  openTeamFor?: string;
   onChanged: () => void;
   onContinue: (provider: AiProvider, taskId: string) => void;
   onHandoff: (taskId: string) => void;
@@ -76,6 +81,7 @@ export function TasksTab({
   targetKey,
   label,
   focusTaskId,
+  openTeamFor,
   onChanged,
   onContinue,
   onHandoff,
@@ -85,6 +91,12 @@ export function TasksTab({
   const [creating, setCreating] = useState(false);
   const [executing, setExecuting] = useState<ContextTask | null>(null);
   const [teaming, setTeaming] = useState<ContextTask | null>(null);
+  const [openedTeamFor, setOpenedTeamFor] = useState<string | null>(null);
+  if (openTeamFor !== undefined && openTeamFor !== openedTeamFor && tasks.value !== null) {
+    setOpenedTeamFor(openTeamFor);
+    const task = tasks.value.find((item) => item.id === openTeamFor.split(':')[0]);
+    if (task?.status === 'open') setTeaming(task);
+  }
   const [error, setError] = useState<string | null>(null);
 
   async function change(task: ContextTask, input: UpdateContextTaskInput) {

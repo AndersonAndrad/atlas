@@ -324,6 +324,8 @@ export function App() {
                   setView('sessions');
                 }}
                 onOpenGit={(projectId) => openGit({ projectId })}
+                onOpenTerminal={showTerminal}
+                onContextAction={(request) => openContext(request)}
                 auditRequest={auditRequest}
               />
             )}

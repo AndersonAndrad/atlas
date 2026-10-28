@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-27 — PLAN-055 (SDD-026 Task 02: Execute with ATLAS).
+Last updated: 2026-10-28 — PLAN-056 (Audit → Task → Execute with ATLAS in one flow).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -69,7 +69,22 @@ execution deferred) is implemented and awaits approval. PLAN-054 (SDD-026 Task 0
 read-only AI project audits with validated findings) is implemented and awaits approval;
 Milestones B and C need authorization. PLAN-055 (SDD-026 Task 02: Execute with ATLAS, approved
 teams run as sequential members in terminals) is implemented and awaits approval. Version
-0.41.0 (schema v22).
+0.41.0 (schema v22). PLAN-056 (SDD-026 Task 01 Milestone B with tasks from findings and one
+daily flow in the Project Hub) is implemented and awaits approval. Version 0.42.0 (schema v23).
+
+## PLAN-056 — Audit → Task → Execute with ATLAS in one flow
+
+- Approved 2026-10-28 by Anderson Andrade ("aprovado, q1 a q4 recomendado, ciente R1 e R2").
+  R3–R6 were presented but not acknowledged by ID. Details: SDD-026, Task 01 Milestone B.
+- What was built:
+  - Workflow steps in the Hub's Audits and Tasks tabs.
+  - Findings review: Create task, Defer and Reject, alone or in bulk, with filters.
+  - Decision memory by fingerprint (migration v23).
+  - Idempotent tasks from findings.
+  - The Hub's Tasks tab, with Execute with ATLAS right after creating a task.
+  - Team members in their own terminal group, and Watch team.
+  - The Hub remembers its place.
+- Rolling back to 0.41.x needs a database copy taken before 0.42.0 first ran.
 
 ## PLAN-055 — SDD-026 Task 02: Execute with ATLAS
 

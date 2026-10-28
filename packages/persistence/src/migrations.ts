@@ -1064,4 +1064,26 @@ export const MIGRATIONS: readonly Migration[] = [
         WHERE status IN ('RUNNING', 'PAUSED', 'CHECKING');
     `,
   },
+  {
+    version: 23,
+    name: 'audit_finding_decisions',
+    // Decisions about audit findings, remembered by fingerprint across audits (SDD-026
+    // Task 01 Milestone B). Additive. One decision per project and fingerprint; the
+    // latest replaces the previous one. Removed with the project; a removed task only
+    // clears its link, so a new task can be created for the finding.
+    sql: `
+      CREATE TABLE audit_finding_decisions (
+        project_id TEXT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+        fingerprint TEXT NOT NULL CHECK (length(fingerprint) = 64),
+        decision TEXT NOT NULL
+          CHECK (decision IN ('APPROVED', 'REJECTED', 'DEFERRED', 'RESOLVED', 'NEEDS_REVIEW')),
+        note TEXT CHECK (note IS NULL OR length(note) <= 500),
+        task_id TEXT REFERENCES context_tasks (id) ON DELETE SET NULL,
+        audit_id TEXT NOT NULL CHECK (length(audit_id) = 36),
+        finding_id TEXT NOT NULL CHECK (length(finding_id) = 36),
+        decided_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, fingerprint)
+      ) STRICT;
+    `,
+  },
 ];

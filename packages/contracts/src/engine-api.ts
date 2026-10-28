@@ -5,10 +5,15 @@ import {
   type TeamProposal,
 } from './team.js';
 import {
+  CreateFindingTasksSchema,
+  DecideFindingsSchema,
   StartAuditSchema,
+  type AuditDecisionView,
   type AuditDetails,
   type AuditOptions,
+  type CreatedFindingTasks,
   type ProjectAudit,
+  type ProjectWorkflowSummary,
 } from './audit.js';
 import type { TerminalActivitySummary } from './terminal-activity.js';
 import { z } from 'zod';
@@ -604,6 +609,9 @@ export const ENGINE_METHOD_PARAMS = {
   'audit.list': z.tuple([ProjectIdSchema]),
   'audit.get': z.tuple([z.uuid()]),
   'audit.cancel': z.tuple([z.uuid()]),
+  'audit.decide': z.tuple([DecideFindingsSchema]),
+  'audit.createTasks': z.tuple([CreateFindingTasksSchema]),
+  'audit.workflow': z.tuple([ProjectIdSchema]),
   // Docker (SDD-013 Milestone A): desktop only; every request names its context.
   'docker.status': z.tuple([]),
   'docker.contexts': z.tuple([]),
@@ -948,6 +956,9 @@ export interface EngineMethodResults {
   'audit.list': ProjectAudit[];
   'audit.get': AuditDetails;
   'audit.cancel': ProjectAudit;
+  'audit.decide': AuditDecisionView[];
+  'audit.createTasks': CreatedFindingTasks;
+  'audit.workflow': ProjectWorkflowSummary;
   'docker.status': DockerStatus;
   'docker.contexts': DockerContextList;
   'docker.selectContext': DockerContextList;

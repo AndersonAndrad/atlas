@@ -291,6 +291,8 @@ export interface AuditDetails {
   audit: ProjectAudit;
   /** Report order. */
   findings: AuditFinding[];
+  /** Remembered decisions for these findings' fingerprints (from any audit). */
+  decisions: AuditDecisionView[];
 }
 
 // ---------------------------------------------------------------------------
@@ -380,3 +382,85 @@ export const AuditReportFindingSchema = z.object({
   ),
 });
 export type AuditReportFinding = z.output<typeof AuditReportFindingSchema>;
+
+// ---------------------------------------------------------------------------
+// Finding review and decision memory (SDD-026 Task 01 Milestone B, PLAN-056)
+// ---------------------------------------------------------------------------
+
+/**
+ * A decision about a finding, remembered by its fingerprint across audits (FR-009).
+ * `APPROVED`: a task was created for it. `NEEDS_REVIEW` is the absence of a decision.
+ */
+export const AUDIT_DECISIONS = [
+  'APPROVED',
+  'REJECTED',
+  'DEFERRED',
+  'RESOLVED',
+  'NEEDS_REVIEW',
+] as const;
+export type AuditDecision = (typeof AUDIT_DECISIONS)[number];
+
+export const AUDIT_DECISION_NOTE_MAX = 500;
+/** Findings decided or turned into tasks in one request. */
+export const AUDIT_BULK_MAX = 50;
+
+export interface AuditFindingDecision {
+  projectId: string;
+  fingerprint: string;
+  decision: AuditDecision;
+  note: string | null;
+  /** The task created for the finding; null when it was removed or none was created. */
+  taskId: string | null;
+  /** The audit and finding the decision was made on. */
+  auditId: string;
+  findingId: string;
+  decidedAt: string;
+}
+
+/** A decision with the current state of its task, as the review shows it. */
+export interface AuditDecisionView extends AuditFindingDecision {
+  task: { id: string; title: string; status: 'open' | 'done' | 'abandoned' } | null;
+}
+
+const FindingIdsSchema = z
+  .array(z.uuid({ message: 'Invalid finding.' }))
+  .min(1, 'Choose at least one finding.')
+  .max(AUDIT_BULK_MAX, `Choose at most ${AUDIT_BULK_MAX} findings.`)
+  .transform((ids) => [...new Set(ids)]);
+
+/** Rejects, defers or clears (NEEDS_REVIEW) findings; approving creates tasks instead. */
+export const DecideFindingsSchema = z.strictObject({
+  auditId: z.uuid(),
+  findingIds: FindingIdsSchema,
+  decision: z.enum(['REJECTED', 'DEFERRED', 'NEEDS_REVIEW']),
+  note: z
+    .string()
+    .trim()
+    .max(AUDIT_DECISION_NOTE_MAX, `Use at most ${AUDIT_DECISION_NOTE_MAX} characters.`)
+    .optional(),
+});
+export type DecideFindingsInput = z.input<typeof DecideFindingsSchema>;
+
+/** Creates one task per finding, or links the task it already has (idempotent, FR-012). */
+export const CreateFindingTasksSchema = z.strictObject({
+  auditId: z.uuid(),
+  findingIds: FindingIdsSchema,
+});
+export type CreateFindingTasksInput = z.input<typeof CreateFindingTasksSchema>;
+
+export interface CreatedFindingTasks {
+  /** One entry per requested finding, in request order. */
+  results: { findingId: string; taskId: string; created: boolean }[];
+}
+
+/** Where a project is in the Analyze → Review → Tasks → Execute → Review flow (PLAN-056). */
+export interface ProjectWorkflowSummary {
+  projectId: string;
+  /** The latest audit; null before the first one. */
+  latestAudit: Pick<ProjectAudit, 'id' | 'status' | 'findingCount' | 'createdAt'> | null;
+  /** Findings of the latest completed audit without a decision (hidden ones excluded). */
+  findingsToReview: number;
+  openTasks: number;
+  teamsRunning: number;
+  teamsToReview: number;
+}

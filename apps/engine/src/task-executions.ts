@@ -168,8 +168,12 @@ export class TaskExecutionService {
     return this.deps.tracker.listForTask(taskId);
   }
 
-  execute(raw: ExecuteTaskInput): Promise<TaskExecution> {
-    const result = this.starting.then(() => this.start(raw));
+  /**
+   * `groupId` (Engine callers only, e.g. an ATLAS team) puts a new terminal in a terminal
+   * group; it is not part of the request a client sends.
+   */
+  execute(raw: ExecuteTaskInput, options: { groupId?: string } = {}): Promise<TaskExecution> {
+    const result = this.starting.then(() => this.start(raw, options));
     this.starting = result.catch(() => undefined);
     return result;
   }
@@ -260,7 +264,10 @@ export class TaskExecutionService {
     });
   }
 
-  private async start(raw: ExecuteTaskInput): Promise<TaskExecution> {
+  private async start(
+    raw: ExecuteTaskInput,
+    options: { groupId?: string },
+  ): Promise<TaskExecution> {
     const request = parseInput(ExecuteTaskSchema, raw);
     const target = await this.deps.resolveContextTarget(request.target);
     const task = await this.deps.context.getTask(target, request.taskId);
@@ -310,6 +317,7 @@ export class TaskExecutionService {
         ...(target.owner.projectId !== null
           ? { projectId: target.owner.projectId }
           : { cwd: target.directory }),
+        ...(options.groupId === undefined ? {} : { groupId: options.groupId }),
         title: truncate(
           `${PROVIDER_NAMES[request.provider]} · ${task.title}`,
           TERMINAL_TITLE_MAX_LENGTH,

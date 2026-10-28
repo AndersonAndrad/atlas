@@ -1,6 +1,7 @@
 import type {
   AiProvider,
   AuditFinding,
+  AuditFindingDecision,
   AuditMetrics,
   ProjectAudit,
   UsageProfile,
@@ -23,6 +24,20 @@ export interface AuditStore {
   listActive(): Promise<ProjectAudit[]>;
   /** Report order. */
   findings(auditId: string): Promise<AuditFinding[]>;
+  /** Remembered decisions of the project for these fingerprints. */
+  decisions(projectId: string, fingerprints: readonly string[]): Promise<AuditFindingDecision[]>;
+  /** Replaces the decision of the decision's project and fingerprint. */
+  saveDecision(decision: AuditFindingDecision): Promise<void>;
+}
+
+/** The shared-context tasks findings become (SDD-005), in the audit's project. */
+export interface AuditTasks {
+  create(projectId: string, input: { title: string; objective: string }): Promise<{ id: string }>;
+  /** Null when the task no longer exists. */
+  get(
+    projectId: string,
+    taskId: string,
+  ): Promise<{ id: string; title: string; status: 'open' | 'done' | 'abandoned' } | null>;
 }
 
 export interface AuditProject {
@@ -100,6 +115,7 @@ export interface AuditServiceDependencies {
   workspace: AuditWorkspace;
   runner: AuditProviderRunner;
   jobs: AuditJobs;
+  tasks: AuditTasks;
   profiles(): Promise<UsageProfile[]>;
   /** Called after every change of an audit, e.g. to publish it to the clients. */
   onChanged?: (audit: ProjectAudit) => void;

@@ -49,7 +49,7 @@
 | M25b      | SDD-025 T02   | Task execution: run a task with Claude Code or Codex in a new or existing terminal, history     | Implemented — awaiting approval       |
 | M25c      | SDD-025 T02 C | ATLAS team execution of a task (sequential minimal integration in SDD-026 T02)                  | Implemented — awaiting approval       |
 | M26a      | SDD-026 T01 A | AI project audit: read-only Claude Code/Codex runs as jobs, validated structured findings       | Implemented — awaiting approval       |
-| M26b      | SDD-026 T01 B | Findings review, filters, decision memory, deduplication across audits                          | Not started (needs authorization)     |
+| M26b      | SDD-026 T01 B | Findings review, filters, decision memory, tasks from findings, Hub workflow steps (PLAN-056)   | Implemented — awaiting approval       |
 | M26c      | SDD-026 T01 C | Approved findings → tasks, idempotent bulk creation, Task Execution Hub integration             | Not started (after B)                 |
 | M26d      | SDD-026 T02   | Execute with ATLAS: assessment, minimal team proposal, approval, sequential members, review     | Implemented — awaiting approval       |
 | M23b      | SDD-023 A02   | Terminal tab status: AI running, failed, needs attention, reviewed; explicit Mark as reviewed   | Implemented — awaiting approval       |

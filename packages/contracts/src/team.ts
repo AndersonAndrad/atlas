@@ -271,6 +271,8 @@ export interface TeamExecution {
   /** Safe to show, e.g. why a member could not start. */
   pauseDetail: string | null;
   advance: TeamAdvanceMode;
+  /** The terminal group the members open in; null when none could be created. */
+  terminalGroupId: string | null;
   stages: TeamStage[];
   /** Index of the stage running or waiting; null when none. */
   currentStage: number | null;

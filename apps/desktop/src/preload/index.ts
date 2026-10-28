@@ -333,6 +333,9 @@ const api: AtlasApi = {
     list: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.auditList, projectId),
     get: (id) => ipcRenderer.invoke(IPC_CHANNELS.auditGet, id),
     cancel: (id) => ipcRenderer.invoke(IPC_CHANNELS.auditCancel, id),
+    decide: (input) => ipcRenderer.invoke(IPC_CHANNELS.auditDecide, input),
+    createTasks: (input) => ipcRenderer.invoke(IPC_CHANNELS.auditCreateTasks, input),
+    workflow: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.auditWorkflow, projectId),
   },
   docker: {
     status: () => ipcRenderer.invoke(IPC_CHANNELS.dockerStatus),

@@ -1,6 +1,8 @@
 import {
   CLI_ENGINE_METHODS,
   type StartAuditInput,
+  type DecideFindingsInput,
+  type CreateFindingTasksInput,
   type ApproveTeamPlanInput,
   type CreateEntryInput,
   type EditorLayout,
@@ -606,6 +608,9 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     'audit.list': ([projectId]: [string]) => engine.audits.list(projectId),
     'audit.get': ([id]: [string]) => engine.audits.get(id),
     'audit.cancel': ([id]: [string]) => engine.audits.cancel(id),
+    'audit.decide': ([input]: [DecideFindingsInput]) => engine.audits.decide(input),
+    'audit.createTasks': ([input]: [CreateFindingTasksInput]) => engine.audits.createTasks(input),
+    'audit.workflow': ([projectId]: [string]) => engine.projectWorkflow(projectId),
     // Docker (SDD-013 Milestone A); the service validates every input again.
     'docker.status': () => engine.docker.status(),
     'docker.contexts': () => engine.docker.contexts(true),

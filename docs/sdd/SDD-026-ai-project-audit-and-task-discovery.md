@@ -2,8 +2,9 @@
 
 Status:
 
-- **Task 01 Milestone A** is implemented (PLAN-054 revision 1). Its Milestones B (findings
-  review and decision memory) and C (task creation and execution) need explicit authorization.
+- **Task 01 Milestone A** is implemented (PLAN-054 revision 1).
+- **Task 01 Milestone B** (findings review and decision memory) and the task creation of
+  Milestone C are implemented, together with a simpler daily flow (PLAN-056 revision 1).
 - **Task 02** (Execute with ATLAS) is implemented as a sequential minimal integration
   (PLAN-055 revision 1), because the multi-agent orchestration engine does not exist.
 
@@ -271,6 +272,140 @@ money.
   - entry from the Projects drawer, defaults, nothing before Start, validated findings,
     restricted arguments, prompt on standard input, files unchanged, opening evidence;
   - the Codex warning gate and a provider failure.
+
+## Task 01 — Milestone B and the daily flow (PLAN-056)
+
+Approved 2026-10-28 by Anderson Andrade ("aprovado, q1 a q4 recomendado, ciente R1 e R2").
+Version 0.42.0, schema v23.
+
+The user's feedback was that audits, tasks and teams were in three places with no next step,
+so nothing could be used day to day. PLAN-056 joins them into one path in the Project Hub.
+
+Decisions:
+
+- **Q1:** the Project Hub is the place, with its Audits and Tasks tabs.
+- **Q2:** rejected findings are hidden in later audits, and can be shown.
+- **Q3:** a team's members open in their own terminal group.
+- **Q4:** creating a task offers Execute with ATLAS right away.
+
+### The flow
+
+```text
+1 Analyze  →  2 Review findings  →  3 Tasks  →  4 Execute with ATLAS  →  5 Review result
+```
+
+The **workflow steps** strip sits at the top of the Hub's Audits and Tasks tabs. It comes from
+`audit.workflow`, which reports:
+
+- the latest audit;
+- the findings still to review;
+- the open tasks;
+- the teams running;
+- the teams to review.
+
+It highlights the next step, with a button for it, and updates on audit, task and team
+events.
+
+### Review and decision memory (FR-009 to FR-011)
+
+Each finding offers:
+
+- **Create task**;
+- **Defer**, with an optional note;
+- **Reject**, with an optional note.
+
+A selection does the same in bulk, up to 50 findings. Filters:
+
+- To review;
+- With a task or deferred;
+- Rejected;
+- All;
+- severity.
+
+Decisions are stored per project and fingerprint (migration v23, `audit_finding_decisions`),
+and the latest decision replaces the previous one. A later audit shows the remembered
+decision with the same finding:
+
+| Remembered              | Shown as                                           |
+| ----------------------- | -------------------------------------------------- |
+| Task created, task open | "Has a task" with Execute with ATLAS and Open task |
+| Task finished           | "Task finished · found again", back in To review   |
+| Task removed            | To review again (the link is cleared)              |
+| Deferred                | "Deferred", out of To review                       |
+| Rejected                | Hidden unless the Rejected or All filter is chosen |
+
+**Review again** clears a rejection or deferral. A finding with an open task cannot be rejected
+or deferred: finish or abandon the task first.
+
+### Tasks from findings (FR-012)
+
+`audit.createTasks` creates one shared-context task per finding, in the project:
+
+- **Title:** the suggested task title.
+- **Objective:**
+  - the description and the recommendation;
+  - the acceptance criteria as a list (Execute with ATLAS counts them);
+  - the located files;
+  - a source line with the audit, the finding, the severity and the category.
+
+It stays within the task's 4000-character limit, and the description is shortened first.
+Creation is idempotent: a finding whose task is still open returns that task. Creating a task
+starts nothing.
+
+After creation, **Execute with ATLAS** switches to Tasks, focuses the task and opens the team
+proposal. **Go to Tasks** only shows it.
+
+### Tasks tab and watching the team
+
+The Hub's Tasks tab shows the project's tasks with the same component as Context → Tasks:
+
+- the same actions, including Execute…, Continue and Handoff (these two open the Context
+  view);
+- the same history.
+
+Watching a team:
+
+- Each team creates the terminal group "ATLAS · \<task>". Every member opens in it, side by
+  side, with the terminal tab status. Without a group (limit reached, or removed), members
+  open as usual.
+- The team card shows "Member _n_ of _m_ — \<role> working (\<provider>)".
+- **Watch team** opens the current member's terminal, which is in the group.
+- The Hub remembers its project and tab while the app runs, so coming back from a terminal
+  shows the same place.
+
+### Limitations
+
+- Rejected or deferred findings are matched by fingerprint. The same issue described
+  differently in a later audit appears as new (R2).
+- One terminal group per team; groups are not removed automatically.
+- A task's objective comes from the provider's finding, which was written from untrusted
+  repository content. The user creates each task explicitly and sees the objective in the
+  task and in the team preview. Findings that mention shell commands add a note to check
+  them before running any.
+- Team members still run one after another (Task 02).
+
+### Tests
+
+- **Unit:**
+  - decisions;
+  - idempotent and bulk task creation;
+  - a new task after a finished one;
+  - refusal while a task is open;
+  - decisions across audits;
+  - the review count;
+  - v23 persistence;
+  - team terminal groups;
+  - the workflow steps;
+  - the finding states.
+- **E2E** (`tests/e2e/audit-workflow.spec.ts`, Linux and Xvfb):
+  - analyze from the Projects drawer;
+  - the steps show findings to review;
+  - reject with a note;
+  - create a task, then Execute with ATLAS;
+  - the members open in the group "ATLAS · \<task>";
+  - the team finishes and Watch team appears;
+  - the Hub comes back to Tasks;
+  - a second audit shows nothing to review, and the remembered decisions under All.
 
 ---
 

@@ -79,6 +79,31 @@ export function teamLabel(execution: TeamExecution): string {
   return TEAM_STATUS[execution.status];
 }
 
+/** "Member 2 of 3 — Frontend Engineer working (Claude Code)", or null when none is current. */
+export function teamHeadline(execution: TeamExecution): string | null {
+  const index = execution.currentStage;
+  if (index === null) return null;
+  const stage = execution.stages[index]!;
+  const doing =
+    stage.status === 'RUNNING'
+      ? 'working'
+      : stage.status === 'PENDING'
+        ? 'up next'
+        : STAGE_STATUS[stage.status];
+  return `Member ${index + 1} of ${execution.stages.length} — ${TEAM_ROLE_LABELS[stage.role]} ${doing} (${PROVIDER_NAMES[stage.provider]})`;
+}
+
+/** The terminal to watch: the current member's, else the last one that ran. */
+function watchTerminal(execution: TeamExecution): string | null {
+  const current =
+    execution.currentStage === null ? null : execution.stages[execution.currentStage]!.terminalId;
+  return (
+    current ??
+    [...execution.stages].reverse().find((stage) => stage.terminalId !== null)?.terminalId ??
+    null
+  );
+}
+
 /** The pause's choices: what continuing, retrying or skipping means here. */
 function choices(execution: TeamExecution): { action: TeamContinueAction; label: string }[] {
   if (execution.status !== 'PAUSED') return [];
@@ -150,6 +175,11 @@ export function TeamExecutions({ target, executions, onOpenTerminal }: TeamExecu
                 Approved {formatDateTime(execution.approvedAt)}
               </span>
             </div>
+            {teamHeadline(execution) && (
+              <p className="text-sm" data-testid="team-headline">
+                {teamHeadline(execution)}
+              </p>
+            )}
             <ol className="flex flex-col gap-1" aria-label="Team members">
               {execution.stages.map((stage, index) => (
                 <li
@@ -242,6 +272,16 @@ export function TeamExecutions({ target, executions, onOpenTerminal }: TeamExecu
             )}
 
             <div className="flex flex-wrap gap-1.5">
+              {watchTerminal(execution) !== null && (
+                <Button
+                  size="xs"
+                  variant={active ? 'default' : 'outline'}
+                  onClick={() => onOpenTerminal(watchTerminal(execution)!)}
+                  data-testid="team-watch"
+                >
+                  Watch team
+                </Button>
+              )}
               {choices(execution).map((choice) => (
                 <Button
                   key={choice.action}

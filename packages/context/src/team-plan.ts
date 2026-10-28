@@ -368,4 +368,6 @@ export interface TeamExecutionStore {
   listForTask(taskId: string, limit: number): Promise<TeamExecution[]>;
   /** RUNNING, PAUSED and CHECKING, oldest first. */
   listActive(): Promise<TeamExecution[]>;
+  /** Newest first. */
+  listForProject(projectId: string, limit: number): Promise<TeamExecution[]>;
 }

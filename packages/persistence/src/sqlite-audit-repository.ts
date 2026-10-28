@@ -1,4 +1,4 @@
-import type { AuditFinding, ProjectAudit } from '@atlas/contracts';
+import type { AuditFinding, AuditFindingDecision, ProjectAudit } from '@atlas/contracts';
 import type { AuditStore } from '@atlas/audit';
 import { AtlasError } from '@atlas/shared';
 import type { Database } from './database.js';
@@ -109,6 +109,28 @@ const toFinding = (row: FindingRow): AuditFinding => ({
   fingerprint: row.fingerprint,
   severity: row.severity,
   validation: row.validation,
+});
+
+interface DecisionRow {
+  project_id: string;
+  fingerprint: string;
+  decision: AuditFindingDecision['decision'];
+  note: string | null;
+  task_id: string | null;
+  audit_id: string;
+  finding_id: string;
+  decided_at: string;
+}
+
+const toDecision = (row: DecisionRow): AuditFindingDecision => ({
+  projectId: row.project_id,
+  fingerprint: row.fingerprint,
+  decision: row.decision,
+  note: row.note,
+  taskId: row.task_id,
+  auditId: row.audit_id,
+  findingId: row.finding_id,
+  decidedAt: row.decided_at,
 });
 
 const ACTIVE = `status IN ('QUEUED', 'RUNNING')`;
@@ -236,6 +258,47 @@ export class SqliteAuditRepository implements AuditStore {
 
   async listActive(): Promise<ProjectAudit[]> {
     return this.run('listActive', () => this.select(`${ACTIVE} ORDER BY created_at, rowid`));
+  }
+
+  async decisions(
+    projectId: string,
+    fingerprints: readonly string[],
+  ): Promise<AuditFindingDecision[]> {
+    if (fingerprints.length === 0) return [];
+    return this.run('decisions', () => {
+      const wanted = new Set(fingerprints);
+      return (
+        this.db
+          .prepare('SELECT * FROM audit_finding_decisions WHERE project_id = ?')
+          .all(projectId) as unknown as DecisionRow[]
+      )
+        .filter((row) => wanted.has(row.fingerprint))
+        .map(toDecision);
+    });
+  }
+
+  async saveDecision(decision: AuditFindingDecision): Promise<void> {
+    this.run('saveDecision', () => {
+      this.db
+        .prepare(
+          `INSERT INTO audit_finding_decisions (project_id, fingerprint, decision, note, task_id,
+             audit_id, finding_id, decided_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (project_id, fingerprint) DO UPDATE SET decision = excluded.decision,
+             note = excluded.note, task_id = excluded.task_id, audit_id = excluded.audit_id,
+             finding_id = excluded.finding_id, decided_at = excluded.decided_at`,
+        )
+        .run(
+          decision.projectId,
+          decision.fingerprint,
+          decision.decision,
+          decision.note,
+          decision.taskId,
+          decision.auditId,
+          decision.findingId,
+          decision.decidedAt,
+        );
+    });
   }
 
   async findings(auditId: string): Promise<AuditFinding[]> {

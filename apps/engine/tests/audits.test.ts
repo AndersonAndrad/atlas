@@ -3,7 +3,12 @@ import { chmodSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from '
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ProjectAuditService, type AuditProviderRunner, type AuditStore } from '@atlas/audit';
-import type { AuditFinding, BackgroundJob, ProjectAudit } from '@atlas/contracts';
+import type {
+  AuditFinding,
+  AuditFindingDecision,
+  BackgroundJob,
+  ProjectAudit,
+} from '@atlas/contracts';
 import { JobService } from '@atlas/jobs';
 import { SqliteJobRepository, openDatabase, type Database } from '@atlas/persistence';
 import { noopLogger } from '@atlas/shared';
@@ -392,6 +397,15 @@ class MemoryAuditStore implements AuditStore {
   async findings(auditId: string) {
     return this.saved.get(auditId) ?? [];
   }
+  readonly decided = new Map<string, AuditFindingDecision>();
+  async decisions(projectId: string, fingerprints: readonly string[]) {
+    return fingerprints
+      .map((fingerprint) => this.decided.get(`${projectId}:${fingerprint}`))
+      .filter((decision): decision is AuditFindingDecision => decision !== undefined);
+  }
+  async saveDecision(decision: AuditFindingDecision) {
+    this.decided.set(`${decision.projectId}:${decision.fingerprint}`, { ...decision });
+  }
 }
 
 /** The audit service behind a real job queue (SDD-012), as the Engine wires it. */
@@ -456,6 +470,7 @@ describe('AuditJobExecutor (SDD-026 FR-005)', () => {
           await jobs.cancel(jobId);
         },
       },
+      tasks: { create: async () => ({ id: id(600) }), get: async () => null },
       profiles: async () => [],
       clock: { now: () => new Date() },
       generateId: () => id(++next),

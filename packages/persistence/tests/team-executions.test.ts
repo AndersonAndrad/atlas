@@ -24,6 +24,7 @@ const team = (n: number, overrides: Partial<TeamExecution> = {}): TeamExecution 
   pause: null,
   pauseDetail: null,
   advance: 'automatic',
+  terminalGroupId: null,
   stages: [
     {
       role: 'executor',
@@ -69,9 +70,9 @@ describe('SqliteTeamExecutionRepository (SDD-026 Task 02)', () => {
   });
   afterEach(() => db.close());
 
-  it('is created by the latest migration', () => {
-    expect(getSchemaVersion(db)).toBe(22);
-    expect(MIGRATIONS.at(-1)!.name).toBe('team_executions');
+  it('is created by migration v22', () => {
+    expect(getSchemaVersion(db)).toBe(MIGRATIONS.at(-1)!.version);
+    expect(MIGRATIONS.find((migration) => migration.version === 22)!.name).toBe('team_executions');
   });
 
   it('round-trips, updates and finds executions by request', async () => {

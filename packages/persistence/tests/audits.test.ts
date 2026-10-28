@@ -159,6 +159,38 @@ describe('SqliteAuditRepository (SDD-026 Task 01)', () => {
     expect(await repository.findings(id(1))).toEqual([]);
   });
 
+  it('remembers one decision per project and fingerprint, unlinking removed tasks', async () => {
+    db.prepare(
+      `INSERT INTO context_tasks (id, project_id, title, objective, status, created_at, updated_at)
+       VALUES (?, ?, 'Task', 'Objective', 'open', 'x', 'x')`,
+    ).run(id(700), PROJECT);
+    const decision = {
+      projectId: PROJECT,
+      fingerprint: 'b'.repeat(64),
+      decision: 'APPROVED' as const,
+      note: null,
+      taskId: id(700),
+      auditId: id(1),
+      findingId: id(10),
+      decidedAt: at(1),
+    };
+    expect(getSchemaVersion(db)).toBe(MIGRATIONS.at(-1)!.version);
+    await repository.saveDecision(decision);
+    await repository.saveDecision({
+      ...decision,
+      decision: 'REJECTED',
+      note: 'No',
+      decidedAt: at(2),
+    });
+    expect(await repository.decisions(PROJECT, ['b'.repeat(64), 'c'.repeat(64)])).toEqual([
+      { ...decision, decision: 'REJECTED', note: 'No', decidedAt: at(2) },
+    ]);
+    expect(await repository.decisions(OTHER, ['b'.repeat(64)])).toEqual([]);
+    expect(await repository.decisions(PROJECT, [])).toEqual([]);
+    db.prepare('DELETE FROM context_tasks WHERE id = ?').run(id(700));
+    expect((await repository.decisions(PROJECT, ['b'.repeat(64)]))[0]?.taskId).toBeNull();
+  });
+
   it('refuses invalid rows in the schema', () => {
     expect(() =>
       db

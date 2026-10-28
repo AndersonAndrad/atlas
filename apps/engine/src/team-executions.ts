@@ -59,7 +59,7 @@ const truncate = (value: string, max: number) =>
 
 /** The parts of the Task Execution Hub a team uses (SDD-025 Task 02). */
 export interface TeamTaskRuns {
-  execute(input: ExecuteTaskInput): Promise<TaskExecution>;
+  execute(input: ExecuteTaskInput, options: { groupId?: string }): Promise<TaskExecution>;
   cancel(target: ContextTarget, id: string): Promise<TaskExecution>;
   review(target: ContextTarget, id: string): Promise<TaskExecution>;
   activeForTask(taskId: string): Promise<TaskExecution | null>;
@@ -82,6 +82,12 @@ export interface TeamExecutionServiceDependencies {
   jobs: {
     create(input: CreateJobInput): Promise<BackgroundJob>;
     cancel(id: string): Promise<unknown>;
+  };
+  /** Terminal groups: a team's members open side by side in one (PLAN-056 Q3). */
+  terminalGroups: {
+    /** Null when no group can be created (e.g. the limit was reached). */
+    create(name: string): Promise<string | null>;
+    exists(id: string): Promise<boolean>;
   };
   publishNotification: (input: CreateNotificationInput) => Promise<void>;
   onChange: (execution: TeamExecution) => void;
@@ -211,6 +217,9 @@ export class TeamExecutionService {
       });
       if (request.preflight !== null) await this.checkPreflight(target, request.preflight);
       const assessment = await this.assess(target, task);
+      const terminalGroupId = await this.deps.terminalGroups
+        .create(truncate(`ATLAS · ${task.title}`, 60))
+        .catch(() => null);
       const execution: TeamExecution = {
         id: this.deps.generateId(),
         requestId: request.requestId,
@@ -220,6 +229,7 @@ export class TeamExecutionService {
         pause: null,
         pauseDetail: null,
         advance: request.advance,
+        terminalGroupId,
         stages,
         currentStage: 0,
         complexity: assessment.complexity,
@@ -441,22 +451,31 @@ export class TeamExecutionService {
     const target = await this.deps.resolveContextTarget(targetOf(execution));
     const task = await this.deps.context.getTask(target, execution.taskId);
     const stage = execution.stages[index]!;
+    // The user may have removed the group: the member then opens like any terminal.
+    const groupId =
+      execution.terminalGroupId !== null &&
+      (await this.deps.terminalGroups.exists(execution.terminalGroupId).catch(() => false))
+        ? execution.terminalGroupId
+        : undefined;
     try {
-      const run = await this.deps.runs.execute({
-        requestId: this.deps.generateId(),
-        target: targetOf(execution),
-        taskId: task.id,
-        provider: stage.provider,
-        ...(stage.profileId === null ? {} : { profileId: stage.profileId }),
-        mode: 'new-terminal',
-        objective: stageObjective({
-          task,
-          stages: execution.stages,
-          index,
-          previous: execution.stages.slice(0, index).filter((item) => item.status !== 'PENDING'),
-        }),
-        agentRole: TEAM_ROLE_CONTEXT[stage.role],
-      });
+      const run = await this.deps.runs.execute(
+        {
+          requestId: this.deps.generateId(),
+          target: targetOf(execution),
+          taskId: task.id,
+          provider: stage.provider,
+          ...(stage.profileId === null ? {} : { profileId: stage.profileId }),
+          mode: 'new-terminal',
+          objective: stageObjective({
+            task,
+            stages: execution.stages,
+            index,
+            previous: execution.stages.slice(0, index).filter((item) => item.status !== 'PENDING'),
+          }),
+          agentRole: TEAM_ROLE_CONTEXT[stage.role],
+        },
+        groupId === undefined ? {} : { groupId },
+      );
       this.stageRuns.add(run.id);
       const started = this.withStage(
         { ...execution, status: 'RUNNING', pause: null, pauseDetail: null, currentStage: index },
