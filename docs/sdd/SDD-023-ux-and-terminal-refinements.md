@@ -1,8 +1,124 @@
 # SDD-023 — UX & Terminal Refinements
 
 Status: Task A02 implemented (PLAN-050 revision 1). Task A03 implemented (PLAN-052
-revision 1). Task A04 (terminal Actions menu) implemented (PLAN-057 revision 1). Task A01 (split terminals keep their context) was PLAN-045. Other tasks need
+revision 1). Task A04 (terminal Actions menu) implemented (PLAN-057 revision 1). Task A05 (project
+navigation and toolbar) implemented (PLAN-058 revision 1). Task A01 (split terminals keep their context) was PLAN-045. Other tasks need
 their own plans.
+
+## Task A05 — Project navigation and toolbar
+
+Implemented by PLAN-058 revision 1. Approved 2026-10-28 by Anderson Andrade ("segue com a
+recomendada para implementação e q1 a q4 recomendada"). R1–R6 were presented but not
+acknowledged by ID. The specification calls this task "A04"; that id was already used by the
+terminal Actions menu (PLAN-057), so it is recorded as **A05**. Version 0.44.0, no schema
+change.
+
+Decisions:
+
+- **Q1:** ⌘T (Ctrl+Shift+T) and "New terminal" keep opening in the default folder. Only
+  "New terminal in _project_" uses the selected project.
+- **Q2:** the earlier entry points stay: the sidebar's project search and Projects panel
+  buttons, and the terminal toolbar's "Open in project".
+- **Q3:** Project details opens the Projects view on the project.
+- **Q4:** the task is recorded as A05.
+
+### The upper toolbar
+
+The bar above every view has four areas, from left to right:
+
+1. **Project:** the selected project, or "No project". In the Terminals view, the terminal
+   group shown is named after it (`alpha / Backend`).
+2. **New** menu.
+3. **Quick commands** menu.
+4. Notices, Operations and notifications, unchanged. Settings and About stay in the main
+   navigation.
+
+**Project selector.** A popover with:
+
+- a search field, focused on opening, that ignores case and accents;
+- every project, with "Folder missing" and its open terminal count;
+- the selected project's actions: **Show terminals**, **New terminal in project** and
+  **Project details**.
+
+Show terminals brings forward the project's newest running terminal, or its newest one.
+
+| Menu           | Actions                                                                    | Uses                                                                                               |
+| -------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| New            | New terminal, New terminal in _project_, New project…, New terminal group… | The New terminal command; terminal creation in a project; the project form; the group dialog       |
+| Quick commands | The selected project's quick commands; Manage quick commands…              | `quickCommands.projectActions`, read on each opening; `quickCommands.run`; the Quick commands view |
+
+Each action runs once its menu closed, so a new terminal or dialog keeps the keyboard. Actions
+from another view switch to Terminals first. Disabled actions stay visible, with the reason
+under them:
+
+| Situation                       | Reason shown                   |
+| ------------------------------- | ------------------------------ |
+| No project selected             | Select a project first.        |
+| The project folder is missing   | The project folder is missing. |
+| No terminal open in the project | No open terminals.             |
+
+### Active project versus terminal context
+
+- **One selected project.** It is the one the Projects view already used (`projects.select`,
+  saved in the setting `projects.selectedProjectId`). It is restored after a restart.
+- **Selecting a project only changes that selection.** No terminal opens, closes, changes
+  folder or moves to another project. No AI provider starts.
+- **A terminal keeps the project it was created with.** Its project changes only through
+  the sidebar's "Associate with project".
+- **New terminals.** "New terminal in _project_" and the quick commands open in the selected
+  project, in the group shown.
+- **Terminal groups.** The group shown now belongs to the App, so it stays when you visit
+  another view. It is still not saved across restarts.
+
+### Empty and error states
+
+- No registered projects: the selector offers New project….
+- The registry fails to load: a warning icon on the selector, the message and Retry. If an
+  earlier list exists, the message says it may be outdated.
+- Selecting fails: the selector shows why. The error clears on the next selection.
+- A project removed while selected: the selector goes back to "No project". It is picked up
+  when the window regains focus or the list reloads.
+- No terminals: only the creation actions apply.
+
+### Responsive and keyboard
+
+- **Narrow windows:**
+  - New and Quick commands show only their icons, with accessible names.
+  - The project name truncates. The group name shows from medium widths.
+  - The global indicators keep their place.
+- **Window frame:** the window uses the native frame, so the bar never overlaps the window
+  controls.
+- **Keyboard:**
+  - The arrows move in the project list. Enter selects, and selects the only result too.
+  - Escape closes every menu.
+  - Focus rings come from the shared button and menu styles.
+  - No new global shortcut was added, so terminal input is never intercepted.
+
+### Limitations
+
+- The group shown is not saved across restarts.
+- With Q2, a project can still be reached from several places: the toolbar, the sidebar
+  search and panel, and the terminal toolbar.
+- Selecting a project also changes the default project of the API and Extensions views,
+  which read the same selection.
+
+### Tests
+
+- **Unit:** `apps/desktop/tests/project-toolbar.test.ts`, covering the reasons, the project's
+  terminals, Show terminals and the highlight movement.
+- **E2E:** `tests/e2e/app-toolbar.spec.ts`, Linux and Xvfb:
+  - search and keyboard selection, and Escape;
+  - switching with a running terminal, which keeps its folder and project;
+  - a new terminal inheriting the selected project;
+  - Show terminals and Project details;
+  - no projects;
+  - New project and New terminal group from another view, and the group named in the bar;
+  - New terminal in the default folder;
+  - quick commands: nothing runs on opening, the command runs in a new terminal, and Manage;
+  - restart restoring the selection;
+  - a missing folder, with its reasons;
+  - a project removed while selected;
+  - a 380 px window without overflow or overlap.
 
 ## Task A04 — Terminal Actions menu
 

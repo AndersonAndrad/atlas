@@ -39,9 +39,13 @@ interface TerminalsViewProps {
   terminals: TerminalSessionsState;
   groups: ReturnType<typeof useTerminalGroups>;
   preferences: ReturnType<typeof useTerminalPreferences>;
+  /** The terminal group shown (or UNGROUPED_WORKSPACE); kept by the App for its toolbar. */
+  workspace: string;
+  onWorkspaceChange: (key: string) => void;
   /**
-   * Once the view is shown: open a terminal in a project (from the Projects view), or show
-   * an existing terminal (e.g. a task execution's).
+   * Once the view is shown: open a terminal in a project (from the Projects view), show an
+   * existing terminal (e.g. a task execution's), run a project's quick command or create a
+   * terminal group (from the upper toolbar).
    */
   openRequest: TerminalOpenRequest | null;
   /** Called once the request was taken, so it is not replayed when the view mounts again. */
@@ -59,7 +63,10 @@ interface TerminalsViewProps {
 }
 
 export type TerminalOpenRequest =
-  { projectId: string; nonce: number } | { terminalId: string; nonce: number };
+  | { projectId: string; nonce: number }
+  | { projectId: string; commandId: string; nonce: number }
+  | { terminalId: string; nonce: number }
+  | { action: 'create-group'; nonce: number };
 
 export interface ProjectsNavigationRequest {
   surface: 'palette' | 'drawer';
@@ -85,6 +92,8 @@ export function TerminalsView({
   terminals,
   groups,
   preferences,
+  workspace,
+  onWorkspaceChange: setWorkspace,
   openRequest,
   onOpenRequestHandled,
   projectsRequest,
@@ -94,7 +103,6 @@ export function TerminalsView({
   onOpenPreflight,
   onContextAction,
 }: TerminalsViewProps) {
-  const [workspace, setWorkspace] = useState<string>(UNGROUPED_WORKSPACE);
   const [focusRequest, setFocusRequest] = useState<{ sessionId: string; nonce: number } | null>(
     null,
   );
@@ -127,15 +135,21 @@ export function TerminalsView({
   }, []);
 
   /** A workspace chosen directly drops any pending "show this terminal" request. */
-  const selectWorkspace = useCallback((key: string) => {
-    setFocusRequest(null);
-    setWorkspace(key);
-  }, []);
+  const selectWorkspace = useCallback(
+    (key: string) => {
+      setFocusRequest(null);
+      setWorkspace(key);
+    },
+    [setWorkspace],
+  );
 
-  const showTerminal = useCallback((session: TerminalSession) => {
-    setWorkspace(session.groupId ?? UNGROUPED_WORKSPACE);
-    setFocusRequest({ sessionId: session.id, nonce: Date.now() });
-  }, []);
+  const showTerminal = useCallback(
+    (session: TerminalSession) => {
+      setWorkspace(session.groupId ?? UNGROUPED_WORKSPACE);
+      setFocusRequest({ sessionId: session.id, nonce: Date.now() });
+    },
+    [setWorkspace],
+  );
 
   const openInProject = useCallback(
     async (projectId: string) => {
@@ -190,13 +204,16 @@ export function TerminalsView({
     [activeGroup, run, showTerminal, terminals],
   );
 
-  // A request from the Projects view ("Open terminal") or to show a terminal.
+  // A request from the Projects view ("Open terminal"), the upper toolbar, or to show a
+  // terminal.
   const handleOpenRequest = useCallback(
-    (request: TerminalOpenRequest) =>
-      'projectId' in request
-        ? openInProject(request.projectId)
-        : showTerminalById(request.terminalId),
-    [openInProject, showTerminalById],
+    async (request: TerminalOpenRequest) => {
+      if ('action' in request) setNameDialog({ kind: 'create-group' });
+      else if ('commandId' in request) await runQuickCommand(request.projectId, request.commandId);
+      else if ('projectId' in request) await openInProject(request.projectId);
+      else await showTerminalById(request.terminalId);
+    },
+    [openInProject, runQuickCommand, showTerminalById],
   );
   const handledRequest = useRef<number | null>(null);
   useEffect(() => {

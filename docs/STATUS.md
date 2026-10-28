@@ -1,6 +1,6 @@
 # ATLAS Status
 
-Last updated: 2026-10-28 — PLAN-057 (SDD-023 Task A04: terminal Actions menu).
+Last updated: 2026-10-28 — PLAN-058 (SDD-023 Task A05: project navigation and toolbar).
 
 **Overall status:** SDD-001, SDD-002 and SDD-003 Milestone A approved. SDD-003 Milestone B,
 SDD-004 Milestone A (with PLAN-009–PLAN-012) and SDD-005 Milestone A stage A1 (Shared
@@ -71,7 +71,23 @@ Milestones B and C need authorization. PLAN-055 (SDD-026 Task 02: Execute with A
 teams run as sequential members in terminals) is implemented and awaits approval. Version
 0.41.0 (schema v22). PLAN-056 (SDD-026 Task 01 Milestone B with tasks from findings and one
 daily flow in the Project Hub) is implemented and awaits approval. Version 0.42.0 (schema v23). PLAN-057 (SDD-023 Task A04: terminal Actions menu) is implemented
-and awaits approval. Version 0.43.0 (schema v23).
+and awaits approval. Version 0.43.0 (schema v23). PLAN-058 (SDD-023 Task A05: project
+navigation and toolbar) is implemented and awaits approval. Version 0.44.0 (schema v23).
+
+## PLAN-058 — SDD-023 Task A05: project navigation and toolbar
+
+- Approved 2026-10-28 by Anderson Andrade ("segue com a recomendada para implementação e q1 a
+  q4 recomendada"). R1–R6 were presented but not acknowledged by ID. Recorded as A05 because
+  A04 was taken. Details: SDD-023, Task A05.
+- What was built:
+  - **Project selector** in the upper toolbar: search, folder state, open terminals, Show
+    terminals, New terminal in project and Project details. In Terminals, it also names the
+    group shown.
+  - **New** menu: terminal, terminal in the project, project and terminal group.
+  - **Quick commands** menu for the selected project.
+- Selecting a project only changes the existing saved selection. Terminals keep their folder
+  and project.
+- No schema change.
 
 ## PLAN-057 — SDD-023 Task A04: terminal Actions menu
 

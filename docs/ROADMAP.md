@@ -54,6 +54,7 @@
 | M26d      | SDD-026 T02   | Execute with ATLAS: assessment, minimal team proposal, approval, sequential members, review     | Implemented — awaiting approval       |
 | M23b      | SDD-023 A02   | Terminal tab status: AI running, failed, needs attention, reviewed; explicit Mark as reviewed   | Implemented — awaiting approval       |
 | M23d      | SDD-023 A04   | Terminal Actions menu: Git, project and terminal actions per pane, pinned to its terminal       | Implemented — awaiting approval       |
+| M23e      | SDD-023 A05   | Upper toolbar: project selector, New menu and Quick commands for the selected project           | Implemented — awaiting approval       |
 | M4        | TBD           | Agents and multi-agent orchestration                                                            | Not started                           |
 | M5        | TBD           | Skills Hub and Context Engine                                                                   | Not started                           |
 | M6        | PLAN-024      | Packaging and CI release pipeline (done); signing, notarization, auto-update (not started)      | Partially implemented                 |

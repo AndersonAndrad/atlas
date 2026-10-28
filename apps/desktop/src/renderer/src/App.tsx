@@ -1,9 +1,13 @@
-import type { AtlasNotification } from '@atlas/contracts';
+import { UNGROUPED_WORKSPACE, type AtlasNotification } from '@atlas/contracts';
 import type { AppCommand } from '@atlas/contracts/ipc';
 import { X } from 'lucide-react';
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { api, unwrap } from './api';
 import { AboutDialog } from './components/AboutDialog';
+import { NewMenu } from './app-bar/components/NewMenu';
+import { ProjectSwitcher } from './app-bar/components/ProjectSwitcher';
+import { QuickCommandsMenu } from './app-bar/components/QuickCommandsMenu';
+import { ProjectFormDialog } from './components/ProjectFormDialog';
 import { ProjectsView } from './components/ProjectsView';
 import { ProjectHubView } from './hub/components/ProjectHubView';
 import { EditorView } from './editor/components/EditorView';
@@ -63,6 +67,10 @@ const ExtensionsView = lazy(() =>
 export function App() {
   const [view, setView] = useState<AppView>('projects');
   const [aboutOpen, setAboutOpen] = useState(false);
+  /** "New project…" from the upper toolbar: the same form as the Projects view. */
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  /** The terminal group shown in the Terminals view, named in the upper toolbar. */
+  const [terminalWorkspace, setTerminalWorkspace] = useState<string>(UNGROUPED_WORKSPACE);
   const [openRequest, setOpenRequest] = useState<TerminalOpenRequest | null>(null);
   /** Project palette or drawer asked from the menu; shown by the Terminals view (PLAN-052). */
   const [projectsRequest, setProjectsRequest] = useState<ProjectsNavigationRequest | null>(null);
@@ -103,6 +111,16 @@ export function App() {
   useEffect(() => {
     viewRef.current = view;
   }, [view]);
+
+  /** Terminal commands go to the workspace; New terminal from another view switches first. */
+  const dispatchTerminalCommand = useCallback((command: AppCommand) => {
+    if (viewRef.current === 'terminals') {
+      for (const handler of handlers.current) handler(command);
+    } else if (command === 'terminal.new') {
+      pendingCommand.current = command;
+      setView('terminals');
+    }
+  }, []);
 
   const subscribeCommands = useCallback((handler: CommandHandler) => {
     handlers.current.add(handler);
@@ -149,20 +167,26 @@ export function App() {
           default:
             break;
         }
-        if (viewRef.current === 'terminals') {
-          for (const handler of handlers.current) handler(command);
-        } else if (command === 'terminal.new') {
-          pendingCommand.current = command;
-          setView('terminals');
-        }
+        dispatchTerminalCommand(command);
       }),
-    [],
+    [dispatchTerminalCommand],
   );
 
   const openTerminal = (projectId: string) => {
     void projects.select(projectId);
     setOpenRequest({ projectId, nonce: Date.now() });
     setView('terminals');
+  };
+
+  /** Runs a project's quick command in a new terminal (upper toolbar). */
+  const runQuickCommand = (projectId: string, commandId: string) => {
+    setOpenRequest({ projectId, commandId, nonce: Date.now() });
+    setView('terminals');
+  };
+
+  const openProjectDetails = (projectId: string) => {
+    void projects.select(projectId);
+    setView('projects');
   };
 
   /** Shows an existing terminal, e.g. the one a task execution runs in. */
@@ -278,9 +302,44 @@ export function App() {
         />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div
-            className="flex h-10 shrink-0 items-center justify-end gap-2 border-b px-3"
+            className="flex h-10 shrink-0 items-center gap-2 border-b px-2 sm:px-3"
             data-testid="app-bar"
           >
+            <div
+              className="flex min-w-0 flex-1 items-center gap-0.5"
+              role="toolbar"
+              aria-label="Project and creation"
+            >
+              <ProjectSwitcher
+                projects={projects}
+                sessions={terminals.sessions ?? []}
+                groupName={
+                  view === 'terminals'
+                    ? (groups.groups?.find((group) => group.id === terminalWorkspace)?.name ??
+                      'Ungrouped')
+                    : null
+                }
+                onShowTerminal={showTerminal}
+                onNewTerminal={openTerminal}
+                onProjectDetails={openProjectDetails}
+                onNewProject={() => setNewProjectOpen(true)}
+              />
+              <NewMenu
+                selected={projects.selected}
+                onNewTerminal={() => dispatchTerminalCommand('terminal.new')}
+                onNewProjectTerminal={openTerminal}
+                onNewProject={() => setNewProjectOpen(true)}
+                onNewGroup={() => {
+                  setOpenRequest({ action: 'create-group', nonce: Date.now() });
+                  setView('terminals');
+                }}
+              />
+              <QuickCommandsMenu
+                selected={projects.selected}
+                onRun={runQuickCommand}
+                onManage={() => setView('quick-commands')}
+              />
+            </div>
             {notice && (
               <p
                 className="text-muted-foreground flex min-w-0 items-center gap-1 text-xs"
@@ -333,6 +392,8 @@ export function App() {
                 terminals={terminals}
                 groups={groups}
                 preferences={preferences}
+                workspace={terminalWorkspace}
+                onWorkspaceChange={setTerminalWorkspace}
                 openRequest={openRequest}
                 onOpenRequestHandled={clearOpenRequest}
                 projectsRequest={projectsRequest}
@@ -457,6 +518,15 @@ export function App() {
         onDismiss={notifications.dismissToast}
       />
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
+      {newProjectOpen && (
+        <ProjectFormDialog
+          onClose={() => setNewProjectOpen(false)}
+          onSaved={(project) => {
+            setNewProjectOpen(false);
+            void projects.select(project.id);
+          }}
+        />
+      )}
     </TooltipProvider>
   );
 }
