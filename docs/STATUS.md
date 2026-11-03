@@ -76,7 +76,21 @@ navigation and toolbar) is implemented and awaits approval. Version 0.44.0 (sche
 PLAN-059 (SDD-024 Task 04 Milestone A: Pull Request Center accounts and repositories) is
 implemented and awaits approval. Version 0.45.0 (schema v24). PLAN-060 (SDD-025 Task 03:
 quick commands in several projects) is implemented and awaits approval. Version 0.46.0
-(schema v25).
+(schema v25). PLAN-061 (plain Git fetch, pull and merge; conflicts reported, not failed) is
+implemented and awaits approval. Version 0.47.0 (schema v25).
+
+## PLAN-061 — Plain Git fetch, pull and merge
+
+- Approved 2026-11-02 by Anderson Andrade ("Aprovo o PLAN-061 rev. 1 e reconheço R1 a R4");
+  R1–R4 acknowledged by ID. Details: ADR-073 and SDD-004.
+- What changed:
+  - **Fetch:** `git fetch --all`; Fetch from… still fetches one remote.
+  - **Pull:** `git pull <remote> <branch>` of the current branch (its upstream, or
+    `origin/<branch>`); `--no-rebase` when nothing is configured. The dialog has no mode
+    choice.
+  - **Merge:** `git merge --no-edit <branch>`; Git commits a clean merge.
+  - **Conflicts:** pulls and merges finish with a warning listing the files, not an error.
+- No schema change; rolling back to 0.46.0 needs nothing.
 
 ## PLAN-060 — SDD-025 Task 03: quick commands in several projects
 
@@ -971,34 +985,34 @@ between (documented).
 
 ## SDD-004 Milestone A — Git workflow
 
-| Requirement | Summary                                                                                                                                |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| FR-401      | Git view from the sidebar, project details, terminal header, terminal context menu and ⌘⇧G; standalone terminals; empty state          |
-| FR-402/403  | Staged / unstaged / untracked / conflicts with per-file and all-file staging; read-only diff (binary, truncated, untracked)            |
-| FR-404/405  | Commit dialog: branch, file count, line stats, staged indicators, explicit inclusion of unstaged files, keyboard (⌘/Ctrl+Enter)        |
-| FR-406      | Conventional Commits 1.0.0 validator (header, body, footers, breaking changes); stricter project rules in Settings                     |
-| FR-407      | Deterministic suggestions with rationale; pluggable provider port; AI strategy deferred to Milestone B                                 |
-| FR-408/409  | Real commits with hooks, index fingerprint, Git errors; Commit & Push with separate results and explicit upstream                      |
-| FR-410–413  | Push (destination, ahead), Pull (fast-forward only by default, strategy explained), Fetch (progress, cancel), branches (no deletion)   |
-| FR-414–416  | Operation records and events, per-repository lanes, argv-only execution, literal pathspecs, no destructive commands, no stored secrets |
+| Requirement | Summary                                                                                                                                       |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-401      | Git view from the sidebar, project details, terminal header, terminal context menu and ⌘⇧G; standalone terminals; empty state                 |
+| FR-402/403  | Staged / unstaged / untracked / conflicts with per-file and all-file staging; read-only diff (binary, truncated, untracked)                   |
+| FR-404/405  | Commit dialog: branch, file count, line stats, staged indicators, explicit inclusion of unstaged files, keyboard (⌘/Ctrl+Enter)               |
+| FR-406      | Conventional Commits 1.0.0 validator (header, body, footers, breaking changes); stricter project rules in Settings                            |
+| FR-407      | Deterministic suggestions with rationale; pluggable provider port; AI strategy deferred to Milestone B                                        |
+| FR-408/409  | Real commits with hooks, index fingerprint, Git errors; Commit & Push with separate results and explicit upstream                             |
+| FR-410–413  | Push (destination, ahead), Pull (plain `git pull` of the current branch, PLAN-061), Fetch (`--all`, progress, cancel), branches (no deletion) |
+| FR-414–416  | Operation records and events, per-repository lanes, argv-only execution, literal pathspecs, no destructive commands, no stored secrets        |
 
 ### Acceptance criteria (§11, Milestone A)
 
-| Criterion                                         | Evidence                                                                            |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| Git panel with registered projects                | E2E "inspects, stages and commits…"; IPC authorization test                         |
-| Git panel with standalone terminals               | E2E "opens the Git view from standalone terminals…"                                 |
-| Changed files inspected and selected; diff viewer | integration (status mapping, diffs) and E2E                                         |
-| Staging and unstaging                             | integration (literal pathspecs, renames, unborn HEAD) and E2E                       |
-| Conventional Commits validated                    | validator unit tests (specification examples) and E2E validation feedback           |
-| Manual messages without AI; optional suggestions  | E2E (manual message; deterministic suggestion)                                      |
-| Real commits; Commit & Push                       | integration (hooks, partial staging, selection) and E2E against a bare remote       |
-| Push, Pull, Fetch                                 | integration (rejected push, explicit upstream, ff-only, divergent, conflicts) + E2E |
-| Branch creation and switching                     | integration and E2E                                                                 |
-| Git errors reported                               | integration (hooks, identity, nothing to commit, network without credential leaks)  |
-| Conflicting operations coordinated                | coordinator unit tests; integration "serializes conflicting mutations"              |
-| Existing terminal functionality                   | full unit and E2E suites                                                            |
-| Unit, integration and desktop tests pass          | see below                                                                           |
+| Criterion                                         | Evidence                                                                                            |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Git panel with registered projects                | E2E "inspects, stages and commits…"; IPC authorization test                                         |
+| Git panel with standalone terminals               | E2E "opens the Git view from standalone terminals…"                                                 |
+| Changed files inspected and selected; diff viewer | integration (status mapping, diffs) and E2E                                                         |
+| Staging and unstaging                             | integration (literal pathspecs, renames, unborn HEAD) and E2E                                       |
+| Conventional Commits validated                    | validator unit tests (specification examples) and E2E validation feedback                           |
+| Manual messages without AI; optional suggestions  | E2E (manual message; deterministic suggestion)                                                      |
+| Real commits; Commit & Push                       | integration (hooks, partial staging, selection) and E2E against a bare remote                       |
+| Push, Pull, Fetch                                 | integration (rejected push, explicit upstream, divergent, configured, no upstream, conflicts) + E2E |
+| Branch creation and switching                     | integration and E2E                                                                                 |
+| Git errors reported                               | integration (hooks, identity, nothing to commit, network without credential leaks)                  |
+| Conflicting operations coordinated                | coordinator unit tests; integration "serializes conflicting mutations"                              |
+| Existing terminal functionality                   | full unit and E2E suites                                                                            |
+| Unit, integration and desktop tests pass          | see below                                                                                           |
 
 ### Validation results (2026-10-20, macOS arm64, Node 24.18.0, Git 2.55.0)
 

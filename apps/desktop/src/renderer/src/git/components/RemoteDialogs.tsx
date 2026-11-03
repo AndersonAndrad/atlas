@@ -1,10 +1,4 @@
-import type {
-  BackgroundJob,
-  GitPullInfo,
-  GitPullInput,
-  GitRemote,
-  GitWorkingTree,
-} from '@atlas/contracts';
+import type { BackgroundJob, GitPullInfo, GitRemote, GitWorkingTree } from '@atlas/contracts';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { ApiError, api, errorMessage, unwrap } from '@/api';
@@ -26,7 +20,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { cn } from '@/lib/utils';
 import { plural } from '../format';
 
 interface RemoteDialogProps {
@@ -206,58 +199,43 @@ export function PushDialog({ tree, onClose, onSubmitted }: RemoteDialogProps) {
   );
 }
 
-const STRATEGY_TEXT: Record<GitPullInfo['configuredStrategy'], string> = {
-  merge: 'Merge: creates a merge commit when the branches diverged.',
-  rebase: 'Rebase: replays your local commits on top of the upstream.',
-  'ff-only': 'Fast-forward only, as configured in Git.',
-  unset:
-    'Not configured: Git refuses to pull diverged branches until pull.rebase or pull.ff is set.',
-};
-
-/** Pull with an explanation of what will happen; fast-forward only by default. */
+/** A plain `git pull` of the current branch from where it tracks; conflicts are reported. */
 export function PullDialog({ tree, onClose, onSubmitted }: RemoteDialogProps) {
-  const id = useId();
   const [info, setInfo] = useState<GitPullInfo | null>(null);
-  const [mode, setMode] = useState<GitPullInput['mode']>('ff-only');
+  const [infoFailed, setInfoFailed] = useState(false);
   const { busy, error, run } = useRemoteAction();
 
   useEffect(() => {
     let cancelled = false;
     unwrap(api().git.pullInfo(tree.repositoryRoot)).then(
       (value) => !cancelled && setInfo(value),
-      () => undefined,
+      () => !cancelled && setInfoFailed(true),
     );
     return () => {
       cancelled = true;
     };
   }, [tree.repositoryRoot]);
 
-  const ready = tree.branch !== null && tree.upstream !== null && !tree.upstreamGone;
+  const source = info?.source ?? null;
+  const ready = tree.branch !== null && source !== null;
   const pull = () =>
     run(
       () =>
         unwrap(
-          api().jobs.create({
-            type: 'GIT',
-            action: 'pull',
-            repositoryRoot: tree.repositoryRoot,
-            mode,
-          }),
+          api().jobs.create({ type: 'GIT', action: 'pull', repositoryRoot: tree.repositoryRoot }),
         ),
       onSubmitted,
     );
-  const options: { value: GitPullInput['mode']; title: string; text: string }[] = [
-    {
-      value: 'ff-only',
-      title: 'Fast-forward only (recommended)',
-      text: 'Updates the branch only when it has no commits the upstream lacks. Never creates a merge commit.',
-    },
-    {
-      value: 'configured',
-      title: 'Use the repository configuration',
-      text: info ? STRATEGY_TEXT[info.configuredStrategy] : 'Reading the configuration…',
-    },
-  ];
+
+  let unavailable: string | null = null;
+  if (tree.branch === null) unavailable = 'Switch to a branch before pulling.';
+  else if (tree.inProgress !== null) {
+    unavailable = `A ${tree.inProgress} is in progress. Finish or abort it first.`;
+  } else if (infoFailed) {
+    unavailable = 'The branch configuration could not be read. Close and try again.';
+  } else if (info !== null && source === null) {
+    unavailable = 'This branch has no upstream branch to pull from.';
+  }
 
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
@@ -265,19 +243,18 @@ export function PullDialog({ tree, onClose, onSubmitted }: RemoteDialogProps) {
         <DialogHeader>
           <DialogTitle>Pull</DialogTitle>
           <DialogDescription>
-            Conflicts stop the pull for you to resolve; ATLAS never discards local changes.
+            Runs <code className="font-mono">git pull</code> for the current branch. Conflicts are
+            reported with their files for you to resolve; nothing is discarded.
           </DialogDescription>
         </DialogHeader>
-        {!ready ? (
-          <p className="text-sm">
-            {tree.branch === null
-              ? 'Switch to a branch before pulling.'
-              : 'This branch has no upstream branch to pull from.'}
-          </p>
+        {unavailable !== null ? (
+          <p className="text-sm">{unavailable}</p>
+        ) : !ready ? (
+          <p className="text-muted-foreground text-sm">Reading the branch configuration…</p>
         ) : (
           <>
             <Route
-              from={tree.upstream!}
+              from={source}
               to={tree.branch!}
               icon={<ArrowDown className="size-4" aria-hidden="true" />}
             />
@@ -294,30 +271,6 @@ export function PullDialog({ tree, onClose, onSubmitted }: RemoteDialogProps) {
                 </AlertDescription>
               </Alert>
             )}
-            <fieldset className="flex flex-col gap-2" aria-label="Pull mode">
-              {options.map((option) => (
-                <label
-                  key={option.value}
-                  className={cn(
-                    'flex cursor-pointer gap-3 rounded-md border p-3 text-sm',
-                    mode === option.value && 'border-sidebar-primary bg-accent/40',
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name={`${id}-mode`}
-                    value={option.value}
-                    checked={mode === option.value}
-                    onChange={() => setMode(option.value)}
-                    className="accent-sidebar-primary mt-0.5"
-                  />
-                  <span className="flex flex-col gap-0.5">
-                    <span className="font-medium">{option.title}</span>
-                    <span className="text-muted-foreground text-xs">{option.text}</span>
-                  </span>
-                </label>
-              ))}
-            </fieldset>
           </>
         )}
         <Outcome error={error} />

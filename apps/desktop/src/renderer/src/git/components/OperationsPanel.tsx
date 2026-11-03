@@ -1,5 +1,13 @@
 import type { GitOperation, GitPreCommitStepResult } from '@atlas/contracts';
-import { Ban, CircleCheck, CircleDashed, CircleX, Clock, LoaderCircle } from 'lucide-react';
+import {
+  Ban,
+  CircleCheck,
+  CircleDashed,
+  CircleX,
+  Clock,
+  LoaderCircle,
+  TriangleAlert,
+} from 'lucide-react';
 import { api, unwrap } from '@/api';
 import { Button } from '@/components/ui/button';
 import { relativeTime } from '@/components/git/git-format';
@@ -16,7 +24,15 @@ function StatusIcon({ operation }: { operation: GitOperation }) {
         <LoaderCircle className={cn(common, 'text-sky-400 animate-spin')} aria-label="Running" />
       );
     case 'succeeded':
-      return <CircleCheck className={cn(common, 'text-success')} aria-label="Succeeded" />;
+      // A pull or merge that left conflicts finished, but needs the user.
+      return operation.conflicts?.length ? (
+        <TriangleAlert
+          className={cn(common, 'text-warning')}
+          aria-label="Finished with conflicts"
+        />
+      ) : (
+        <CircleCheck className={cn(common, 'text-success')} aria-label="Succeeded" />
+      );
     case 'failed':
       return <CircleX className={cn(common, 'text-destructive')} aria-label="Failed" />;
     case 'cancelled':

@@ -17,7 +17,6 @@ import type {
   GitMergePreview,
   GitOperation,
   GitPullInfo,
-  GitPullInput,
   GitCommitFiles,
   GitReflogEntry,
   GitRemote,
@@ -359,9 +358,14 @@ export class GitWorkspaceService {
     if (rebase !== null && rebase !== 'false') configuredStrategy = 'rebase';
     else if (pullFf === 'only') configuredStrategy = 'ff-only';
     else if (rebase === 'false' || pullFf !== null) configuredStrategy = 'merge';
+    const source = await this.planPull(repositoryRoot, tree).then(
+      (plan) => plan.source,
+      () => null,
+    );
     return {
       branch: tree.branch,
       upstream: tree.upstream,
+      source,
       configuredStrategy,
       hasLocalChanges: tree.files.some((file) => file.unstaged !== 'untracked'),
     };
@@ -663,11 +667,10 @@ export class GitWorkspaceService {
     return { branch: plan.branch, destination: plan.destination };
   }
 
-  /** Validates a pull without running it; returns the branch and its upstream. */
+  /** Validates a pull without running it; returns the branch and where it pulls from. */
   async preparePull(repositoryRoot: string): Promise<{ branch: string; upstream: string }> {
-    const tree = await this.workingTree(repositoryRoot);
-    this.checkPullable(tree);
-    return { branch: tree.branch!, upstream: tree.upstream! };
+    const plan = await this.planPull(repositoryRoot, await this.workingTree(repositoryRoot));
+    return { branch: plan.branch, upstream: plan.source };
   }
 
   /** Validates a fetch without running it. */
@@ -770,17 +773,24 @@ export class GitWorkspaceService {
     return outcome.operation;
   }
 
+  /**
+   * A plain `git pull <remote> <branch>` of the current branch from its upstream (or
+   * `origin/<branch>` when none is set). When the repository does not say how to
+   * reconcile divergent branches, Git's classic merge is used (`--no-rebase`) instead
+   * of refusing. Conflicts do not fail the pull: they are reported with their files.
+   */
   async pull(
     repositoryRoot: string,
-    mode: GitPullInput['mode'],
     observe?: (operation: GitOperation) => void,
   ): Promise<GitOperation> {
-    const tree = await this.workingTree(repositoryRoot);
-    this.checkPullable(tree);
+    const plan = await this.planPull(repositoryRoot, await this.workingTree(repositoryRoot));
     const args = [
       'pull',
       '--progress',
-      ...(mode === 'ff-only' ? ['--ff-only', '--no-rebase'] : []),
+      '--no-edit',
+      ...(plan.reconcileUnset ? ['--no-rebase'] : []),
+      plan.remote,
+      plan.ref,
     ];
     const outcome = await this.mutate(
       repositoryRoot,
@@ -788,31 +798,36 @@ export class GitWorkspaceService {
       ['index', 'remote'],
       false,
       async ({ progress }) => {
+        // Merge hooks get the same fresh environment as a commit's hooks.
+        const shell = await this.shellEnvironment(repositoryRoot);
         try {
           const result = await this.write(repositoryRoot, args, {
             timeoutMs: this.timeouts.network,
             onProgress: progress,
+            ...(shell ? { env: shell.env } : {}),
           });
           const upToDate = /Already up to date/i.test(`${result.stdout}\n${result.stderr}`);
           return {
             summary: upToDate
-              ? 'Already up to date.'
-              : `Updated ${tree.branch} from ${tree.upstream}.`,
+              ? `${plan.branch} is already up to date with ${plan.source}.`
+              : `Pulled ${plan.source} into ${plan.branch}.`,
             value: null,
           };
         } catch (error) {
-          const after = await this.workingTree(repositoryRoot).catch(() => null);
-          const conflicted = after?.files.filter((file) => file.staged === 'conflicted') ?? [];
-          if (conflicted.length > 0 || (after?.inProgress ?? null) !== null) {
-            const failure = toFailure(error);
-            throw new GitOperationFailure(
-              'conflict',
-              `The pull stopped with conflicts in ${plural(conflicted.length, 'file')}. ` +
-                'Resolve them in a terminal, then commit. Nothing was discarded.',
-              failure.output,
-            );
-          }
-          throw error;
+          const stopped = await this.stoppedWithConflicts(repositoryRoot);
+          if (stopped === null) throw error;
+          const { conflicts, inProgress } = stopped;
+          const next =
+            inProgress === 'rebase'
+              ? 'Resolve them, then continue or abort the rebase.'
+              : 'Resolve them, then commit.';
+          return {
+            summary:
+              `Pulled ${plan.source} into ${plan.branch} with conflicts in ` +
+              `${describeConflicts(conflicts)}. ${next}`,
+            value: null,
+            conflicts: conflicts.slice(0, MAX_REPORTED_CONFLICTS),
+          };
         }
       },
       observe,
@@ -820,6 +835,7 @@ export class GitWorkspaceService {
     return outcome.operation;
   }
 
+  /** `git fetch --all`, or one chosen remote. */
   async fetch(
     repositoryRoot: string,
     remote?: string,
@@ -832,12 +848,16 @@ export class GitWorkspaceService {
       ['remote'],
       true,
       async ({ progress, signal }) => {
-        await this.write(repositoryRoot, ['fetch', '--progress', ...(remote ? [remote] : [])], {
-          timeoutMs: this.timeouts.network,
-          onProgress: progress,
-          signal,
-        });
-        return { summary: `Fetched ${remote ?? 'the default remote'}.`, value: null };
+        await this.write(
+          repositoryRoot,
+          ['fetch', '--progress', ...(remote ? [remote] : ['--all'])],
+          {
+            timeoutMs: this.timeouts.network,
+            onProgress: progress,
+            signal,
+          },
+        );
+        return { summary: `Fetched ${remote ?? 'all remotes'}.`, value: null };
       },
       observe,
     );
@@ -935,10 +955,10 @@ export class GitWorkspaceService {
   }
 
   /**
-   * Merges `branch` into the current branch without committing (`--no-commit
-   * --no-ff`), so the user reviews the result and commits it with Git's prepared
-   * message (and the project's pre-commit steps). Requires a clean working tree,
-   * which keeps aborting safe.
+   * A plain `git merge --no-edit <branch>`: Git fast-forwards or creates the merge
+   * commit with its default message. Conflicts do not fail the merge: they are reported
+   * with their files and the merge stays in progress to resolve or abort. Requires a
+   * clean working tree, which keeps aborting safe.
    */
   async merge(repositoryRoot: string, branch: string): Promise<GitOperation> {
     const tree = await this.workingTree(repositoryRoot);
@@ -956,35 +976,31 @@ export class GitWorkspaceService {
     await this.requireMergeSource(repositoryRoot, branch);
     const current = tree.branch;
     const outcome = await this.mutate(repositoryRoot, 'merge', ['index'], false, async () => {
+      // Merge hooks get the same fresh environment as a commit's hooks.
+      const shell = await this.shellEnvironment(repositoryRoot);
+      let result: GitExecResult;
       try {
-        await this.write(repositoryRoot, ['merge', '--no-commit', '--no-ff', branch]);
+        result = await this.write(repositoryRoot, ['merge', '--no-edit', branch], {
+          timeoutMs: this.timeouts.commit,
+          ...(shell ? { env: shell.env } : {}),
+        });
       } catch (error) {
-        const after = await this.workingTree(repositoryRoot).catch(() => null);
-        const conflicted = after?.files.filter((file) => file.staged === 'conflicted') ?? [];
-        if (conflicted.length > 0) {
-          const failure = toFailure(error);
-          const names = conflicted.slice(0, 20).map((file) => file.path);
-          const more =
-            conflicted.length > names.length ? ` and ${conflicted.length - names.length} more` : '';
-          throw new GitOperationFailure(
-            'conflict',
-            `Merging ${branch} into ${current} stopped with conflicts in ` +
-              `${plural(conflicted.length, 'file')}: ${names.join(', ')}${more}. ` +
-              'Resolve them, mark them resolved and commit, or abort the merge.',
-            failure.output,
-          );
-        }
-        throw error;
+        const stopped = await this.stoppedWithConflicts(repositoryRoot);
+        if (stopped === null) throw error;
+        const { conflicts } = stopped;
+        return {
+          summary:
+            `Merged ${branch} into ${current} with conflicts in ${describeConflicts(conflicts)}. ` +
+            'Resolve them and commit, or abort the merge.',
+          value: null,
+          conflicts: conflicts.slice(0, MAX_REPORTED_CONFLICTS),
+        };
       }
-      const after = await this.workingTree(repositoryRoot);
-      if (after.inProgress !== 'merge') {
-        return { summary: `${current} already contains ${branch}; nothing to merge.`, value: null };
-      }
-      const changed = after.files.filter((file) => file.staged !== null).length;
+      const upToDate = /Already up to date/i.test(`${result.stdout}\n${result.stderr}`);
       return {
-        summary:
-          `Merged ${branch} into ${current} without conflicts ` +
-          `(${plural(changed, 'file')}). Review the changes and commit to finish.`,
+        summary: upToDate
+          ? `${current} already contains ${branch}; nothing to merge.`
+          : `Merged ${branch} into ${current}.`,
         value: null,
       };
     });
@@ -1280,7 +1296,9 @@ export class GitWorkspaceService {
     kind: GitOperation['kind'],
     lanes: ('index' | 'remote')[],
     cancellable: boolean,
-    task: (context: GitOperationContext) => Promise<{ summary: string; value: T }>,
+    task: (
+      context: GitOperationContext,
+    ) => Promise<{ summary: string; value: T; conflicts?: readonly string[] }>,
     observe?: (operation: GitOperation) => void,
   ): Promise<GitOperationOutcome<T>> {
     try {
@@ -1309,12 +1327,80 @@ export class GitWorkspaceService {
     }
   }
 
-  /** Refuses a pull that cannot run: no branch, no upstream, or a merge in progress. */
-  private checkPullable(tree: GitWorkingTree): void {
-    if (tree.branch === null) throw invalid('branch', 'Switch to a branch before pulling.');
-    if (tree.upstream === null || tree.upstreamGone) throw new AtlasError('GIT_NO_UPSTREAM');
+  /**
+   * Where the current branch pulls from: its upstream (`branch.<name>.remote` and
+   * `.merge`), or `origin/<name>` when no upstream is set and that branch exists. Refuses
+   * a detached HEAD, an unfinished merge or rebase, and a branch with nowhere to pull from.
+   */
+  private async planPull(repositoryRoot: string, tree: GitWorkingTree): Promise<PullPlan> {
+    const branch = tree.branch;
+    if (branch === null) throw invalid('branch', 'Switch to a branch before pulling.');
     if (tree.inProgress !== null) {
       throw invalid('branch', `A ${tree.inProgress} is in progress. Finish or abort it first.`);
+    }
+    const [remote, merge, branchRebase, pullRebase, pullFf, remotes] = await Promise.all([
+      this.config(repositoryRoot, `branch.${branch}.remote`),
+      this.config(repositoryRoot, `branch.${branch}.merge`),
+      this.config(repositoryRoot, `branch.${branch}.rebase`),
+      this.config(repositoryRoot, 'pull.rebase'),
+      this.config(repositoryRoot, 'pull.ff'),
+      this.remoteNames(repositoryRoot),
+    ]);
+    const reconcileUnset = branchRebase === null && pullRebase === null && pullFf === null;
+    if (remote !== null && merge !== null) {
+      // Both become arguments: the remote must be a configured one and the ref a ref.
+      if (
+        tree.upstreamGone ||
+        (remote !== '.' && !remotes.includes(remote)) ||
+        merge.startsWith('-')
+      ) {
+        throw new AtlasError('GIT_NO_UPSTREAM');
+      }
+      return {
+        branch,
+        remote,
+        ref: merge,
+        source: tree.upstream ?? `${remote}/${merge.replace(/^refs\/heads\//, '')}`,
+        reconcileUnset,
+      };
+    }
+    if (remotes.includes(DEFAULT_REMOTE)) {
+      const tracking = await this.read(
+        repositoryRoot,
+        ['rev-parse', '--verify', '-q', `refs/remotes/${DEFAULT_REMOTE}/${branch}`],
+        [0, 1],
+      );
+      if (tracking.exitCode === 0) {
+        return {
+          branch,
+          remote: DEFAULT_REMOTE,
+          ref: `refs/heads/${branch}`,
+          source: `${DEFAULT_REMOTE}/${branch}`,
+          reconcileUnset,
+        };
+      }
+    }
+    throw new AtlasError('GIT_NO_UPSTREAM');
+  }
+
+  /**
+   * After a failed pull or merge: the unmerged paths when Git stopped a merge or rebase
+   * with conflicts, or null for any other failure (both are required, so unmerged files
+   * left by e.g. `stash pop` never turn a refused command into a conflict).
+   */
+  private async stoppedWithConflicts(
+    repositoryRoot: string,
+  ): Promise<{ conflicts: string[]; inProgress: GitInProgressOperation } | null> {
+    try {
+      const [tree, output] = await Promise.all([
+        this.workingTree(repositoryRoot),
+        this.read(repositoryRoot, ['diff', '--name-only', '--diff-filter=U', '-z']),
+      ]);
+      const conflicts = [...new Set(output.split('\0').filter((line) => line !== ''))];
+      if (tree.inProgress === null || conflicts.length === 0) return null;
+      return { conflicts, inProgress: tree.inProgress };
+    } catch {
+      return null;
     }
   }
 
@@ -1751,6 +1837,31 @@ interface PushPlan {
   branch: string;
   args: string[];
   destination: string;
+}
+
+interface PullPlan {
+  branch: string;
+  /** A configured remote name. */
+  remote: string;
+  /** The remote branch, e.g. `refs/heads/main`. */
+  ref: string;
+  /** Shown to the user, e.g. `origin/main`. */
+  source: string;
+  /** No `pull.rebase`, `branch.<name>.rebase` or `pull.ff`: Git would refuse divergent pulls. */
+  reconcileUnset: boolean;
+}
+
+/** Remote used when the current branch has no upstream. */
+const DEFAULT_REMOTE = 'origin';
+/** Conflicted files kept on an operation; the summary names fewer. */
+const MAX_REPORTED_CONFLICTS = 200;
+const CONFLICTS_IN_SUMMARY = 20;
+
+/** "2 files: a.ts, b.ts", naming at most CONFLICTS_IN_SUMMARY files. */
+function describeConflicts(paths: readonly string[]): string {
+  const names = paths.slice(0, CONFLICTS_IN_SUMMARY);
+  const more = paths.length > names.length ? ` and ${paths.length - names.length} more` : '';
+  return `${plural(paths.length, 'file')}: ${names.join(', ')}${more}`;
 }
 
 /**

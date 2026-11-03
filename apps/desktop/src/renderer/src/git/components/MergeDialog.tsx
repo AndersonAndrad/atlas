@@ -25,16 +25,14 @@ import { BranchPicker } from './BranchPicker';
 interface MergeDialogProps {
   tree: GitWorkingTree;
   onClose: () => void;
-  /** Opens the commit dialog to conclude a merge that succeeded. */
-  onCommit: () => void;
 }
 
 /**
- * Merges a chosen branch into the current one without committing. A clean merge
- * ends with a positive message and "Commit merge"; conflicts list the files with
- * Git's output, which can be copied.
+ * Merges a chosen branch into the current one with a plain `git merge`, which commits
+ * a clean merge. Conflicts are a warning listing the files to resolve; real failures
+ * show Git's output, which can be copied.
  */
-export function MergeDialog({ tree, onClose, onCommit }: MergeDialogProps) {
+export function MergeDialog({ tree, onClose }: MergeDialogProps) {
   const [branches, setBranches] = useState<GitBranchList | null>(null);
   const [branch, setBranch] = useState<string | null>(null);
   const [preview, setPreview] = useState<GitMergePreview | null>(null);
@@ -92,14 +90,29 @@ export function MergeDialog({ tree, onClose, onCommit }: MergeDialogProps) {
     }
   }
 
-  const conflict = result?.status === 'failed' ? result.error : null;
-  const conflictText = conflict
-    ? [conflict.message, conflict.output]
-        .filter((part) => part !== null && part !== '')
-        .join('\n\n')
+  const failure = result?.status === 'failed' ? result.error : null;
+  const failureText = failure
+    ? [failure.message, failure.output].filter((part) => part !== null && part !== '').join('\n\n')
     : '';
   const merged = result?.status === 'succeeded';
+  const conflicts = merged ? (result.conflicts ?? []) : [];
   const nothingToMerge = merged && result.summary?.includes('nothing to merge') === true;
+  const copyButton = (text: string) => (
+    <Button
+      variant="outline"
+      size="sm"
+      className="self-start"
+      onClick={() =>
+        void copyText(text).then(
+          () => setCopied(true),
+          () => undefined,
+        )
+      }
+    >
+      {copied ? <Check /> : <Copy />}
+      {copied ? 'Copied' : 'Copy message'}
+    </Button>
+  );
 
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
@@ -113,8 +126,9 @@ export function MergeDialog({ tree, onClose, onCommit }: MergeDialogProps) {
             Merge into {current ?? 'the current branch'}
           </DialogTitle>
           <DialogDescription>
-            Brings the chosen branch into {current ?? 'this branch'} without committing; you review
-            and commit with Git’s merge message. Remote branches are as of the last fetch
+            Runs <code className="font-mono">git merge</code> of the chosen branch into{' '}
+            {current ?? 'this branch'}; a clean merge is committed with Git’s message. Remote
+            branches are as of the last fetch
             {tree.lastFetchAt ? ` (${relativeTime(tree.lastFetchAt)})` : ' (never fetched)'}.
           </DialogDescription>
         </DialogHeader>
@@ -159,46 +173,56 @@ export function MergeDialog({ tree, onClose, onCommit }: MergeDialogProps) {
           </Alert>
         )}
 
-        {merged && (
+        {merged && conflicts.length === 0 && (
           <Alert className="border-success/40" role="status" data-testid="merge-success">
             <CircleCheck className="text-success" />
             <AlertDescription className="flex flex-col gap-1">
               <strong className="text-foreground">
-                {nothingToMerge ? 'Already up to date' : 'Merge ready — no conflicts'}
+                {nothingToMerge ? 'Already up to date' : 'Merge completed'}
               </strong>
               <span>{result.summary}</span>
             </AlertDescription>
           </Alert>
         )}
 
-        {conflict && (
-          <div className="flex flex-col gap-2" data-testid="merge-conflict">
+        {merged && conflicts.length > 0 && (
+          <Alert className="border-warning/40" role="status" data-testid="merge-conflict">
+            <TriangleAlert className="text-warning" />
+            <AlertDescription className="flex flex-col gap-1">
+              <strong className="text-foreground">
+                Merge finished with conflicts in {plural(conflicts.length, 'file')}
+              </strong>
+              <span>Resolve them in your editor and commit, or abort the merge.</span>
+              <ul
+                className="max-h-40 overflow-auto font-mono text-xs"
+                data-testid="merge-conflict-files"
+              >
+                {conflicts.map((path) => (
+                  <li key={path} className="break-all">
+                    {path}
+                  </li>
+                ))}
+              </ul>
+              {copyButton([result.summary ?? '', ...conflicts].join('\n'))}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {failure && (
+          <div className="flex flex-col gap-2" data-testid="merge-failure">
             <Alert variant="destructive" role="alert">
               <TriangleAlert />
-              <AlertDescription>{conflict.message}</AlertDescription>
+              <AlertDescription>{failure.message}</AlertDescription>
             </Alert>
-            {conflict.output && (
+            {failure.output && (
               <pre
                 className="bg-muted/50 max-h-56 overflow-auto rounded p-2 font-mono text-xs whitespace-pre-wrap"
-                data-testid="merge-conflict-output"
+                data-testid="merge-failure-output"
               >
-                {conflict.output}
+                {failure.output}
               </pre>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              className="self-start"
-              onClick={() =>
-                void copyText(conflictText).then(
-                  () => setCopied(true),
-                  () => undefined,
-                )
-              }
-            >
-              {copied ? <Check /> : <Copy />}
-              {copied ? 'Copied' : 'Copy message'}
-            </Button>
+            {copyButton(failureText)}
           </div>
         )}
 
@@ -211,7 +235,6 @@ export function MergeDialog({ tree, onClose, onCommit }: MergeDialogProps) {
               {busy ? 'Merging…' : 'Merge'}
             </Button>
           )}
-          {merged && !nothingToMerge && <Button onClick={onCommit}>Commit merge</Button>}
         </DialogFooter>
       </DialogContent>
     </Dialog>

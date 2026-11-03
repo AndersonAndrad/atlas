@@ -291,6 +291,11 @@ export interface GitBranchList {
 export interface GitPullInfo {
   branch: string | null;
   upstream: string | null;
+  /**
+   * What a pull of the current branch pulls from, e.g. `origin/main` (its upstream, or
+   * `origin/<branch>` without one); null when it cannot pull.
+   */
+  source: string | null;
   /** `unset` means Git asks the user to choose and refuses divergent pulls. */
   configuredStrategy: 'merge' | 'rebase' | 'ff-only' | 'unset';
   hasLocalChanges: boolean;
@@ -354,6 +359,11 @@ export interface GitOperation {
   cancellable: boolean;
   /** Pre-commit steps of a commit, in order; null for other operations. */
   steps: GitPreCommitStepResult[] | null;
+  /**
+   * Files left in conflict by a pull or merge that finished with conflicts to resolve.
+   * Absent otherwise, and in the persisted log (the summary names the files there).
+   */
+  conflicts?: string[];
 }
 
 export type GitPreCommitStepStatus =
@@ -458,7 +468,8 @@ export type GitPushInput = z.infer<typeof GitPushInputSchema>;
 
 export const GitPullInputSchema = z.strictObject({
   repositoryRoot: GitRepositoryRootSchema,
-  mode: z.enum(['ff-only', 'configured']),
+  /** Ignored: a pull is always a plain `git pull` of the current branch. Kept for older clients. */
+  mode: z.enum(['ff-only', 'configured']).optional(),
 });
 export type GitPullInput = z.infer<typeof GitPullInputSchema>;
 

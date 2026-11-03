@@ -345,7 +345,7 @@ test('includes unstaged files only when chosen and reports hook failures', async
   await page.keyboard.press('Escape');
 });
 
-test('fetches, pulls fast-forward only and manages branches', async ({ atlas }) => {
+test('fetches, pulls the current branch and manages branches', async ({ atlas }) => {
   const dir = atlas.workspace('sync');
   const home = path.join(atlas.root, 'home');
   const { origin, git, gitIn } = repositoryWithRemote(dir, home);
@@ -380,7 +380,8 @@ test('fetches, pulls fast-forward only and manages branches', async ({ atlas }) 
   await gitAction(page, 'Pull…');
   const pull = page.getByTestId('pull-dialog');
   await expect(pull.getByTestId('pull-behind')).toContainText('1 commit to pull');
-  await expect(pull.getByRole('radio', { name: /Fast-forward only/ })).toBeChecked();
+  await expect(pull.getByTestId('git-route')).toContainText('origin/main');
+  await expect(pull.getByRole('radio')).toHaveCount(0);
   await pull.getByRole('button', { name: 'Pull', exact: true }).click();
   await expect(pull).toBeHidden({ timeout: 15_000 });
   // The pull runs in the background once accepted (SDD-025).
@@ -876,7 +877,7 @@ test('opens the operations panel from a terminal and on remote failures', async 
   ).toHaveAttribute('data-status', 'failed');
 });
 
-test('shows commits to push and pull on the buttons and merges with a manual commit', async ({
+test('shows commits to push and pull on the buttons and merges with a plain git merge', async ({
   atlas,
 }) => {
   const dir = atlas.workspace('merging');
@@ -907,17 +908,8 @@ test('shows commits to push and pull on the buttons and merges with a manual com
   await expect(dialog.getByTestId('merge-selected')).toContainText('feature');
   await expect(dialog.getByTestId('merge-preview')).toContainText('1 commit of feature');
   await dialog.getByRole('button', { name: 'Merge', exact: true }).click();
-  await expect(dialog.getByTestId('merge-success')).toContainText('Merge ready — no conflicts');
-  expect(git('log', '-1', '--format=%s').trim()).toBe('feat: auth');
-
-  // Committing is manual, with Git's merge message, although Conventional Commits are enforced.
-  await dialog.getByRole('button', { name: 'Commit merge' }).click();
-  const commit = page.getByTestId('commit-dialog');
-  await expect(commit.getByTestId('commit-merge-notice')).toBeVisible();
-  await expect(commit.getByLabel('Commit message')).toHaveValue("Merge branch 'feature'");
-  await expect(commit.getByTestId('commit-validation-badge')).toHaveText('Merge commit');
-  await commit.getByRole('button', { name: 'Commit', exact: true }).click();
-  await backgroundCommit(page);
+  await expect(dialog.getByTestId('merge-success')).toContainText('Merge completed');
+  // Git commits the merge itself, with its default message.
   expect(git('log', '-1', '--format=%P').trim().split(' ')).toHaveLength(2);
   expect(git('log', '-1', '--format=%s').trim()).toBe("Merge branch 'feature'");
   await expect(page.getByTestId('git-merge-banner')).toHaveCount(0);
@@ -947,14 +939,16 @@ test('shows merge conflicts with a copyable message and aborts on confirmation',
   await dialog.getByRole('combobox', { name: 'Branch to merge' }).click();
   await page.getByRole('option', { name: 'feature', exact: true }).click();
   await dialog.getByRole('button', { name: 'Merge', exact: true }).click();
+  // Conflicts are a warning with the files, not an error.
   const conflict = dialog.getByTestId('merge-conflict');
-  await expect(conflict).toContainText('README.md');
-  await expect(conflict.getByTestId('merge-conflict-output')).toContainText('CONFLICT');
+  await expect(conflict).toContainText('Merge finished with conflicts in 1 file');
+  await expect(conflict.getByTestId('merge-conflict-files')).toHaveText('README.md');
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
   await conflict.getByRole('button', { name: 'Copy message' }).click();
   await expect(conflict.getByRole('button', { name: 'Copied' })).toBeVisible();
   const clipboard = await app.evaluate(({ clipboard }) => clipboard.readText());
   expect(clipboard).toContain('README.md');
-  expect(clipboard).toContain('CONFLICT');
+  expect(clipboard).toContain('with conflicts');
 
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();

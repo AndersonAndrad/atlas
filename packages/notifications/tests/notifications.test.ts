@@ -275,6 +275,28 @@ describe('gitOperationNotification', () => {
     expect(JSON.stringify(input)).not.toContain('CONFLICT');
   });
 
+  it('asks for action when a pull or merge finished with conflicts', () => {
+    for (const [kind, title] of [
+      ['pull', 'Pull completed with conflicts'],
+      ['merge', 'Merge completed with conflicts'],
+    ] as const) {
+      expect(
+        gitOperationNotification(
+          operation({
+            kind,
+            summary: 'Pulled origin/main into main with conflicts in 1 file: a.ts.',
+            conflicts: ['a.ts'],
+          }),
+          context,
+        ),
+      ).toMatchObject({
+        type: 'ACTION_REQUIRED',
+        title,
+        message: 'Pulled origin/main into main with conflicts in 1 file: a.ts.',
+      });
+    }
+  });
+
   it('skips running, cancelled and routine operations and successful fetches', () => {
     expect(gitOperationNotification(operation({ status: 'running' }), context)).toBeNull();
     expect(gitOperationNotification(operation({ status: 'cancelled' }), context)).toBeNull();

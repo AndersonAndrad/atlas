@@ -919,3 +919,28 @@ superseded decisions are marked, not deleted.
   - Tokens are not portable between computers or users.
   - E2E tests stub `safeStorage`.
   - A later vault for the API Workbench (SDD-014 Q1) can reuse this path.
+
+## ADR-073 — Fetch, pull and merge run plain Git commands; conflicts are not failures (PLAN-061)
+
+- **Context**: Pulls defaulted to `--ff-only` and merges to `--no-commit --no-ff`, so
+  divergent pulls were refused and merges waited for a manual commit; the developer had to
+  finish them in a terminal. Supersedes the pull default of ADR-036 and the merge decision
+  of ADR-038 (the clean working tree requirement and the `Merge ` message rule remain).
+- **Decision**:
+  - Fetch runs `git fetch --all`; Fetch from… still fetches one chosen remote.
+  - Pull runs `git pull --no-edit <remote> <merge ref>` for the current branch, from its
+    upstream or from `origin/<branch>` without one. `--no-rebase` is added only when the
+    repository does not configure how to reconcile divergent branches.
+  - Merge runs `git merge --no-edit <branch>`; Git commits a clean merge.
+  - A pull or merge that stops with conflicts finishes as succeeded with `conflicts` (the
+    files) and a summary naming them; it notifies as action required.
+- **Alternatives**: keeping fast-forward only as an option (rejected: it is what left pulls
+  unfinished); a new `conflicted` operation status (rejected: it changes the persisted log,
+  job outcomes and filters).
+- **Consequences**:
+  - Merge commits from pulls and merges skip ATLAS's Conventional Commits check and
+    pre-commit steps; Git hooks still run, with the commit shell environment.
+  - `conflicts` is live state only; the persisted log keeps the files in the summary.
+  - A completed job can leave a merge in progress, shown by the merge banner.
+  - `mode` in pull requests is optional and ignored, so stored jobs and older clients stay
+    valid.

@@ -796,11 +796,11 @@ export function GitView({ request, onRequestHandled, onOpenPreflight }: GitViewP
       {tree && dialog === 'merge' && (
         <MergeDialog
           tree={tree}
-          onClose={() => setDialog(null)}
-          onCommit={() =>
-            // The merge ran in the dialog: refresh first so the commit dialog sees it.
-            void refresh().then(() => setDialog('commit'))
-          }
+          onClose={() => {
+            setDialog(null);
+            // The merge may have committed or left conflicts: show the new state.
+            void refresh();
+          }}
         />
       )}
       {tree && dialog === 'abort-merge' && (

@@ -69,8 +69,8 @@ reading. Commit messages are passed on standard input (`commit -F -`).
 | Unstage   | `restore --staged -- <paths>` (`rm --cached` without commits; both sides of a staged rename)           | index        | 60 s    |
 | Commit    | `commit -F -` (hooks run; never `--no-verify`)                                                         | index        | 10 min  |
 | Push      | `push --progress <remote> refs/heads/<branch>:<merge ref>` or `--set-upstream` to a chosen destination | remote       | 10 min  |
-| Pull      | `pull --progress --ff-only --no-rebase` (default) or `pull --progress` (repository configuration)      | index+remote | 10 min  |
-| Fetch     | `fetch --progress [<remote>]` (cancellable)                                                            | remote       | 10 min  |
+| Pull      | `pull --progress --no-edit [--no-rebase] <remote> <merge ref>` of the current branch (PLAN-061)        | index+remote | 10 min  |
+| Fetch     | `fetch --progress --all`, or `fetch --progress <remote>` from Fetch from… (cancellable)                | remote       | 10 min  |
 | Branches  | `for-each-ref refs/heads refs/remotes`, `switch [-c\|--track]`, `branch [-m]`                          | index        | 60 s    |
 
 Never used: `reset --hard`, `clean`, `push --force`, branch deletion, `init`, `add -A`,
@@ -177,6 +177,11 @@ the project is removed. No database migration is needed. Older builds ignore the
 rolling back to a build without project checks therefore stops enforcing them.
 
 ## Merge (PLAN-011)
+
+> **Superseded by PLAN-061 (ADR-073):** Merge… runs a plain `git merge --no-edit <branch>`,
+> which fast-forwards or commits the merge with Git's message; there is no manual commit
+> step. Conflicts finish the operation with a warning listing the files; the merge stays in
+> progress to resolve and commit, or abort. The clean working tree requirement remains.
 
 The Git view's **Merge…** merges a local or remote-tracking branch (as of the last fetch)
 into the current branch with `git merge --no-commit --no-ff`: Git prepares the merge but
@@ -381,12 +386,15 @@ after staging the selection says that the selection remains staged.
   returned and the commit is kept. Without an upstream the dialog asks for a remote and a
   branch name (default: the current branch) before anything runs.
 - **Push**: shows `branch → upstream` and the commits to push (as of the last fetch).
-- **Pull**: shows `upstream → branch`, the commits to pull, the configured strategy
-  (merge, rebase, fast-forward only, or unset) and a warning for local changes. The default
-  is fast-forward only. Conflicts stop the pull and are listed; nothing is aborted or
-  resolved automatically. A pull is refused while a merge or rebase is in progress.
-- **Fetch**: default or chosen remote, progress, cancellable; never touches the working
-  tree. The last fetch time comes from `FETCH_HEAD`.
+- **Pull** (PLAN-061): a plain `git pull <remote> <branch>` of the current branch from its
+  upstream, or from `origin/<branch>` when it has none. Without `pull.rebase`,
+  `branch.<name>.rebase` or `pull.ff`, `--no-rebase` is added so divergent branches are
+  merged instead of refused; otherwise the configuration applies. The dialog shows
+  `source → branch`, the commits to pull and a warning for local changes. Conflicts finish
+  the pull with a warning listing the files (not a failure); nothing is aborted or resolved
+  automatically. A pull is refused while a merge or rebase is in progress.
+- **Fetch** (PLAN-061): `git fetch --all`, or one remote from Fetch from…; progress,
+  cancellable; never touches the working tree. The last fetch time comes from `FETCH_HEAD`.
 - **Branches**: local branches (current, upstream, ahead/behind, gone), remote-tracking
   branches (check out creates a tracking branch), create (optionally from a branch and
   switching), switch (warns about uncommitted changes; Git refuses to overwrite them),

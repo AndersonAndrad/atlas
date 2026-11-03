@@ -92,6 +92,7 @@ interface Lane {
 const copy = (operation: GitOperation): GitOperation => ({
   ...operation,
   steps: operation.steps?.map((step) => ({ ...step })) ?? null,
+  ...(operation.conflicts === undefined ? {} : { conflicts: [...operation.conflicts] }),
 });
 
 const LANE_ORDER: Record<GitLane, number> = { index: 0, remote: 1 };
@@ -210,7 +211,10 @@ export class GitOperationCoordinator {
   /** `observe` sees every change of this operation, from `queued` to its final status. */
   async run<T>(
     request: GitOperationRequest,
-    task: (context: GitOperationContext) => Promise<{ summary: string; value: T }>,
+    // `conflicts` lists the files a pull or merge that finished left to resolve.
+    task: (
+      context: GitOperationContext,
+    ) => Promise<{ summary: string; value: T; conflicts?: readonly string[] }>,
     observe?: (operation: GitOperation) => void,
   ): Promise<GitOperationOutcome<T>> {
     const controller = new AbortController();
@@ -279,6 +283,9 @@ export class GitOperationCoordinator {
           },
         }),
       );
+      if (result.conflicts !== undefined && result.conflicts.length > 0) {
+        operation.conflicts = [...result.conflicts];
+      }
       return {
         operation: this.finish(operation, 'succeeded', result.summary),
         value: result.value,

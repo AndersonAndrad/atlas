@@ -32,6 +32,7 @@ describe.skipIf(!gitAvailable)('GitWorkspaceService with real repositories', () 
   let operations: GitOperation[];
   let changed: string[];
   let coordinator: GitOperationCoordinator;
+  let gitCalls: string[][];
 
   const git = (cwd: string, ...args: string[]) =>
     execFileSync('git', args, { cwd, env: { ...env, GIT_CONFIG_NOSYSTEM: '1' }, encoding: 'utf8' });
@@ -77,8 +78,13 @@ describe.skipIf(!gitAvailable)('GitWorkspaceService with real repositories', () 
       generateId: randomUUID,
       onChange: (operation) => operations.push(operation),
     });
+    const exec = createGitExecutor({ env: environment });
     return new GitWorkspaceService({
-      exec: createGitExecutor({ env: environment }),
+      // Records the arguments of every command, without the global pathspec option.
+      exec: (args, options) => {
+        gitCalls.push(args.filter((arg) => arg !== '--literal-pathspecs'));
+        return exec(args, options);
+      },
       stepRunner: new ShellPreCommitRunner({
         platform: 'linux',
         shell: '/bin/sh',
@@ -101,6 +107,7 @@ describe.skipIf(!gitAvailable)('GitWorkspaceService with real repositories', () 
     );
     operations = [];
     changed = [];
+    gitCalls = [];
     service = makeService(env);
   });
   afterEach(() => temp.cleanup());
@@ -1159,46 +1166,39 @@ describe.skipIf(!gitAvailable)('GitWorkspaceService with real repositories', () 
         checks,
       );
 
-    it("prepares a merge without committing and commits it with Git's message", async () => {
+    it("merges with a plain git merge and commits with Git's message", async () => {
       const dir = diverged('merge-clean', false);
       expect(await service.mergePreview(dir, 'feature')).toEqual({ branch: 'feature', commits: 1 });
       const merged = await service.merge(dir, 'feature');
-      expect(merged).toMatchObject({ kind: 'merge', status: 'succeeded' });
-      expect(merged.summary).toContain('without conflicts');
+      expect(merged).toMatchObject({ kind: 'merge', status: 'succeeded', error: null });
+      expect(merged.conflicts).toBeUndefined();
+      expect(merged.summary).toBe('Merged feature into main.');
       const state = await tree(dir);
-      expect(state.inProgress).toBe('merge');
-      expect(state.mergeMessage).toBe("Merge branch 'feature'");
-      expect(file(state, 'feature.txt')?.staged).toBe('added');
-      expect(git(dir, 'log', '-1', '--format=%s').trim()).toBe('feat: main work');
-
-      // Git's default message is accepted although Conventional Commits are enforced.
-      const result = await commitMerge(dir, state.mergeMessage!, {
-        enforceConventionalCommits: true,
-        steps: [
-          {
-            name: 'check',
-            command: 'test -f feature.txt',
-            mode: 'complete',
-            timeoutSeconds: 30,
-            readyAfterSeconds: 2,
-            readyText: null,
-          },
-        ],
-        cwd: dir,
-      });
-      expect(result.commit.status).toBe('succeeded');
-      expect(result.commit.steps?.[0]?.status).toBe('passed');
+      expect(state.inProgress).toBeNull();
+      expect(state.files).toHaveLength(0);
       expect(git(dir, 'log', '-1', '--format=%P').trim().split(' ')).toHaveLength(2);
       expect(commitMessage(dir)).toBe("Merge branch 'feature'");
-      expect((await tree(dir)).inProgress).toBeNull();
+      expect(read(dir, 'feature.txt')).toBe('from feature\n');
+      expect(operations.at(-1)).toMatchObject({ kind: 'merge', status: 'succeeded' });
     });
 
-    it('reports conflicts with the files and lets the merge be aborted', async () => {
+    it('fast-forwards when the current branch has no commits of its own', async () => {
+      const dir = committed('merge-ff');
+      git(dir, 'switch', '-q', '-c', 'feature');
+      write(dir, 'feature.txt', 'f\n');
+      git(dir, 'add', '.');
+      git(dir, 'commit', '-q', '-m', 'feat: f');
+      const head = git(dir, 'rev-parse', 'HEAD').trim();
+      git(dir, 'switch', '-q', 'main');
+      expect((await service.merge(dir, 'feature')).status).toBe('succeeded');
+      expect(git(dir, 'rev-parse', 'HEAD').trim()).toBe(head);
+    });
+
+    it('reports conflicts with their files without failing and lets the merge be aborted', async () => {
       const dir = diverged('merge-conflict', true);
       const merged = await service.merge(dir, 'feature');
-      expect(merged).toMatchObject({ status: 'failed', error: { code: 'conflict' } });
-      expect(merged.error?.message).toContain('README.md');
-      expect(merged.error?.output).toContain('CONFLICT');
+      expect(merged).toMatchObject({ status: 'succeeded', error: null, conflicts: ['README.md'] });
+      expect(merged.summary).toContain('conflicts in 1 file: README.md');
       const state = await tree(dir);
       expect(state.inProgress).toBe('merge');
       expect(file(state, 'README.md')?.staged).toBe('conflicted');
@@ -1218,6 +1218,17 @@ describe.skipIf(!gitAvailable)('GitWorkspaceService with real repositories', () 
       await expect(service.abortMerge(dir)).rejects.toThrow(AtlasError);
     });
 
+    it('concludes a conflicted merge with a commit once the files are resolved', async () => {
+      const dir = diverged('merge-resolve', true);
+      await service.merge(dir, 'feature');
+      write(dir, 'README.md', 'resolved\n');
+      git(dir, 'add', 'README.md');
+      const state = await tree(dir);
+      const result = await commitMerge(dir, state.mergeMessage!);
+      expect(result.commit.status).toBe('succeeded');
+      expect(git(dir, 'log', '-1', '--format=%P').trim().split(' ')).toHaveLength(2);
+    });
+
     it('refuses dirty working trees, unknown branches and messages outside a merge', async () => {
       const dir = diverged('merge-refuse', false);
       await expect(service.merge(dir, 'main')).rejects.toThrow(AtlasError);
@@ -1229,7 +1240,7 @@ describe.skipIf(!gitAvailable)('GitWorkspaceService with real repositories', () 
       git(dir, 'checkout', '--', 'main.txt');
       write(dir, 'untracked.txt', 'ok\n');
       expect((await service.merge(dir, 'feature')).status).toBe('succeeded');
-      await service.abortMerge(dir);
+      expect((await tree(dir)).inProgress).toBeNull();
 
       // "Merge ..." is not a free pass when no merge is in progress.
       git(dir, 'add', 'untracked.txt');
@@ -1375,15 +1386,23 @@ describe.skipIf(!gitAvailable)('GitWorkspaceService with real repositories', () 
       await expect(service.push(clone)).rejects.toMatchObject({ code: 'GIT_NO_UPSTREAM' });
     });
 
-    it('fetches, reports behind counts and pulls fast-forward only', async () => {
-      const { clone, seed } = withRemote('pull');
+    /** The git commands an operation ran, as recorded by the executor. */
+    const lastArgs = (kind: GitOperation['kind']) =>
+      gitCalls.filter((call) => call[0] === kind).at(-1);
+
+    it('fetches every remote, reports behind counts and pulls the current branch', async () => {
+      const { clone, seed, origin } = withRemote('pull');
+      git(clone, 'remote', 'add', 'mirror', origin);
       write(seed, 'README.md', 'from remote\n');
       git(seed, 'commit', '-q', '-am', 'docs: remote');
       git(seed, 'push', '-q');
 
       expect((await tree(clone)).behind).toBe(0);
-      const fetched = await service.fetch(clone, 'origin');
+      const fetched = await service.fetch(clone);
       expect(fetched).toMatchObject({ kind: 'fetch', status: 'succeeded' });
+      expect(fetched.summary).toBe('Fetched all remotes.');
+      expect(lastArgs('fetch')).toEqual(['fetch', '--progress', '--all']);
+      expect(git(clone, 'rev-parse', 'mirror/main')).toBe(git(seed, 'rev-parse', 'HEAD'));
       const state = await tree(clone);
       expect(state.behind).toBe(1);
       expect(state.lastFetchAt).not.toBeNull();
@@ -1391,16 +1410,40 @@ describe.skipIf(!gitAvailable)('GitWorkspaceService with real repositories', () 
       expect(await service.pullInfo(clone)).toMatchObject({
         branch: 'main',
         upstream: 'origin/main',
-        configuredStrategy: 'unset',
+        source: 'origin/main',
         hasLocalChanges: false,
       });
-      const pulled = await service.pull(clone, 'ff-only');
-      expect(pulled.status).toBe('succeeded');
+      expect(await service.preparePull(clone)).toEqual({ branch: 'main', upstream: 'origin/main' });
+      const pulled = await service.pull(clone);
+      expect(pulled).toMatchObject({
+        status: 'succeeded',
+        summary: 'Pulled origin/main into main.',
+      });
+      expect(lastArgs('pull')).toEqual([
+        'pull',
+        '--progress',
+        '--no-edit',
+        '--no-rebase',
+        'origin',
+        'refs/heads/main',
+      ]);
       expect(read(clone, 'README.md')).toBe('from remote\n');
       expect((await tree(clone)).behind).toBe(0);
+      expect((await service.pull(clone)).summary).toBe(
+        'main is already up to date with origin/main.',
+      );
     });
 
-    it('refuses divergent fast-forward pulls without changing anything', async () => {
+    it('fetches one chosen remote only', async () => {
+      const { clone } = withRemote('fetch-one');
+      expect((await service.fetch(clone, 'origin')).summary).toBe('Fetched origin.');
+      expect(lastArgs('fetch')).toEqual(['fetch', '--progress', 'origin']);
+      await expect(service.fetch(clone, 'nope')).rejects.toMatchObject({
+        code: 'VALIDATION_FAILED',
+      });
+    });
+
+    it('pulls divergent branches with a merge commit when nothing is configured', async () => {
       const { clone, seed } = withRemote('diverged');
       write(seed, 'remote.txt', 'r\n');
       git(seed, 'add', 'remote.txt');
@@ -1409,33 +1452,127 @@ describe.skipIf(!gitAvailable)('GitWorkspaceService with real repositories', () 
       write(clone, 'local.txt', 'l\n');
       git(clone, 'add', 'local.txt');
       git(clone, 'commit', '-q', '-m', 'feat: local');
-      const head = git(clone, 'rev-parse', 'HEAD');
 
-      const pulled = await service.pull(clone, 'ff-only');
-      expect(pulled).toMatchObject({ status: 'failed', error: { code: 'rejected' } });
-      expect(git(clone, 'rev-parse', 'HEAD')).toBe(head);
+      const pulled = await service.pull(clone);
+      expect(pulled).toMatchObject({ status: 'succeeded', error: null });
+      expect(git(clone, 'log', '-1', '--format=%P').trim().split(' ')).toHaveLength(2);
+      expect(read(clone, 'remote.txt')).toBe('r\n');
+      expect((await tree(clone)).inProgress).toBeNull();
     });
 
-    it('reports merge conflicts from a configured pull and does not resolve them', async () => {
+    it("respects the repository's pull configuration", async () => {
+      const { clone, seed } = withRemote('rebase');
+      write(seed, 'remote.txt', 'r\n');
+      git(seed, 'add', 'remote.txt');
+      git(seed, 'commit', '-q', '-m', 'feat: remote');
+      git(seed, 'push', '-q');
+      write(clone, 'local.txt', 'l\n');
+      git(clone, 'add', 'local.txt');
+      git(clone, 'commit', '-q', '-m', 'feat: local');
+      git(clone, 'config', 'pull.rebase', 'true');
+
+      expect((await service.pull(clone)).status).toBe('succeeded');
+      expect(lastArgs('pull')).toEqual([
+        'pull',
+        '--progress',
+        '--no-edit',
+        'origin',
+        'refs/heads/main',
+      ]);
+      // Rebased: linear history, no merge commit.
+      expect(git(clone, 'log', '-1', '--format=%P').trim().split(' ')).toHaveLength(1);
+    });
+
+    it('pulls origin/<branch> when the branch has no upstream', async () => {
+      const { clone, seed } = withRemote('no-upstream');
+      git(clone, 'branch', '--unset-upstream');
+      expect((await tree(clone)).upstream).toBeNull();
+      write(seed, 'README.md', 'from remote\n');
+      git(seed, 'commit', '-q', '-am', 'docs: remote');
+      git(seed, 'push', '-q');
+      await service.fetch(clone);
+
+      expect((await service.pullInfo(clone)).source).toBe('origin/main');
+      const pulled = await service.pull(clone);
+      expect(pulled.status).toBe('succeeded');
+      expect(read(clone, 'README.md')).toBe('from remote\n');
+
+      // No upstream and no origin/<branch>: nothing to pull from.
+      git(clone, 'switch', '-q', '-c', 'local-only');
+      expect((await service.pullInfo(clone)).source).toBeNull();
+      await expect(service.pull(clone)).rejects.toMatchObject({ code: 'GIT_NO_UPSTREAM' });
+    });
+
+    it('reports pull conflicts with their files without failing and does not resolve them', async () => {
       const { clone, seed } = withRemote('conflict');
       write(seed, 'README.md', 'remote line\n');
       git(seed, 'commit', '-q', '-am', 'docs: remote');
       git(seed, 'push', '-q');
       write(clone, 'README.md', 'local line\n');
       git(clone, 'commit', '-q', '-am', 'docs: local');
-      git(clone, 'config', 'pull.rebase', 'false');
 
-      expect((await service.pullInfo(clone)).configuredStrategy).toBe('merge');
-      const pulled = await service.pull(clone, 'configured');
-      expect(pulled).toMatchObject({ status: 'failed', error: { code: 'conflict' } });
+      const pulled = await service.pull(clone);
+      expect(pulled).toMatchObject({ status: 'succeeded', error: null, conflicts: ['README.md'] });
+      expect(pulled.summary).toBe(
+        'Pulled origin/main into main with conflicts in 1 file: README.md. Resolve them, then commit.',
+      );
       const state = await tree(clone);
       expect(state.inProgress).toBe('merge');
       expect(file(state, 'README.md')?.staged).toBe('conflicted');
       expect(read(clone, 'README.md')).toContain('<<<<<<<');
       // A second pull is refused before running while the merge is unfinished.
-      await expect(service.pull(clone, 'ff-only')).rejects.toMatchObject({
-        code: 'VALIDATION_FAILED',
-      });
+      await expect(service.pull(clone)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+      expect((await service.pullInfo(clone)).source).toBeNull();
+    });
+
+    it('reports rebase conflicts with how to finish them', async () => {
+      const { clone, seed } = withRemote('rebase-conflict');
+      write(seed, 'README.md', 'remote line\n');
+      git(seed, 'commit', '-q', '-am', 'docs: remote');
+      git(seed, 'push', '-q');
+      write(clone, 'README.md', 'local line\n');
+      git(clone, 'commit', '-q', '-am', 'docs: local');
+      git(clone, 'config', 'pull.rebase', 'true');
+
+      const pulled = await service.pull(clone);
+      expect(pulled).toMatchObject({ status: 'succeeded', conflicts: ['README.md'] });
+      expect(pulled.summary).toContain('continue or abort the rebase');
+      expect((await tree(clone)).inProgress).toBe('rebase');
+    });
+
+    it('fails, not reports conflicts, for unmerged files left before the pull', async () => {
+      const { clone, seed } = withRemote('stash-conflict');
+      write(seed, 'remote.txt', 'r\n');
+      git(seed, 'add', 'remote.txt');
+      git(seed, 'commit', '-q', '-m', 'feat: remote');
+      git(seed, 'push', '-q');
+      write(clone, 'README.md', 'stashed\n');
+      git(clone, 'stash', '-q');
+      write(clone, 'README.md', 'committed\n');
+      git(clone, 'commit', '-q', '-am', 'docs: local');
+      try {
+        git(clone, 'stash', 'pop', '-q');
+      } catch {
+        // Expected: the pop stops with a conflict and no merge in progress.
+      }
+      expect((await tree(clone)).inProgress).toBeNull();
+
+      const pulled = await service.pull(clone);
+      expect(pulled.status).toBe('failed');
+      expect(pulled.conflicts).toBeUndefined();
+    });
+
+    it('still fails when local changes would be overwritten', async () => {
+      const { clone, seed } = withRemote('overwrite');
+      write(seed, 'README.md', 'remote line\n');
+      git(seed, 'commit', '-q', '-am', 'docs: remote');
+      git(seed, 'push', '-q');
+      write(clone, 'README.md', 'uncommitted\n');
+
+      const pulled = await service.pull(clone);
+      expect(pulled).toMatchObject({ status: 'failed', error: { code: 'conflict' } });
+      expect(pulled.conflicts).toBeUndefined();
+      expect(read(clone, 'README.md')).toBe('uncommitted\n');
     });
 
     it('reports network failures without leaking credentials', async () => {

@@ -87,12 +87,12 @@ export class GitJobExecutor implements JobExecutor {
       case 'pull': {
         const plan = await this.options.git.preparePull(root);
         title = `Pull ${plan.upstream} → ${plan.branch}`;
-        payload = { type: 'GIT', action: 'pull', repositoryRoot: root, mode: request.mode };
+        payload = { type: 'GIT', action: 'pull', repositoryRoot: root };
         break;
       }
       case 'fetch': {
         await this.options.git.prepareFetch(root, request.remote);
-        title = `Fetch ${request.remote ?? 'default remote'}`;
+        title = `Fetch ${request.remote ?? 'all remotes'}`;
         payload = {
           type: 'GIT',
           action: 'fetch',
@@ -228,7 +228,7 @@ export class GitJobExecutor implements JobExecutor {
       case 'push':
         return this.options.git.push(payload.repositoryRoot, payload.setUpstream, observe);
       case 'pull':
-        return this.options.git.pull(payload.repositoryRoot, payload.mode ?? 'ff-only', observe);
+        return this.options.git.pull(payload.repositoryRoot, observe);
       case 'fetch':
         return this.options.git.fetch(payload.repositoryRoot, payload.remote, observe);
     }

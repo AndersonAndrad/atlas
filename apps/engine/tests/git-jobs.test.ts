@@ -221,10 +221,14 @@ describe.skipIf(!gitAvailable)('Git background jobs', { timeout: 60_000 }, () =>
     commit(seed, 'feat: more');
     run(seed, 'push', '-q', 'origin', 'HEAD:main');
     run(clone, 'fetch', '-q');
+    const pull = await gitJob({ action: 'pull' });
+    expect(pull.title).toBe('Pull origin/main → main');
+    expect((await finished(pull.id)).status).toBe('COMPLETED');
+    expect(run(clone, 'log', '-1', '--format=%s')).toBe('feat: more');
+    // Older clients still send a mode; it is accepted and ignored.
     expect((await finished((await gitJob({ action: 'pull', mode: 'ff-only' })).id)).status).toBe(
       'COMPLETED',
     );
-    expect(run(clone, 'log', '-1', '--format=%s')).toBe('feat: more');
   });
 
   it('marks a push still running when ATLAS quits as interrupted', async () => {

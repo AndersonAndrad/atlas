@@ -257,7 +257,7 @@ export function createEngineDispatcher(engine: Engine): EngineDispatcher {
     'git.push': async ([input]: [GitPushInput]) =>
       gitService.push(await repo(input.repositoryRoot), input.setUpstream),
     'git.pull': async ([input]: [GitPullInput]) =>
-      gitService.pull(await repo(input.repositoryRoot), input.mode),
+      gitService.pull(await repo(input.repositoryRoot)),
     'git.pullInfo': async ([root]: [string]) => gitService.pullInfo(await repo(root)),
     'git.fetch': async ([input]: [GitFetchInput]) =>
       gitService.fetch(await repo(input.repositoryRoot), input.remote),

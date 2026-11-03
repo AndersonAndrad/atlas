@@ -105,9 +105,9 @@ export type JobPayload =
       repositoryRoot: string;
       /** Push only: publish to this remote branch, which becomes the upstream. */
       setUpstream?: { remote: string; branch: string };
-      /** Pull only. */
+      /** Pull only; ignored (a pull is always a plain `git pull`), kept for stored jobs. */
       mode?: 'ff-only' | 'configured';
-      /** Fetch only; the default remote when absent. */
+      /** Fetch only; every remote (`git fetch --all`) when absent. */
       remote?: string;
     }
   | {
@@ -224,7 +224,8 @@ export const CreateGitJobSchema = z.discriminatedUnion('action', [
     type: z.literal('GIT'),
     action: z.literal('pull'),
     repositoryRoot: GitRepositoryRootSchema,
-    mode: z.enum(['ff-only', 'configured']),
+    /** Ignored; kept so older clients stay valid. */
+    mode: z.enum(['ff-only', 'configured']).optional(),
     priority: z.enum(JOB_PRIORITIES).default('NORMAL'),
   }),
   z.strictObject({

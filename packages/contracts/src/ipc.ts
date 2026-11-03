@@ -858,7 +858,7 @@ export interface AtlasApi {
     getPreferences(): Promise<IpcResult<StoredGitPreferences>>;
     setPreferences(input: UpdateGitPreferences): Promise<IpcResult<GitPreferences>>;
     mergePreview(input: GitMergeInput): Promise<IpcResult<GitMergePreview>>;
-    /** Merges a branch without committing (`--no-commit --no-ff`); the user commits after. */
+    /** `git merge --no-edit <branch>`; conflicts are reported with their files, not as a failure. */
     merge(input: GitMergeInput): Promise<IpcResult<GitOperation>>;
     /** Restores the state before the merge; conflict resolutions in progress are lost. */
     abortMerge(repositoryRoot: string): Promise<IpcResult<GitOperation>>;

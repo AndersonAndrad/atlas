@@ -16,8 +16,8 @@ const GIT_OUTCOMES: Partial<
   commit: { done: 'Commit created', failed: 'Commit failed', successes: true },
   push: { done: 'Push completed', failed: 'Push failed', successes: true },
   pull: { done: 'Pull completed', failed: 'Pull failed', successes: true },
-  // A merge only prepares the merge commit (`--no-commit`): only its stops are reported.
-  merge: { done: 'Merge ready', failed: 'Merge stopped', successes: false },
+  // A merge runs in its dialog, which shows the outcome: only conflicts and failures notify.
+  merge: { done: 'Merge completed', failed: 'Merge failed', successes: false },
   'cherry-pick': { done: 'Cherry-pick completed', failed: 'Cherry-pick stopped', successes: true },
   'continue-cherry-pick': {
     done: 'Cherry-pick completed',
@@ -53,6 +53,15 @@ export function gitOperationNotification(
     },
   };
   if (operation.status === 'succeeded') {
+    // A pull or merge that finished with conflicts leaves them for the user to resolve.
+    if (operation.conflicts !== undefined && operation.conflicts.length > 0) {
+      return {
+        ...base,
+        type: 'ACTION_REQUIRED',
+        title: `${outcome.done} with conflicts`,
+        message: operation.summary ?? `${context.sourceName}: resolve the conflicts.`,
+      };
+    }
     if (!outcome.successes) return null;
     return {
       ...base,
